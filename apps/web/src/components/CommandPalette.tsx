@@ -110,7 +110,11 @@ import {
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
-import { onOpenCommandPalette } from "../commandPaletteBus";
+import {
+  clearPendingProjectPick,
+  onOpenCommandPalette,
+  takePendingProjectPick,
+} from "../commandPaletteBus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -592,6 +596,10 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     themeHalves,
     toggleMode,
   ]);
+
+  useEffect(() => {
+    if (!state.open) clearPendingProjectPick();
+  }, [state.open]);
 
   useEffect(
     () =>
@@ -1314,11 +1322,15 @@ function OpenCommandPaletteDialog(props: {
                   projectRef.environmentId === contextualProjectRef.environmentId &&
                   projectRef.projectId === contextualProjectRef.projectId,
               );
-            await handleNewThread(
-              contextualRefBelongsToGroup
-                ? contextualProjectRef
-                : scopeProjectRef(project.environmentId, project.id),
-            );
+            const projectRef = contextualRefBelongsToGroup
+              ? contextualProjectRef
+              : scopeProjectRef(project.environmentId, project.id);
+            const pickProject = takePendingProjectPick();
+            if (pickProject) {
+              pickProject(projectRef);
+              return;
+            }
+            await handleNewThread(projectRef);
           },
         }),
       ),

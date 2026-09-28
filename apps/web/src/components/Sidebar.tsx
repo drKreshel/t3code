@@ -156,6 +156,16 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
+  applySidebarFolderMenuSelection,
+  useSidebarFolderChatActions,
+  showThreadMenuWithFolders,
+  SidebarFolderBlock,
+  useFiledSidebarThreadKeys,
+  useSidebarFolderDnd,
+  useSidebarFolderLayout,
+  useSidebarFolderTree,
+} from "./SidebarFolders";
+import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
   buildBulkTitleRegenerationContextMenuItem,
@@ -2176,6 +2186,8 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const folderLayout = useSidebarFolderLayout();
+  const filedThreadKeys = useFiledSidebarThreadKeys(folderLayout, threads);
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2573,6 +2585,7 @@ export default function Sidebar() {
     const visible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
+        !filedThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))) &&
         (scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
     );
@@ -2660,15 +2673,42 @@ export default function Sidebar() {
       settledThreads: sortSettledThreads(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [
+    filedThreadKeys,
+    nowMinute,
+    optimisticDrop,
+    scopedProjectKeys,
+    serverConfigs,
+    snoozeWakeTick,
+    threads,
+  ]);
+  const folderCapabilitiesOf = useCallback(
+    (thread: EnvironmentThreadShell) =>
+      serverConfigs.get(thread.environmentId)?.environment.capabilities,
+    [serverConfigs],
+  );
+  const folderTree = useSidebarFolderTree({
+    layout: folderLayout,
+    threads,
+    filedThreadKeys,
+    scopedProjectKeys,
+    capabilitiesOf: folderCapabilitiesOf,
+    now: snoozeNow,
+  });
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const searchableThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...snoozedThreads, ...settledThreads],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads],
+    () => [
+      ...pinnedThreads,
+      ...activeThreads,
+      ...snoozedThreads,
+      ...settledThreads,
+      ...folderTree.visibleThreads,
+    ],
+    [activeThreads, folderTree.visibleThreads, pinnedThreads, settledThreads, snoozedThreads],
   );
   const searchEnvironmentIds = useMemo(
     () =>
@@ -2805,8 +2845,20 @@ export default function Sidebar() {
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
   const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [
+      ...folderTree.renderedThreads,
+      ...pinnedThreads,
+      ...activeThreads,
+      ...visibleSnoozedThreads,
+      ...renderedSettledThreads,
+    ],
+    [
+      folderTree.renderedThreads,
+      pinnedThreads,
+      activeThreads,
+      visibleSnoozedThreads,
+      renderedSettledThreads,
+    ],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -2842,23 +2894,25 @@ export default function Sidebar() {
   handleNewThreadRef.current = newThreadContext.handleNewThread;
   const settledThreadKeys = useMemo(
     () =>
-      new Set(
-        settledThreads.map((thread) =>
+      new Set([
+        ...settledThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         ),
-      ),
-    [settledThreads],
+        ...folderTree.settledKeys,
+      ]),
+    [folderTree.settledKeys, settledThreads],
   );
   const settledThreadKeysRef = useRef(settledThreadKeys);
   settledThreadKeysRef.current = settledThreadKeys;
   const snoozedThreadKeys = useMemo(
     () =>
-      new Set(
-        snoozedThreads.map((thread) =>
+      new Set([
+        ...snoozedThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         ),
-      ),
-    [snoozedThreads],
+        ...folderTree.snoozedKeys,
+      ]),
+    [folderTree.snoozedKeys, snoozedThreads],
   );
   const snoozedThreadKeysRef = useRef(snoozedThreadKeys);
   snoozedThreadKeysRef.current = snoozedThreadKeys;
@@ -3738,6 +3792,64 @@ export default function Sidebar() {
       unsnoozeThread,
     ],
   );
+  const folderBlockRef = useRef<HTMLElement | null>(null);
+  // Filing a pinned thread unpins it: pinned rows render in Pinned, not folders.
+  const handleThreadFiled = useCallback(
+    (threadKey: string) => {
+      const thread = threadByKeyRef.current.get(threadKey);
+      if (thread?.pinnedAt == null) return;
+      void (async () => {
+        const result = await unpinThread(scopeThreadRef(thread.environmentId, thread.id));
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to unpin thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [unpinThread],
+  );
+  // A filed thread dropped on the main list takes that section's lifecycle.
+  const handleThreadUnfiled = useCallback(
+    (threadKey: string, section: SidebarSection) => {
+      const thread = threadByKeyRef.current.get(threadKey);
+      if (thread === undefined) return;
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const isSettled = settledThreadKeysRef.current.has(threadKey);
+      const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
+      if (section === "pinned") attemptPin(threadRef);
+      else if (section === "settled" && !isSettled) attemptSettle(threadRef);
+      else if (section === "active" && isSettled) attemptUnsettle(threadRef);
+      else if (section === "active" && isSnoozed) attemptUnsnooze(threadRef);
+    },
+    [attemptPin, attemptSettle, attemptUnsettle, attemptUnsnooze],
+  );
+  const folderChatActions = useSidebarFolderChatActions({
+    projects: projectGroups,
+    handleNewThread: newThreadContext.handleNewThread,
+    beforeNavigate: () => {
+      if (isMobile) setOpenMobile(false);
+    },
+  });
+  const folderDnd = useSidebarFolderDnd({
+    collisionDetection: dndCollisionDetection,
+    onDragStart: handleThreadDragStart,
+    onDragOver: handleThreadDragOver,
+    onDragEnd: handleThreadDragEnd,
+    sidebarListItems,
+    blockRef: folderBlockRef,
+    listRef: threadListRef,
+    dragLabelOffsetRef,
+    hasFolders: folderLayout.folders.length > 0,
+    filedSectionByKey: folderTree.sectionByKey,
+    onThreadFiled: handleThreadFiled,
+    onThreadUnfiled: handleThreadUnfiled,
+  });
   // One snooze per thread at a time — same double-dispatch guard as settle.
   const snoozingThreadKeysRef = useRef(new Set<string>());
   const performSnooze = useCallback(
@@ -4082,7 +4194,8 @@ export default function Sidebar() {
             ),
           ) ?? null;
         const clicked = await settlePromise(() =>
-          api.contextMenu.show(
+          showThreadMenuWithFolders(
+            api,
             buildThreadActionMenuItems({
               branch: thread.branch ?? null,
               projectFilter: threadProjectGroup
@@ -4109,9 +4222,16 @@ export default function Sidebar() {
               snoozePresets,
             }),
             position,
+            threadKey,
           ),
         );
         if (clicked._tag === "Failure") return;
+        if (
+          clicked.value !== null &&
+          applySidebarFolderMenuSelection(clicked.value, threadKey, handleThreadFiled)
+        ) {
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"
@@ -4311,6 +4431,7 @@ export default function Sidebar() {
       copyThreadIdToClipboard,
       deleteThread,
       handleMultiSelectContextMenu,
+      handleThreadFiled,
       markThreadUnread,
       openProjectSettings,
       projectScopeKey,
@@ -4679,15 +4800,17 @@ export default function Sidebar() {
             >
               <DndContext
                 sensors={dndSensors}
-                collisionDetection={dndCollisionDetection}
+                collisionDetection={folderDnd.collisionDetection}
                 modifiers={[
                   restrictToVerticalAxis,
                   restrictBelowPins,
                   restrictToFirstScrollableAncestor,
                 ]}
-                onDragStart={handleThreadDragStart}
-                onDragOver={handleThreadDragOver}
-                onDragEnd={handleThreadDragEnd}
+                onDragStart={folderDnd.onDragStart}
+                onDragMove={folderDnd.onDragMove}
+                onDragOver={folderDnd.onDragOver}
+                onDragEnd={folderDnd.onDragEnd}
+                onDragCancel={folderDnd.onDragCancel}
               >
                 <SidebarDragLifecycle onUnmount={cancelThreadDrag} />
                 <SortableContext items={sortableIds} strategy={sidebarSortingStrategy}>
@@ -4708,6 +4831,7 @@ export default function Sidebar() {
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
                         sortable?: SortableThreadRowBag,
+                        dropVerbOverride?: SidebarDropVerb | null,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
@@ -4748,9 +4872,10 @@ export default function Sidebar() {
                             isPinned={thread.pinnedAt != null}
                             sortable={sortable}
                             dropVerb={
-                              dragState?.activeKey === threadKey
+                              dropVerbOverride ??
+                              (dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
-                                : null
+                                : null)
                             }
                             dragOverPinned={
                               dragState?.activeKey === threadKey && dragTargetSection === "pinned"
@@ -4842,6 +4967,15 @@ export default function Sidebar() {
                           scopedProjectKeys={scopedProjectKeys}
                           routeDraftId={routeDraftIdForRows}
                           onNavigateToDraft={navigateToDraft}
+                        />,
+                        <SidebarFolderBlock
+                          key="folders"
+                          roots={folderTree.roots}
+                          hidden={scopedProjectKeys !== null && folderTree.roots.length === 0}
+                          blockRef={folderBlockRef}
+                          renamingThreadKey={renamingThreadKey}
+                          renderThreadRow={renderThreadRowInner}
+                          chatActions={folderChatActions}
                         />,
                       ];
                       for (const item of sidebarListItems) {
@@ -4969,6 +5103,7 @@ export default function Sidebar() {
           ) : null}
           {!isSearchingThreads &&
           visibleDraftSessionCount === 0 &&
+          folderTree.visibleThreadCount === 0 &&
           pinnedThreads.length +
             activeThreads.length +
             snoozedThreads.length +

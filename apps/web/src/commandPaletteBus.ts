@@ -1,4 +1,8 @@
-import type { EnvironmentId, PullRequestLinkedThreadsResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  PullRequestLinkedThreadsResult,
+  ScopedProjectRef,
+} from "@t3tools/contracts";
 
 export interface CommandPaletteLinkedThreads {
   readonly environmentId: EnvironmentId;
@@ -13,9 +17,26 @@ export interface CommandPaletteOpenDetail {
   readonly open?: "add-project" | "new-thread-in";
   readonly query?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
+  /** With "new-thread-in": receive the picked project instead of the palette
+      starting the thread itself. One-shot; closing the palette drops it. */
+  readonly onPickProject?: (projectRef: ScopedProjectRef) => void;
+}
+
+let pendingProjectPick: ((projectRef: ScopedProjectRef) => void) | null = null;
+
+/** Takes the caller's project handler for this "new-thread-in" pick, if any. */
+export function takePendingProjectPick(): ((projectRef: ScopedProjectRef) => void) | null {
+  const pick = pendingProjectPick;
+  pendingProjectPick = null;
+  return pick;
+}
+
+export function clearPendingProjectPick(): void {
+  pendingProjectPick = null;
 }
 
 export function openCommandPalette(detail?: CommandPaletteOpenDetail): void {
+  pendingProjectPick = detail?.onPickProject ?? null;
   window.dispatchEvent(
     new CustomEvent(COMMAND_PALETTE_OPEN_EVENT, detail ? { detail } : undefined),
   );
