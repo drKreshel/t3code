@@ -21,6 +21,7 @@ STABLE_DIR="${T3_STABLE_DIR:-$HOME/Code/projects/t3-code-stable}"
 APP_NAME="T3 Code (Alpha).app"
 APP_PATH="/Applications/$APP_NAME"
 APP_ID="com.t3tools.t3code"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 DATA_DIR="$HOME/.t3/userdata"
 PROFILE_DIR="$HOME/Library/Application Support/t3code"
 BACKUP_ROOT="$HOME/.t3/backups"
@@ -163,6 +164,8 @@ cmd_restart() {
     return
   fi
   echo "---- restart $(date '+%Y-%m-%d %H:%M:%S')"
+  # Leave a trace if anything below ends the script early.
+  trap 'echo "restart exited with status $? (last command: $BASH_COMMAND) at $(date +%T)"' EXIT
   sleep "$RESTART_DELAY"
   if stable_app_running; then
     log "Quitting T3 Code"
@@ -177,16 +180,35 @@ cmd_restart() {
       die "T3 Code did not quit within 90s; nothing was installed."
     fi
   fi
-  if (cmd_install); then
-    notify "Updated and reopened."
-  else
-    notify "Update failed; see $RESTART_LOG"
+  local result="Updated and reopened."
+  if ! (cmd_install); then
+    result="Update failed; the previous app was kept. See $RESTART_LOG"
     # Install moves the old app aside before unpacking; put it back if needed.
     if [ ! -d "$APP_PATH" ] && [ -d "$PREVIOUS_APP_DIR/$APP_NAME" ]; then
       mv "$PREVIOUS_APP_DIR/$APP_NAME" /Applications/
     fi
   fi
-  [ -d "$APP_PATH" ] && open "$APP_PATH"
+  # Reopen before notifying: getting the app back is the part that matters.
+  reopen_app || result="Installed, but T3 Code did not reopen. Open it from Applications."
+  log "$result"
+  notify "$result"
+}
+
+reopen_app() {
+  [ -d "$APP_PATH" ] || return 1
+  # A freshly unpacked bundle may not be registered with Launch Services yet.
+  "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
+  local attempt
+  for attempt in 1 2 3; do
+    log "Reopening T3 Code (attempt $attempt)"
+    open "$APP_PATH" || log "open exited with status $?"
+    sleep 5
+    if stable_app_running; then
+      log "T3 Code is running"
+      return 0
+    fi
+  done
+  return 1
 }
 
 cmd_ship() {
