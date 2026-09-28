@@ -8,7 +8,7 @@
 #
 # The stable app keeps the upstream name and app id, so it takes over the old
 # Alpha install and its data. Local builds carry no update feed: the app only
-# changes when you run `build` + `install` here.
+# changes when you run `build` + `install` (or `ship`) here.
 set -euo pipefail
 
 # Homebrew's rustup is keg-only; the desktop build needs its cargo.
@@ -20,12 +20,18 @@ export PATH
 STABLE_DIR="${T3_STABLE_DIR:-$HOME/Code/projects/t3-code-stable}"
 APP_NAME="T3 Code (Alpha).app"
 APP_PATH="/Applications/$APP_NAME"
+APP_ID="com.t3tools.t3code"
 DATA_DIR="$HOME/.t3/userdata"
 PROFILE_DIR="$HOME/Library/Application Support/t3code"
 BACKUP_ROOT="$HOME/.t3/backups"
 PREVIOUS_APP_DIR="$BACKUP_ROOT/previous-app"
 INSTALLED_STAMP="$BACKUP_ROOT/INSTALLED"
 KEEP_BACKUPS=10
+RESTART_LOG="$BACKUP_ROOT/restart.log"
+# Seconds a detached restart waits before quitting, so a chat that started it
+# can finish its reply.
+RESTART_DELAY="${T3_STABLE_RESTART_DELAY:-15}"
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
 log() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -36,6 +42,8 @@ Usage: $(basename "$0") <command>
 
   build [ref]   Build the app from a git ref (default: main) in $STABLE_DIR
   install       Back up chats + folders, then install the last build (quit T3 Code first)
+  restart       Quit T3 Code, install the last build, and reopen it (safe to run from a chat)
+  ship [ref]    build, then restart
   backup        Back up chats (database) and folders/settings (app profile)
   rollback      Reinstall the app that was installed before the last install
   status        Show refs, the last build, and the installed app
@@ -123,6 +131,69 @@ cmd_install() {
   log "Installed. Open T3 Code as usual."
 }
 
+notify() {
+  osascript -e "display notification \"$1\" with title \"T3 Code\"" >/dev/null 2>&1 || true
+}
+
+# Runs this script again in its own session, reparented to launchd, so it
+# survives T3 Code quitting (and taking the chat that called it down with it).
+detach_restart() {
+  mkdir -p "$BACKUP_ROOT"
+  T3_STABLE_DETACHED=1 python3 - "$SCRIPT_PATH" "$RESTART_LOG" <<'PY'
+import os, sys
+if os.fork():
+    sys.exit(0)
+os.setsid()
+if os.fork():
+    sys.exit(0)
+log = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+os.dup2(log, 1)
+os.dup2(log, 2)
+os.execvp("bash", ["bash", sys.argv[1], "restart"])
+PY
+}
+
+cmd_restart() {
+  [ -n "$(latest_zip)" ] || die "No build found. Run: $0 build"
+  if [ "${T3_STABLE_DETACHED:-}" != 1 ]; then
+    detach_restart
+    log "In ${RESTART_DELAY}s T3 Code quits, installs $(basename "$(latest_zip)"), and reopens."
+    log "Progress: $RESTART_LOG"
+    return
+  fi
+  echo "---- restart $(date '+%Y-%m-%d %H:%M:%S')"
+  sleep "$RESTART_DELAY"
+  if stable_app_running; then
+    log "Quitting T3 Code"
+    osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
+    local waited=0
+    while stable_app_running && [ "$waited" -lt 90 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if stable_app_running; then
+      notify "Update cancelled: T3 Code did not quit."
+      die "T3 Code did not quit within 90s; nothing was installed."
+    fi
+  fi
+  if (cmd_install); then
+    notify "Updated and reopened."
+  else
+    notify "Update failed; see $RESTART_LOG"
+    # Install moves the old app aside before unpacking; put it back if needed.
+    if [ ! -d "$APP_PATH" ] && [ -d "$PREVIOUS_APP_DIR/$APP_NAME" ]; then
+      mv "$PREVIOUS_APP_DIR/$APP_NAME" /Applications/
+    fi
+  fi
+  [ -d "$APP_PATH" ] && open "$APP_PATH"
+}
+
+cmd_ship() {
+  cmd_build "$@"
+  cmd_restart
+}
+
 cmd_rollback() {
   local previous="$PREVIOUS_APP_DIR/$APP_NAME"
   [ -d "$previous" ] || die "No previous app to roll back to."
@@ -157,6 +228,8 @@ cmd_status() {
 case "${1:-}" in
   build) shift; cmd_build "$@" ;;
   install) cmd_install ;;
+  restart) cmd_restart ;;
+  ship) shift; cmd_ship "$@" ;;
   backup) cmd_backup ;;
   rollback) cmd_rollback ;;
   status) cmd_status ;;
