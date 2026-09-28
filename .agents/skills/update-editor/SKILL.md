@@ -34,12 +34,12 @@ Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sq
 
 - `upstream` is the official `pingdotgg/t3code` (pull only); `origin` is the fork `drKreshel/t3code`.
 - `main` is the fork's stable line: upstream plus merged fork features. To take upstream changes, merge `upstream/main` into `main` (see `update-t3`).
-- Never commit or push; leave changes for Kreshel to review, commit, and merge.
+- Commit finished work and upstream merges on the right branch with conventional messages. Ask before pushing to `origin`; never push to `upstream`.
 - Keep fork changes merge-friendly: logic in new files, thin hooks into upstream files.
 
 ## Ship to stable
 
-After Kreshel merges into `main`:
+Once the change is on `main` (merged feature or upstream update):
 
 1. `scripts/fork/stable-app.sh build` builds `main` in the build worktree (needs Rust: `cargo`). Takes a few minutes; the stable app keeps running.
 2. Kreshel quits T3 Code (⌘Q), which ends chats running inside it, then runs `scripts/fork/stable-app.sh install` from Terminal. Install refuses while the app runs, backs up chats and folders to `~/.t3/backups/`, and keeps the previous app for `rollback`.
