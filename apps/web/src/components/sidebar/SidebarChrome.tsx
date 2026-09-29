@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon, SquareKanbanIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -29,6 +29,7 @@ import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { useBoardsNeedsYouCount } from "~/components/boards/useBoardsModel";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -105,23 +106,39 @@ function SidebarUtilityItem({
   icon,
   label,
   onClick,
+  count = 0,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  /** Shown as a dot with a number over the icon when above zero. */
+  count?: number;
 }) {
   return (
-    <SidebarMenuItem className="shrink-0">
+    <SidebarMenuItem className="relative shrink-0">
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} size="icon">
+            <SidebarMenuButton
+              aria-label={count > 0 ? `${label} (${count})` : label}
+              onClick={onClick}
+              size="icon"
+            >
               {icon}
             </SidebarMenuButton>
           }
         />
         <TooltipPopup side="top">{label}</TooltipPopup>
       </Tooltip>
+      {count > 0 ? (
+        <Badge
+          variant="warning"
+          size="sm"
+          className="pointer-events-none absolute -top-0.5 -right-0.5"
+        >
+          {count}
+        </Badge>
+      ) : null}
     </SidebarMenuItem>
   );
 }
@@ -154,6 +171,12 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
+  }, [closeMobileSidebar, navigate]);
+
+  const boardsNeedsYou = useBoardsNeedsYouCount();
+  const handleBoardsClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/boards" });
   }, [closeMobileSidebar, navigate]);
 
   const handleUsageClick = useCallback(() => {
@@ -191,6 +214,12 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               onClick={handlePullRequestsClick}
             />
           ) : null}
+          <SidebarUtilityItem
+            icon={<SquareKanbanIcon />}
+            label="Boards"
+            onClick={handleBoardsClick}
+            count={boardsNeedsYou}
+          />
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"

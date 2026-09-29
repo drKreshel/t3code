@@ -15,6 +15,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
+import { Route as BoardsIndexRouteImport } from './routes/boards.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsStorageRouteImport } from './routes/settings.storage'
 import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
@@ -31,6 +32,8 @@ import { Route as SettingsArchivedRouteImport } from './routes/settings.archived
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
+import { Route as BoardsBoardKeyIndexRouteImport } from './routes/boards.$boardKey.index'
+import { Route as BoardsBoardKeyTicketNumberRouteImport } from './routes/boards.$boardKey.$ticketNumber'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
@@ -61,6 +64,11 @@ const ConnectRoute = ConnectRouteImport.update({
 } as any)
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BoardsIndexRoute = BoardsIndexRouteImport.update({
+  id: '/boards/',
+  path: '/boards/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatIndexRoute = ChatIndexRouteImport.update({
@@ -144,6 +152,17 @@ const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
   path: '/pull-requests',
   getParentRoute: () => ChatRoute,
 } as any)
+const BoardsBoardKeyIndexRoute = BoardsBoardKeyIndexRouteImport.update({
+  id: '/boards/$boardKey/',
+  path: '/boards/$boardKey/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BoardsBoardKeyTicketNumberRoute =
+  BoardsBoardKeyTicketNumberRouteImport.update({
+    id: '/boards/$boardKey/$ticketNumber',
+    path: '/boards/$boardKey/$ticketNumber',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -178,8 +197,11 @@ export interface FileRoutesByFullPath {
   '/settings/snap-shot': typeof SettingsSnapShotRoute
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
+  '/boards/': typeof BoardsIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
+  '/boards/$boardKey/': typeof BoardsBoardKeyIndexRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
@@ -203,8 +225,11 @@ export interface FileRoutesByTo {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/': typeof ChatIndexRoute
+  '/boards': typeof BoardsIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
+  '/boards/$boardKey': typeof BoardsBoardKeyIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -230,8 +255,11 @@ export interface FileRoutesById {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/_chat/': typeof ChatIndexRoute
+  '/boards/': typeof BoardsIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
+  '/boards/$boardKey/': typeof BoardsBoardKeyIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -257,8 +285,11 @@ export interface FileRouteTypes {
     | '/settings/snap-shot'
     | '/settings/source-control'
     | '/settings/storage'
+    | '/boards/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/boards/$boardKey/$ticketNumber'
+    | '/boards/$boardKey/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
@@ -282,8 +313,11 @@ export interface FileRouteTypes {
     | '/settings/source-control'
     | '/settings/storage'
     | '/'
+    | '/boards'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/boards/$boardKey/$ticketNumber'
+    | '/boards/$boardKey'
   id:
     | '__root__'
     | '/_chat'
@@ -308,8 +342,11 @@ export interface FileRouteTypes {
     | '/settings/source-control'
     | '/settings/storage'
     | '/_chat/'
+    | '/boards/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
+    | '/boards/$boardKey/$ticketNumber'
+    | '/boards/$boardKey/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -320,6 +357,9 @@ export interface RootRouteChildren {
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
+  BoardsIndexRoute: typeof BoardsIndexRoute
+  BoardsBoardKeyTicketNumberRoute: typeof BoardsBoardKeyTicketNumberRoute
+  BoardsBoardKeyIndexRoute: typeof BoardsBoardKeyIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -364,6 +404,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/boards/': {
+      id: '/boards/'
+      path: '/boards'
+      fullPath: '/boards/'
+      preLoaderRoute: typeof BoardsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat/': {
@@ -478,6 +525,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPullRequestsRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/boards/$boardKey/': {
+      id: '/boards/$boardKey/'
+      path: '/boards/$boardKey'
+      fullPath: '/boards/$boardKey/'
+      preLoaderRoute: typeof BoardsBoardKeyIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/boards/$boardKey/$ticketNumber': {
+      id: '/boards/$boardKey/$ticketNumber'
+      path: '/boards/$boardKey/$ticketNumber'
+      fullPath: '/boards/$boardKey/$ticketNumber'
+      preLoaderRoute: typeof BoardsBoardKeyTicketNumberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
       path: '/draft/$draftId'
@@ -555,6 +616,9 @@ const rootRouteChildren: RootRouteChildren = {
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
+  BoardsIndexRoute: BoardsIndexRoute,
+  BoardsBoardKeyTicketNumberRoute: BoardsBoardKeyTicketNumberRoute,
+  BoardsBoardKeyIndexRoute: BoardsBoardKeyIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

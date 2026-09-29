@@ -48,7 +48,7 @@ export const Board = Schema.Struct({
   id: TrimmedNonEmptyString,
   key: BoardKey,
   name: TrimmedNonEmptyString,
-  /** Logical project key (sidebar grouping key) new chats start in. */
+  /** Scoped project key (`environmentId:projectId`) new chats start in. */
   defaultProjectKey: Schema.NullOr(Schema.String),
   position: Schema.Number,
   columns: Schema.Array(BoardColumn),
