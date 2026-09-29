@@ -3,6 +3,11 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
+  ForkBoardsDispatchRpc,
+  ForkBoardsSubscribeRpc,
+  ForkBoardsSubscribeTicketRpc,
+} from "./forkBoards.ts";
+import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -1536,4 +1541,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetArchivedShellSnapshotRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
+  ForkBoardsSubscribeRpc,
+  ForkBoardsSubscribeTicketRpc,
+  ForkBoardsDispatchRpc,
 );
