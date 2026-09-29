@@ -8827,11 +8827,14 @@ export default function ChatView(props: ChatViewProps) {
           ),
         },
       }));
+      // A replacement (a picked $skill or @file) arrives before the editor
+      // renders the new answer. Focusing the editor then reads its old text
+      // back as an edit and undoes the replacement; the composer places the
+      // caret itself once the new text lands. Only correct a drifted caret.
       const snapshot = composerRef.current?.readSnapshot();
       if (
-        snapshot?.value !== value ||
-        snapshot.cursor !== nextCursor ||
-        snapshot.expandedCursor !== expandedCursor
+        snapshot?.value === value &&
+        (snapshot.cursor !== nextCursor || snapshot.expandedCursor !== expandedCursor)
       ) {
         composerRef.current?.focusAt(nextCursor);
       }
