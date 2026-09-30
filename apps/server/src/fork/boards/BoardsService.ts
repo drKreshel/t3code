@@ -25,6 +25,7 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -35,8 +36,18 @@ const EventPayloadJson = Schema.fromJsonString(Schema.Record(Schema.String, Sche
 const decodePayload = Schema.decodeUnknownSync(EventPayloadJson);
 const encodePayload = Schema.encodeSync(EventPayloadJson);
 
-/** `user` for people; `thread:<scoped thread key>` for agents (phase 2). */
+/** `user` for people; `thread:<scoped thread key>` for agents; `automation:<id>` for automations. */
 export type BoardsActor = string;
+
+/** What automations react to, published after the write commits. */
+export type BoardEvent =
+  | {
+      readonly type: "ticket.entered";
+      readonly ticketId: string;
+      readonly columnId: string;
+      readonly actor: BoardsActor;
+    }
+  | { readonly type: "ticket.unblocked"; readonly ticketId: string };
 
 export class BoardsService extends Context.Service<
   BoardsService,
@@ -50,6 +61,8 @@ export class BoardsService extends Context.Service<
       command: BoardsCommand,
       actor: BoardsActor,
     ) => Effect.Effect<BoardsCommandResult, BoardsCommandError>;
+    /** Board events from this point on; subscribe before acting on a snapshot. */
+    readonly subscribeEvents: Effect.Effect<PubSub.Subscription<BoardEvent>, never, Scope.Scope>;
   }
 >()("t3/fork/boards/BoardsService") {}
 
@@ -123,6 +136,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const crypto = yield* Crypto.Crypto;
   const changes = yield* PubSub.unbounded<ReadonlyArray<string>>();
+  const boardEvents = yield* PubSub.unbounded<BoardEvent>();
   const writeLock = yield* Semaphore.make(1);
 
   const newId = crypto.randomUUIDv4;
@@ -345,7 +359,7 @@ const make = Effect.gen(function* () {
   // ---------------------------------------------------------------------------
   // Commands
 
-  const run = (command: BoardsCommand, actor: BoardsActor) =>
+  const run = (command: BoardsCommand, actor: BoardsActor, emit: (event: BoardEvent) => void) =>
     Effect.gen(function* () {
       const at = yield* nowIso;
       switch (command.type) {
@@ -493,6 +507,7 @@ const make = Effect.gen(function* () {
             `;
           }
           yield* recordEvent(id, "created", { column: column.name }, actor, at);
+          emit({ type: "ticket.entered", ticketId: id, columnId: column.id, actor });
           return { id, touched: [id] };
         }
         case "ticket.update": {
@@ -558,6 +573,7 @@ const make = Effect.gen(function* () {
           `;
           const touched = [ticket.id];
           if (from.id !== to.id) {
+            emit({ type: "ticket.entered", ticketId: ticket.id, columnId: to.id, actor });
             yield* recordEvent(
               ticket.id,
               "moved",
@@ -581,6 +597,7 @@ const make = Effect.gen(function* () {
                 const remaining = yield* blockersOf(dependent.ticket_id);
                 if (to.type === "done" && remaining.length === 0) {
                   yield* recordEvent(dependent.ticket_id, "unblocked", { by: label }, actor, at);
+                  emit({ type: "ticket.unblocked", ticketId: dependent.ticket_id });
                   touched.push(dependent.ticket_id);
                 } else if (from.type === "done" && remaining.length === 1) {
                   yield* recordEvent(dependent.ticket_id, "blocked", { by: label }, actor, at);
@@ -774,13 +791,16 @@ const make = Effect.gen(function* () {
     });
 
   const dispatch = (command: BoardsCommand, actor: BoardsActor) =>
-    writeLock
-      .withPermits(1)(sql.withTransaction(run(command, actor)))
-      .pipe(
-        Effect.tap(({ touched }) => PubSub.publish(changes, touched)),
-        Effect.map(({ id }): BoardsCommandResult => ({ id })),
-        Effect.mapError(toCommandError),
+    Effect.gen(function* () {
+      // Collected during the write, published only once it commits.
+      const emitted: BoardEvent[] = [];
+      const result = yield* writeLock.withPermits(1)(
+        sql.withTransaction(run(command, actor, (event) => emitted.push(event))),
       );
+      yield* PubSub.publish(changes, result.touched);
+      yield* PubSub.publishAll(boardEvents, emitted);
+      return { id: result.id } satisfies BoardsCommandResult;
+    }).pipe(Effect.mapError(toCommandError));
 
   // One-slot sliding mailbox per subscriber: snapshots are whole states, so a
   // slow socket skipping intermediate ones is safe.
@@ -826,7 +846,13 @@ const make = Effect.gen(function* () {
       { bufferSize: 1, strategy: "sliding" },
     );
 
-  return BoardsService.of({ snapshot: loadSnapshot, stream, ticketDetailStream, dispatch });
+  return BoardsService.of({
+    snapshot: loadSnapshot,
+    stream,
+    ticketDetailStream,
+    dispatch,
+    subscribeEvents: PubSub.subscribe(boardEvents),
+  });
 });
 
 /** Uses its own `fork.sqlite` client; the runtime's main database is not visible here. */

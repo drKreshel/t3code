@@ -103,6 +103,45 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       `CREATE INDEX fork_ticket_events_ticket ON fork_ticket_events(ticket_id, created_at)`,
     ],
   },
+  {
+    version: 2,
+    statements: [
+      `CREATE TABLE fork_automations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        trigger_json TEXT NOT NULL,
+        action_json TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        max_runs_per_ticket INTEGER NOT NULL DEFAULT 3,
+        last_fired_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE fork_automation_runs (
+        id TEXT PRIMARY KEY,
+        automation_id TEXT NOT NULL REFERENCES fork_automations(id) ON DELETE CASCADE,
+        ticket_id TEXT,
+        thread_key TEXT,
+        status TEXT NOT NULL,
+        reason TEXT,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT
+      )`,
+      `CREATE TABLE fork_board_hook_state (
+        board_id TEXT PRIMARY KEY,
+        paused INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE TABLE fork_ticket_hook_state (
+        ticket_id TEXT PRIMARY KEY,
+        reset_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX fork_automation_runs_automation ON fork_automation_runs(automation_id, created_at)`,
+      `CREATE INDEX fork_automation_runs_ticket ON fork_automation_runs(ticket_id, status)`,
+      `CREATE INDEX fork_automation_runs_thread ON fork_automation_runs(thread_key)`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

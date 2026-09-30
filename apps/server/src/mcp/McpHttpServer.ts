@@ -32,6 +32,8 @@ import {
 } from "./toolkits/preview/tools.ts";
 import { PullRequestsToolkitHandlersLive } from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import { AutomationsToolkitHandlersLive } from "../fork/mcp/automationsHandlers.ts";
+import { AutomationsToolkit } from "../fork/mcp/automationsTools.ts";
 import { BoardsToolkitHandlersLive } from "../fork/mcp/boardsHandlers.ts";
 import { BoardsToolkit } from "../fork/mcp/boardsTools.ts";
 import {
@@ -649,9 +651,10 @@ export const PullRequestsToolkitRegistrationLive = McpServer.toolkit(PullRequest
   Layer.provide(PullRequestsToolkitHandlersLive),
 );
 
-// Fork: boards and tickets.
-export const BoardsToolkitRegistrationLive = McpServer.toolkit(BoardsToolkit).pipe(
-  Layer.provide(BoardsToolkitHandlersLive),
+// Fork: boards, tickets, and automations.
+export const BoardsToolkitRegistrationLive = Layer.mergeAll(
+  McpServer.toolkit(BoardsToolkit).pipe(Layer.provide(BoardsToolkitHandlersLive)),
+  McpServer.toolkit(AutomationsToolkit).pipe(Layer.provide(AutomationsToolkitHandlersLive)),
 );
 
 const DeviceStandardToolkitRegistrationLive = McpServer.toolkit(DeviceStandardToolkit).pipe(

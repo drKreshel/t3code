@@ -7,6 +7,7 @@ import {
   ForkBoardsSubscribeRpc,
   ForkBoardsSubscribeTicketRpc,
 } from "./forkBoards.ts";
+import { ForkAutomationsDispatchRpc, ForkAutomationsSubscribeRpc } from "./forkAutomations.ts";
 import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
@@ -1544,4 +1545,6 @@ export const WsRpcGroup = RpcGroup.make(
   ForkBoardsSubscribeRpc,
   ForkBoardsSubscribeTicketRpc,
   ForkBoardsDispatchRpc,
+  ForkAutomationsSubscribeRpc,
+  ForkAutomationsDispatchRpc,
 );
