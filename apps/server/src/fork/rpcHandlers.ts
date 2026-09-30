@@ -11,6 +11,9 @@ import {
   FORK_AUTOMATIONS_WS_METHODS,
   type EnvironmentAuthorizationError,
   FORK_BOARDS_WS_METHODS,
+  FORK_WORKSPACES_WS_METHODS,
+  type WorkspacesCommand,
+  WorkspacesCommandError,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -20,6 +23,7 @@ import * as Stream from "effect/Stream";
 import { AutomationEngine } from "./automations/AutomationEngine.ts";
 import { AutomationsStore } from "./automations/AutomationsStore.ts";
 import { type BoardEvent, BoardsService } from "./boards/BoardsService.ts";
+import { TicketWorkspaces } from "./workspaces/TicketWorkspaces.ts";
 
 interface RpcObservers {
   readonly observeRpcEffect: <A, E, R>(
@@ -36,6 +40,12 @@ interface RpcObservers {
 
 const TRACE = { "rpc.aggregate": "fork-boards" } as const;
 const AUTOMATIONS_TRACE = { "rpc.aggregate": "fork-automations" } as const;
+const WORKSPACES_TRACE = { "rpc.aggregate": "fork-workspaces" } as const;
+
+const workspacesUnavailable = new WorkspacesCommandError({
+  code: "storage",
+  message: "Ticket workspaces are not available on this server.",
+});
 
 const automationsUnavailable = new AutomationsCommandError({
   code: "storage",
@@ -63,6 +73,7 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
     const boards = Option.getOrElse(maybeBoards, () => unavailableBoards);
     const automationsStore = yield* Effect.serviceOption(AutomationsStore);
     const automationEngine = yield* Effect.serviceOption(AutomationEngine);
+    const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
     return {
       [FORK_BOARDS_WS_METHODS.subscribe]: () =>
         observeRpcStream(FORK_BOARDS_WS_METHODS.subscribe, boards.stream, TRACE),
@@ -91,6 +102,33 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
             onSome: (engine) => engine.dispatch(command),
           }),
           AUTOMATIONS_TRACE,
+        ),
+      [FORK_WORKSPACES_WS_METHODS.subscribe]: () =>
+        observeRpcStream(
+          FORK_WORKSPACES_WS_METHODS.subscribe,
+          Option.match(workspaces, {
+            onNone: () => Stream.fail(workspacesUnavailable),
+            onSome: (service) => service.stream,
+          }),
+          WORKSPACES_TRACE,
+        ),
+      [FORK_WORKSPACES_WS_METHODS.dispatch]: (command: WorkspacesCommand) =>
+        observeRpcEffect(
+          FORK_WORKSPACES_WS_METHODS.dispatch,
+          Option.match(workspaces, {
+            onNone: () => Effect.fail(workspacesUnavailable),
+            onSome: (service) => service.dispatch(command),
+          }),
+          WORKSPACES_TRACE,
+        ),
+      [FORK_WORKSPACES_WS_METHODS.listRepos]: (input: { readonly projectKey: string }) =>
+        observeRpcEffect(
+          FORK_WORKSPACES_WS_METHODS.listRepos,
+          Option.match(workspaces, {
+            onNone: () => Effect.fail(workspacesUnavailable),
+            onSome: (service) => service.listRepos(input.projectKey),
+          }),
+          WORKSPACES_TRACE,
         ),
     };
   });

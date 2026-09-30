@@ -62,6 +62,7 @@ import {
   scheduleProblem,
 } from "./automationLogic.ts";
 import { AutomationsStore, type StoredAutomation } from "./AutomationsStore.ts";
+import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
 
 const SCHEDULER_TICK = "20 seconds";
 
@@ -94,6 +95,8 @@ const make = (options: { readonly background: boolean }) =>
     const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
     const crypto = yield* Crypto.Crypto;
     const lock = yield* Semaphore.make(1);
+    // Optional, so runtimes without ticket workspaces (tests) still build.
+    const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
 
     const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
     const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
@@ -163,8 +166,14 @@ const make = (options: { readonly background: boolean }) =>
           return yield* new RunStartError({ message: "The ticket no longer exists." });
         const board = ticket ? snapshot.boards.find((b) => b.id === ticket.boardId) : undefined;
 
+        // In the ticket's workspace the chat belongs to the ticket's project.
         const projectKey =
-          automation.action.projectKey ?? ticket?.projectKey ?? board?.defaultProjectKey ?? null;
+          automation.action.checkout === "ticket"
+            ? (ticket?.projectKey ?? board?.defaultProjectKey ?? automation.action.projectKey)
+            : (automation.action.projectKey ??
+              ticket?.projectKey ??
+              board?.defaultProjectKey ??
+              null);
         if (projectKey === null) {
           return yield* new RunStartError({
             message:
@@ -186,7 +195,26 @@ const make = (options: { readonly background: boolean }) =>
 
         let branch: string | null = null;
         let worktreePath: string | null = null;
-        if (automation.action.checkout === "worktree") {
+        // A new ticket workspace runs the project's setup script once the chat exists.
+        let setUpWorkspace = false;
+        if (automation.action.checkout === "ticket") {
+          if (!ticket) {
+            return yield* new RunStartError({
+              message: "Only board hooks can use the ticket's workspace.",
+            });
+          }
+          if (Option.isNone(workspaces)) {
+            return yield* new RunStartError({
+              message: "Ticket workspaces are not available on this server.",
+            });
+          }
+          const workspace = yield* workspaces.value
+            .dispatch({ type: "workspace.ensure", ticketId: ticket.id })
+            .pipe(Effect.mapError((error) => new RunStartError({ message: error.message })));
+          worktreePath = workspace.path;
+          branch = workspace.branch;
+          setUpWorkspace = workspace.created;
+        } else if (automation.action.checkout === "worktree") {
           const token = (yield* uuid).replaceAll("-", "");
           const created = yield* git
             .createWorktree({
@@ -265,6 +293,11 @@ const make = (options: { readonly background: boolean }) =>
           yield* boards
             .dispatch({ type: "thread.link", threadKey, ticketId: ticket.id }, actorOf(automation))
             .pipe(Effect.catch(() => Effect.void));
+        }
+        if (setUpWorkspace && ticket && Option.isSome(workspaces)) {
+          yield* workspaces.value
+            .dispatch({ type: "workspace.setup", ticketId: ticket.id, threadId })
+            .pipe(Effect.ignore);
         }
         yield* orchestration
           .dispatch({
@@ -564,6 +597,11 @@ const make = (options: { readonly background: boolean }) =>
               if (problem) return yield* invalid(problem);
               if (command.trigger.type === "schedule" && command.action.projectKey === null) {
                 return yield* invalid("A scheduled automation needs a project.");
+              }
+              if (command.trigger.type === "schedule" && command.action.checkout === "ticket") {
+                return yield* invalid(
+                  "A scheduled automation has no ticket, so it cannot use a ticket's workspace.",
+                );
               }
               const id = yield* store.create({
                 title: command.title,

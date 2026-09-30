@@ -48,7 +48,11 @@ export const AutomationTrigger = Schema.Union([
 ]);
 export type AutomationTrigger = typeof AutomationTrigger.Type;
 
-export const AutomationCheckout = Schema.Literals(["local", "worktree"]);
+/**
+ * Where the chat runs: the project's checkout, a fresh worktree per run, or
+ * the ticket's workspace (board hooks only; shared by every chat on the ticket).
+ */
+export const AutomationCheckout = Schema.Literals(["local", "worktree", "ticket"]);
 export type AutomationCheckout = typeof AutomationCheckout.Type;
 
 /** How the started chat runs. Nulls fall back to defaults at run time. */

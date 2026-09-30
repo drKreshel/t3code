@@ -142,6 +142,26 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       `CREATE INDEX fork_automation_runs_thread ON fork_automation_runs(thread_key)`,
     ],
   },
+  {
+    version: 3,
+    statements: [
+      `CREATE TABLE fork_workspace_rules (
+        scope TEXT NOT NULL,
+        scope_id TEXT NOT NULL,
+        rules_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (scope, scope_id)
+      )`,
+      `CREATE TABLE fork_ticket_workspaces (
+        ticket_id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL,
+        path TEXT NOT NULL,
+        repos_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        removed_at TEXT
+      )`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

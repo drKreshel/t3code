@@ -9,6 +9,11 @@ import {
 } from "./forkBoards.ts";
 import { ForkAutomationsDispatchRpc, ForkAutomationsSubscribeRpc } from "./forkAutomations.ts";
 import {
+  ForkWorkspacesDispatchRpc,
+  ForkWorkspacesListReposRpc,
+  ForkWorkspacesSubscribeRpc,
+} from "./forkWorkspaces.ts";
+import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
   ProviderAuthState,
@@ -1547,4 +1552,7 @@ export const WsRpcGroup = RpcGroup.make(
   ForkBoardsDispatchRpc,
   ForkAutomationsSubscribeRpc,
   ForkAutomationsDispatchRpc,
+  ForkWorkspacesSubscribeRpc,
+  ForkWorkspacesDispatchRpc,
+  ForkWorkspacesListReposRpc,
 );

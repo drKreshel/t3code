@@ -1,6 +1,7 @@
 import {
   type Board,
   BoardsCommandError,
+  type TicketWorkspace,
   type BoardsCommand,
   type BoardsSnapshot,
   ProjectId,
@@ -15,6 +16,7 @@ import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
+import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
 import {
   filterTickets,
   findBoard,
@@ -66,6 +68,12 @@ const make = Effect.gen(function* () {
     () => unavailableBoards,
   );
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
+  const workspaceOf = (ticketId: string): Effect.Effect<TicketWorkspace | null> =>
+    Option.match(workspaces, {
+      onNone: () => Effect.succeed(null),
+      onSome: (service) => service.find(ticketId).pipe(Effect.orElseSucceed(() => null)),
+    });
 
   /** The calling chat, as the key boards store and the actor the timeline shows. */
   const caller = McpInvocationContext.McpInvocationContext.pipe(
@@ -267,6 +275,22 @@ const make = Effect.gen(function* () {
           })),
           linkedChats,
           thisChatIsLinked: ticket.threadKeys.includes(threadKey),
+          workspace: yield* workspaceOf(ticket.id).pipe(
+            Effect.map((workspace) =>
+              workspace
+                ? {
+                    path: workspace.path,
+                    repos: workspace.repos.map(({ repo, checkout, path, branch, startFrom }) => ({
+                      repo,
+                      checkout,
+                      path,
+                      branch,
+                      startFrom,
+                    })),
+                  }
+                : null,
+            ),
+          ),
           path: ticketPath(board, ticket),
         } satisfies TicketDetailResult;
       }),
@@ -431,6 +455,32 @@ const make = Effect.gen(function* () {
         const ticket = yield* unwrap(findTicket(snapshot, ref));
         yield* dispatch({ type: "thread.link", threadKey, ticketId: ticket.id });
         return { linkedTo: labelOf(snapshot, ticket) };
+      }),
+
+    remove_ticket_workspace: ({ ticket: ref, force }) =>
+      Effect.gen(function* () {
+        const snapshot = yield* boards.snapshot;
+        const ticket = yield* resolveTicket(snapshot, ref);
+        if (Option.isNone(workspaces)) {
+          return yield* new BoardsCommandError({
+            code: "storage",
+            message: "Ticket workspaces are not available on this server.",
+          });
+        }
+        const existing = yield* workspaceOf(ticket.id);
+        if (!existing) return { removed: false };
+        yield* workspaces.value
+          .dispatch({ type: "workspace.remove", ticketId: ticket.id, ...(force ? { force } : {}) })
+          .pipe(
+            Effect.mapError(
+              (error) =>
+                new BoardsCommandError({
+                  code: error.code === "not-found" ? "not-found" : "invalid",
+                  message: error.message,
+                }),
+            ),
+          );
+        return { removed: true };
       }),
   });
 });

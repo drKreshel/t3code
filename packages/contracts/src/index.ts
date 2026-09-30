@@ -45,4 +45,5 @@ export * from "./usage.ts";
 export * from "./rpc.ts";
 export * from "./forkBoards.ts";
 export * from "./forkAutomations.ts";
+export * from "./forkWorkspaces.ts";
 export * from "./worktreeSetup.ts";

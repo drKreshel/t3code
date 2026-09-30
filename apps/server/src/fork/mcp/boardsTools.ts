@@ -94,6 +94,23 @@ export const TicketDetailResult = Schema.Struct({
   ),
   linkedChats: Schema.Array(Schema.Struct({ title: Schema.String, threadKey: Schema.String })),
   thisChatIsLinked: Schema.Boolean,
+  workspace: Schema.NullOr(
+    Schema.Struct({
+      path: Schema.String.annotate({ description: "The ticket's folder; its chats run here." }),
+      repos: Schema.Array(
+        Schema.Struct({
+          repo: Schema.String,
+          checkout: Schema.Literals(["worktree", "local"]),
+          path: Schema.String,
+          branch: Schema.NullOr(Schema.String),
+          startFrom: Schema.NullOr(Schema.String),
+        }),
+      ),
+    }),
+  ).annotate({
+    description:
+      "The ticket's workspace, if created: one worktree per repo on the ticket's branch (local repos are the shared main checkout).",
+  }),
   path: Schema.String.annotate({
     description: "Where the ticket opens in T3 Code, like /boards/WEB/12.",
   }),
@@ -310,6 +327,25 @@ const LinkThreadTool = Tool.make("link_thread_to_ticket", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const RemoveWorkspaceTool = Tool.make("remove_ticket_workspace", {
+  description:
+    "Remove the ticket's workspace: its worktrees go, their branches stay, and the next chat on the ticket recreates them. Refused while a worktree has uncommitted changes or unpushed commits unless force is set. Use when the work is merged or pushed and the ticket is closing.",
+  parameters: Schema.Struct({
+    ticket: OptionalTicketRef,
+    force: Schema.optional(
+      Schema.Boolean.annotate({ description: "Remove even with unsaved work. Only when told to." }),
+    ),
+  }),
+  success: Schema.Struct({ removed: Schema.Boolean }),
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Remove ticket workspace")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const BoardsToolkit = Toolkit.make(
   ListBoardsTool,
   ListTicketsTool,
@@ -321,4 +357,5 @@ export const BoardsToolkit = Toolkit.make(
   AddCommentTool,
   RequestHumanTool,
   LinkThreadTool,
+  RemoveWorkspaceTool,
 );
