@@ -34,7 +34,8 @@ const unavailable = new BoardsCommandError({
   code: "storage",
   message: "Boards are not available on this server.",
 });
-const unavailableBoards: BoardsService["Service"] = {
+/** Stands in where the runtime does not provide BoardsService, such as upstream's server tests. */
+export const unavailableBoards: BoardsService["Service"] = {
   snapshot: Effect.fail(unavailable),
   stream: Stream.fail(unavailable),
   ticketDetailStream: () => Stream.fail(unavailable),
