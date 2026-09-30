@@ -5,6 +5,7 @@ import {
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@t3tools/contracts";
+import { ThreadTicketChip } from "../boards/ThreadTicketChip";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
@@ -486,6 +487,9 @@ export const ChatHeader = memo(function ChatHeader({
             </Tooltip>
           )}
         </WorkspaceBreadcrumbItem>
+        <li className="flex shrink-0 items-center">
+          <ThreadTicketChip environmentId={activeThreadEnvironmentId} threadId={activeThreadId} />
+        </li>
       </WorkspaceBreadcrumb>
       <div
         ref={headerActionsRef}

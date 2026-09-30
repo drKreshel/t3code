@@ -99,6 +99,17 @@ export function useTicketDetail(ticketId: string | null): TicketDetail | null {
   );
 }
 
+// Tickets this window moved in the last few seconds, so the notifier does not
+// announce Kreshel's own drag. Entries expire so a later agent move still counts.
+const LOCAL_MOVE_WINDOW_MS = 10_000;
+const localTicketMoves = new Map<string, number>();
+
+/** Whether this window moved the ticket just now. */
+export function isRecentLocalTicketMove(ticketId: string): boolean {
+  const movedAt = localTicketMoves.get(ticketId);
+  return movedAt !== undefined && Date.now() - movedAt < LOCAL_MOVE_WINDOW_MS;
+}
+
 /**
  * Sends one board command to the primary environment. Resolves with the id a
  * create command made (or null); a refused command toasts its reason and
@@ -112,6 +123,7 @@ export function useBoardsDispatch(): (
   return useCallback(
     async (command: BoardsCommand) => {
       if (environmentId === null) return undefined;
+      if (command.type === "ticket.move") localTicketMoves.set(command.ticketId, Date.now());
       const result = await dispatch({ environmentId, input: command });
       if (result._tag === "Success") return result.value.id;
       if (!isAtomCommandInterrupted(result)) {
@@ -128,5 +140,48 @@ export function useBoardsDispatch(): (
       return undefined;
     },
     [dispatch, environmentId],
+  );
+}
+
+const EMPTY_TICKET_KEYS: ReadonlyMap<string, string> = new Map();
+
+/** Ticket keys (`WEB-12`) by scoped thread key, rebuilt when boards change. */
+const ticketKeyByThreadAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make((get): ReadonlyMap<string, string> => {
+    const state = get(boardsStateAtom(environmentId));
+    if (state.status !== "ready") return EMPTY_TICKET_KEYS;
+    const boardKeyById = new Map(state.snapshot.boards.map((board) => [board.id, board.key]));
+    const keys = new Map<string, string>();
+    for (const ticket of state.snapshot.tickets) {
+      const boardKey = boardKeyById.get(ticket.boardId);
+      if (boardKey === undefined || ticket.archivedAt !== null) continue;
+      for (const threadKey of ticket.threadKeys)
+        keys.set(threadKey, `${boardKey}-${ticket.number}`);
+    }
+    return keys;
+  }).pipe(Atom.withLabel(`fork-ticket-keys:${environmentId}`)),
+);
+
+// One atom per chat, holding a string, so a board change re-renders only the
+// rows whose ticket key actually changed.
+const threadTicketKeyAtom = Atom.family((key: string) => {
+  const separator = key.indexOf("\u0000");
+  const environmentId = key.slice(0, separator) as EnvironmentId;
+  const threadKey = key.slice(separator + 1);
+  return Atom.make((get) => get(ticketKeyByThreadAtom(environmentId)).get(threadKey) ?? null).pipe(
+    Atom.withLabel(`fork-thread-ticket:${threadKey}`),
+  );
+});
+const NO_TICKET_KEY_ATOM = Atom.make<string | null>(null).pipe(
+  Atom.withLabel("fork-thread-ticket:none"),
+);
+
+/** The key of the ticket a chat is linked to (`WEB-12`), or null. */
+export function useThreadTicketKey(threadKey: string | null): string | null {
+  const environmentId = usePrimaryEnvironmentId();
+  return useAtomValue(
+    environmentId === null || threadKey === null
+      ? NO_TICKET_KEY_ATOM
+      : threadTicketKeyAtom(`${environmentId}\u0000${threadKey}`),
   );
 }

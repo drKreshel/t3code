@@ -11,6 +11,7 @@ import {
   ticketBlockers,
   ticketBriefing,
   ticketsByColumn,
+  ticketsNewlyInAttention,
 } from "./boards.logic";
 
 const board: Board = {
@@ -167,5 +168,24 @@ describe("describeTicketEvent", () => {
       describeTicketEvent({ kind: "updated", payload: { fields: ["title", "description"] } }),
     ).toBe("Changed title, description");
     expect(describeTicketEvent({ kind: "something.new", payload: {} })).toBe("something.new");
+  });
+});
+
+describe("ticketsNewlyInAttention", () => {
+  it("sets a baseline first, then reports only tickets that just arrived", () => {
+    const first = ticketsNewlyInAttention(
+      null,
+      snapshot([ticket("waiting", { columnId: "attention" }), ticket("todo")]),
+    );
+    expect(first.added).toEqual([]);
+    const next = ticketsNewlyInAttention(
+      first.current,
+      snapshot([
+        ticket("waiting", { columnId: "attention" }),
+        ticket("todo", { columnId: "attention" }),
+        ticket("archived", { columnId: "attention", archivedAt: "x" }),
+      ]),
+    );
+    expect(next.added.map((t) => t.id)).toEqual(["todo"]);
   });
 });

@@ -205,3 +205,24 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
       return event.kind;
   }
 }
+
+/**
+ * Tickets that entered an attention column since `previous` (ids). The first
+ * snapshot (previous null) only sets the baseline, so opening the app does
+ * not replay every ticket already waiting.
+ */
+export function ticketsNewlyInAttention(
+  previous: ReadonlySet<string> | null,
+  snapshot: BoardsSnapshot,
+): { readonly current: ReadonlySet<string>; readonly added: ReadonlyArray<Ticket> } {
+  const index = indexBoards(snapshot);
+  const waiting = snapshot.tickets.filter(
+    (ticket) =>
+      ticket.archivedAt === null &&
+      index.boardById.get(ticket.boardId)?.archivedAt === null &&
+      index.columnTypeById.get(ticket.columnId) === "attention",
+  );
+  const current = new Set(waiting.map((ticket) => ticket.id));
+  if (previous === null) return { current, added: [] };
+  return { current, added: waiting.filter((ticket) => !previous.has(ticket.id)) };
+}
