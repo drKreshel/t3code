@@ -14,8 +14,9 @@ import {
   ComboboxSearchInput,
   ComboboxTrigger,
 } from "../ui/combobox";
-import { ticketKey } from "./boards.logic";
+import { recentBoardsByActivity, ticketKey } from "./boards.logic";
 
+const RECENT_BOARD_COUNT = 5;
 const OPEN = "\u0000open";
 const UNLINK = "\u0000unlink";
 
@@ -42,20 +43,34 @@ export function ThreadTicketChip({
   const linkedKey = useThreadTicketKey(threadKey);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Narrows the list to one board; null lists every board.
+  const [boardScope, setBoardScope] = useState<string | null>(null);
   const boards = useBoards();
   const dispatch = useBoardsDispatch();
   const navigate = useNavigate();
+
+  // Boards with the latest ticket activity, for the quick scope row.
+  const recentBoards = useMemo(() => {
+    if (!open || boards.status !== "ready") return [];
+    return recentBoardsByActivity(boards.snapshot, RECENT_BOARD_COUNT);
+  }, [boards, open]);
 
   // Built only while the picker is open; the closed chip reads one string.
   const candidates = useMemo((): Candidate[] => {
     if (!open || boards.status !== "ready") return [];
     const { snapshot } = boards;
     const liveBoards = snapshot.boards
-      .filter((board) => board.archivedAt === null)
+      .filter(
+        (board) => board.archivedAt === null && (boardScope === null || board.id === boardScope),
+      )
       .toSorted((a, b) => a.position - b.position);
     const needle = query.trim().toLowerCase();
-    return liveBoards.flatMap((board) =>
-      snapshot.tickets
+    return liveBoards.flatMap((board) => {
+      // A query naming the board lists all of its tickets.
+      const boardMatches =
+        needle !== "" &&
+        (board.name.toLowerCase().includes(needle) || board.key.toLowerCase().includes(needle));
+      return snapshot.tickets
         .filter((ticket) => ticket.boardId === board.id && ticket.archivedAt === null)
         .toSorted((a, b) => b.number - a.number)
         .map((ticket) => ({
@@ -67,11 +82,12 @@ export function ThreadTicketChip({
         .filter(
           (candidate) =>
             needle === "" ||
+            boardMatches ||
             candidate.label.toLowerCase().includes(needle) ||
             candidate.title.toLowerCase().includes(needle),
-        ),
-    );
-  }, [boards, open, query]);
+        );
+    });
+  }, [boardScope, boards, open, query]);
 
   const actions = linkedKey === null ? [] : [OPEN, UNLINK];
   const keys = [...actions, ...candidates.map((candidate) => candidate.id)];
@@ -115,17 +131,50 @@ export function ThreadTicketChip({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setQuery("");
+        if (!next) {
+          setQuery("");
+          setBoardScope(null);
+        }
       }}
     >
       <ComboboxTrigger render={trigger} />
       <ComboboxPopup align="start" side="bottom" className="w-80">
         <ComboboxSearchInput
           aria-label="Search tickets"
-          placeholder="Search tickets"
+          placeholder="Search tickets or boards"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
+        {recentBoards.length > 1 ? (
+          <div
+            role="group"
+            aria-label="Boards"
+            className="flex flex-wrap gap-1 border-b px-2 pb-2"
+            // Keep focus in the search input so typing and arrows keep working.
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <Button
+              size="xs"
+              variant={boardScope === null ? "secondary" : "ghost"}
+              aria-pressed={boardScope === null}
+              onClick={() => setBoardScope(null)}
+            >
+              All
+            </Button>
+            {recentBoards.map((board) => (
+              <Button
+                key={board.id}
+                size="xs"
+                variant={boardScope === board.id ? "secondary" : "ghost"}
+                aria-pressed={boardScope === board.id}
+                aria-label={`Only ${board.name}`}
+                onClick={() => setBoardScope(boardScope === board.id ? null : board.id)}
+              >
+                {board.key}
+              </Button>
+            ))}
+          </div>
+        ) : null}
         <ComboboxList className="max-h-80">
           {linkedKey !== null ? (
             <>

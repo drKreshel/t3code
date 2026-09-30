@@ -65,7 +65,7 @@ const CreateAutomationTool = Tool.make("create_automation", {
   description: [
     "Create an automation that starts a new chat with the prompt. Give exactly one trigger:",
     "- cron (five fields: minute hour day-of-month month day-of-week, e.g. '0 9 * * 1-5' for weekdays at 9:00) or at (an ISO date-time, runs once), read in timezone;",
-    "- board + column: runs when a ticket enters that column, linked to the ticket. Its prompt can use {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.criteria}}, {{ticket.handoff}}, {{ticket.url}}, {{board.name}}, {{run.number}}.",
+    "- board + column: runs when a ticket enters that column, linked to the ticket. board '*' means every board; then column must be a column type (backlog, todo, active, review, attention, done, canceled). Its prompt can use {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.criteria}}, {{ticket.handoff}}, {{ticket.url}}, {{board.name}}, {{run.number}}.",
     "Scheduled automations need a project: set useThisChatsProject. Board hooks default to the ticket's, then the board's project.",
   ].join("\n"),
   parameters: Schema.Struct({
@@ -78,7 +78,9 @@ const CreateAutomationTool = Tool.make("create_automation", {
         description: "IANA zone like Europe/Berlin. Defaults to the server's zone.",
       }),
     ),
-    board: Schema.optional(TrimmedNonEmptyString.annotate({ description: "Board key like WEB." })),
+    board: Schema.optional(
+      TrimmedNonEmptyString.annotate({ description: "Board key like WEB, or * for every board." }),
+    ),
     column: Schema.optional(
       TrimmedNonEmptyString.annotate({
         description: "Column name or type, like In progress or active.",

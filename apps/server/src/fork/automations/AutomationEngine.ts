@@ -53,6 +53,8 @@ import { forkParked } from "../../serverActivation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { type BoardEvent, BoardsService } from "../boards/BoardsService.ts";
 import {
+  boardTriggerMatches,
+  boardTriggerProblem,
   decideSchedule,
   isBlocked,
   nextScheduledAt,
@@ -325,11 +327,12 @@ const make = (options: { readonly background: boolean }) =>
     const fireHook = (automation: StoredAutomation, ticketId: string, queuedRunId?: string) =>
       Effect.gen(function* () {
         if (!automation.enabled || automation.trigger.type !== "board") return;
-        const { boardId, columnId } = automation.trigger;
-        if (yield* store.boardPaused(boardId)) return;
         const snapshot = yield* boards.snapshot;
         const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
-        if (!ticket || ticket.archivedAt !== null || ticket.columnId !== columnId) return;
+        if (!ticket || ticket.archivedAt !== null) return;
+        if (!boardTriggerMatches(automation.trigger, snapshot, ticket)) return;
+        // The ticket's own board decides pausing, including for any-board hooks.
+        if (yield* store.boardPaused(ticket.boardId)) return;
         if (isBlocked(snapshot, ticket)) return;
 
         const runs = yield* store.runsForTicket(ticketId);
@@ -364,25 +367,17 @@ const make = (options: { readonly background: boolean }) =>
         yield* startRun(automation, runId, ticketId);
       });
 
-    const hooksForColumn = (columnId: string) =>
-      store.list.pipe(
-        Effect.map((automations) =>
-          automations.filter(
-            (automation) =>
-              automation.enabled &&
-              automation.trigger.type === "board" &&
-              automation.trigger.columnId === columnId,
-          ),
-        ),
-      );
-
-    /** Runs every hook of the ticket's current column. */
+    /** Runs every hook that watches the ticket's current column. */
     const fireHooksForTicket = (ticketId: string) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
         if (!ticket) return;
-        for (const automation of yield* hooksForColumn(ticket.columnId)) {
+        const hooks = (yield* store.list).filter(
+          (automation) =>
+            automation.enabled && boardTriggerMatches(automation.trigger, snapshot, ticket),
+        );
+        for (const automation of hooks) {
           yield* fireHook(automation, ticketId);
         }
       });
@@ -400,9 +395,8 @@ const make = (options: { readonly background: boolean }) =>
         const stillApplies =
           Option.isSome(automation) &&
           automation.value.enabled &&
-          automation.value.trigger.type === "board" &&
           ticket !== undefined &&
-          ticket.columnId === automation.value.trigger.columnId &&
+          boardTriggerMatches(automation.value.trigger, snapshot, ticket) &&
           !isBlocked(snapshot, ticket);
         if (!stillApplies || Option.isNone(automation)) {
           yield* store.updateRun(queued.id, {
@@ -511,9 +505,8 @@ const make = (options: { readonly background: boolean }) =>
             }
             // A person moving a ticket gives its hooks a fresh start.
             if (event.actor === "user") yield* store.resetTicket(event.ticketId, yield* nowIso);
-            for (const automation of yield* hooksForColumn(event.columnId)) {
-              yield* fireHook(automation, event.ticketId);
-            }
+            // The ticket now sits in the column it entered; run what watches it.
+            yield* fireHooksForTicket(event.ticketId);
           }),
         ),
       );
@@ -566,7 +559,8 @@ const make = (options: { readonly background: boolean }) =>
         Effect.gen(function* () {
           switch (command.type) {
             case "automation.create": {
-              const problem = scheduleProblem(command.trigger);
+              const problem =
+                scheduleProblem(command.trigger) ?? boardTriggerProblem(command.trigger);
               if (problem) return yield* invalid(problem);
               if (command.trigger.type === "schedule" && command.action.projectKey === null) {
                 return yield* invalid("A scheduled automation needs a project.");
@@ -583,7 +577,8 @@ const make = (options: { readonly background: boolean }) =>
             }
             case "automation.update": {
               if (command.trigger) {
-                const problem = scheduleProblem(command.trigger);
+                const problem =
+                  scheduleProblem(command.trigger) ?? boardTriggerProblem(command.trigger);
                 if (problem) return yield* invalid(problem);
               }
               yield* store.update(command.automationId, {

@@ -95,3 +95,32 @@ export function isBlocked(snapshot: BoardsSnapshot, ticket: Ticket): boolean {
     return required !== undefined && !doneColumns.has(required.columnId);
   });
 }
+
+/**
+ * Whether a board trigger applies to a ticket where it sits now. A board
+ * trigger names its column; an any-board trigger (`boardId` null) matches the
+ * column's type on whichever board the ticket is on.
+ */
+export function boardTriggerMatches(
+  trigger: AutomationTrigger,
+  snapshot: BoardsSnapshot,
+  ticket: Ticket,
+): boolean {
+  if (trigger.type !== "board") return false;
+  if (trigger.boardId !== null) {
+    return trigger.boardId === ticket.boardId && trigger.columnId === ticket.columnId;
+  }
+  if (!trigger.columnType) return false;
+  const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
+  const column = board?.columns.find((candidate) => candidate.id === ticket.columnId);
+  return column?.type === trigger.columnType;
+}
+
+/** Why a board trigger is incomplete, or null. */
+export function boardTriggerProblem(trigger: AutomationTrigger): string | null {
+  if (trigger.type !== "board") return null;
+  if (trigger.boardId !== null) {
+    return trigger.columnId ? null : "Pick the column the hook watches.";
+  }
+  return trigger.columnType ? null : "Pick the kind of column the hook watches on every board.";
+}

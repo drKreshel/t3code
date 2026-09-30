@@ -6,6 +6,7 @@ import {
   indexBoards,
   moveStartsTicket,
   positionBetween,
+  recentBoardsByActivity,
   suggestBoardKey,
   ticketAttention,
   ticketBlockers,
@@ -161,5 +162,18 @@ describe("ticketsNewlyInAttention", () => {
       ]),
     );
     expect(next.added.map((t) => t.id)).toEqual(["todo"]);
+  });
+});
+
+describe("recentBoardsByActivity", () => {
+  it("orders live boards by their newest ticket change", () => {
+    const other: Board = { ...board, id: "b2", key: "API", updatedAt: "2026-09-02" };
+    const archived: Board = { ...board, id: "b3", key: "OLD", archivedAt: "x" };
+    const state: BoardsSnapshot = {
+      boards: [{ ...board, updatedAt: "2026-09-01" }, other, archived],
+      tickets: [ticket("t", { boardId: "b1", updatedAt: "2026-09-05" })],
+    };
+    expect(recentBoardsByActivity(state, 5).map((entry) => entry.key)).toEqual(["WEB", "API"]);
+    expect(recentBoardsByActivity(state, 1).map((entry) => entry.key)).toEqual(["WEB"]);
   });
 });

@@ -1,4 +1,10 @@
-import type { Automation, AutomationSchedule, AutomationTrigger } from "@t3tools/contracts";
+import type {
+  Automation,
+  AutomationSchedule,
+  AutomationTrigger,
+  Board,
+  BoardColumnType,
+} from "@t3tools/contracts";
 
 export type RepeatKind = "once" | "hourly" | "daily" | "weekdays" | "weekly" | "monthly" | "custom";
 
@@ -128,28 +134,54 @@ export function describeSchedule(schedule: AutomationSchedule): string {
   }
 }
 
+/** Human names for column types, for any-board hooks. */
+export const COLUMN_TYPE_LABEL: Record<BoardColumnType, string> = {
+  backlog: "Backlog",
+  todo: "Todo",
+  active: "In progress",
+  review: "Testing / review",
+  attention: "Needs you",
+  done: "Done",
+  canceled: "Canceled",
+};
+
 /** A trigger in words; board names come from the caller. */
 export function describeTrigger(
   trigger: AutomationTrigger,
   boardColumnLabel: (boardId: string, columnId: string) => string,
 ): string {
-  if (trigger.type === "board")
-    return `When a ticket enters ${boardColumnLabel(trigger.boardId, trigger.columnId)}`;
-  return describeSchedule(trigger.schedule);
+  if (trigger.type === "schedule") return describeSchedule(trigger.schedule);
+  if (trigger.boardId === null || trigger.columnId === null) {
+    const type = trigger.columnType ? COLUMN_TYPE_LABEL[trigger.columnType] : "a";
+    return `When a ticket enters a ${type} column on any board`;
+  }
+  return `When a ticket enters ${boardColumnLabel(trigger.boardId, trigger.columnId)}`;
 }
 
-/** Board hooks of one board, by column id. */
+/**
+ * Hooks that watch each column of one board, by column id: the board's own,
+ * plus any-board hooks for the column's type.
+ */
 export function hooksByColumn(
   automations: ReadonlyArray<Automation>,
-  boardId: string,
+  board: Pick<Board, "id" | "columns">,
 ): Map<string, Automation[]> {
   const byColumn = new Map<string, Automation[]>();
+  const add = (columnId: string, automation: Automation) => {
+    const list = byColumn.get(columnId);
+    if (list) list.push(automation);
+    else byColumn.set(columnId, [automation]);
+  };
   for (const automation of automations) {
     const { trigger } = automation;
-    if (trigger.type !== "board" || trigger.boardId !== boardId) continue;
-    const list = byColumn.get(trigger.columnId);
-    if (list) list.push(automation);
-    else byColumn.set(trigger.columnId, [automation]);
+    if (trigger.type !== "board") continue;
+    if (trigger.boardId === null) {
+      for (const column of board.columns) {
+        if (column.type === trigger.columnType) add(column.id, automation);
+      }
+    } else if (trigger.boardId === board.id && trigger.columnId !== null) {
+      add(trigger.columnId, automation);
+    }
   }
   return byColumn;
 }

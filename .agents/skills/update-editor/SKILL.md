@@ -24,8 +24,10 @@ Kreshel runs this fork as their daily editor while changing it. Keep the working
 2. `vp` is not installed globally: use `pnpm exec vp ...` from the checkout root.
 3. Start the dev app in the background and track its PID: `pnpm exec vp run dev:desktop`. It defaults to `~/.t3/dev`; read the real ports from the `[dev-runner]` line. For browser testing use `pnpm exec vp run dev` with the `test-t3-app` skill.
 4. Known dev glitch: the first window load can fail with `T3 Code failed to start ... main.tsx` (`ERR_INSUFFICIENT_RESOURCES`). Relaunch the window with `touch apps/desktop/dist-electron/preload.cjs`, or ask Kreshel to press ⌘R.
-5. Stop only processes you started, by PID. If Kreshel started the dev app, ask before stopping it.
-6. Verify with targeted `pnpm exec tsc --noEmit` (in `apps/web`), `pnpm exec vp test run <files>`, and `pnpm exec vp lint <files>`. No repo-wide checks.
+5. The desktop dev app runs a built server (`apps/server/dist`) with no watcher: after server or contracts changes run `pnpm exec vp pack` in `apps/server`; the app restarts on the new build. The web UI hot-reloads by itself.
+6. Stopping a `dev:desktop` run means its whole tree, including `scripts/dev-electron.mjs`. A leftover `dev-electron.mjs` relaunches a second dev app on the same `~/.t3/dev`, which double-fires automations.
+7. Stop only processes you started, by PID. If Kreshel started the dev app, ask before stopping it.
+8. Verify with targeted `pnpm exec tsc --noEmit` (in `apps/web`), `pnpm exec vp test run <files>`, and `pnpm exec vp lint <files>`. No repo-wide checks.
 
 Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sqlite*` into `~/.t3/backups/`, then snapshot with
 `sqlite3 -readonly ~/.t3/userdata/state.sqlite "VACUUM INTO '$HOME/.t3/dev/state.sqlite'"`. Never copy `environment-id`.

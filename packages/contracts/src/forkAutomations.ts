@@ -8,6 +8,7 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { BoardColumnType } from "./forkBoards.ts";
 import { ModelSelection, ProviderInteractionMode, RuntimeMode } from "./orchestration.ts";
 
 export const FORK_AUTOMATIONS_WS_METHODS = {
@@ -33,11 +34,16 @@ export const AutomationTrigger = Schema.Union([
     /** IANA zone, like Europe/Berlin. */
     timezone: TrimmedNonEmptyString,
   }),
-  /** A ticket entering this column (by any move, or created in it). */
+  /**
+   * A ticket entering a column (by any move, or created in it). With a board,
+   * `columnId` names the column. With `boardId` null the hook applies to every
+   * board, matched by `columnType` since boards name their columns freely.
+   */
   Schema.Struct({
     type: Schema.Literal("board"),
-    boardId: TrimmedNonEmptyString,
-    columnId: TrimmedNonEmptyString,
+    boardId: Schema.NullOr(TrimmedNonEmptyString),
+    columnId: Schema.NullOr(TrimmedNonEmptyString),
+    columnType: Schema.optional(Schema.NullOr(BoardColumnType)),
   }),
 ]);
 export type AutomationTrigger = typeof AutomationTrigger.Type;

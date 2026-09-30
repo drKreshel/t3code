@@ -353,4 +353,51 @@ describe("AutomationEngine", () => {
       expect(badCron.message).toMatch(/Invalid schedule/);
     }).pipe(Effect.provide(TestLayer)),
   );
+
+  it.effect("an any-board hook fires on every board's column of its type", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const boardId = (yield* harness.boards.dispatch(
+        { type: "board.create", name: "Beta", key: "BETA", defaultProjectKey: PROJECT_KEY },
+        "user",
+      )).id!;
+      yield* harness.engine.dispatch({
+        type: "automation.create",
+        title: "Test anything",
+        prompt: "Test {{ticket.key}}",
+        trigger: { type: "board", boardId: null, columnId: null, columnType: "review" },
+        action,
+      });
+      const columns = (yield* harness.boards.snapshot).boards[0]!.columns;
+      const review = columns.find((column) => column.type === "review")!.id;
+      const active = columns.find((column) => column.type === "active")!.id;
+      const ticketId = (yield* harness.boards.dispatch(
+        { type: "ticket.create", boardId, title: "Anywhere" },
+        "user",
+      )).id!;
+
+      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: active });
+      expect(yield* harness.threadIdsStarted).toEqual([]);
+      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: review });
+      const commands = yield* Ref.get(harness.commands);
+      const turn = commands.find((command) => command.type === "thread.turn.start");
+      expect(turn?.type === "thread.turn.start" && turn.message.text).toBe("Test BETA-1");
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("rejects an any-board hook without a column type", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const error = yield* harness.engine
+        .dispatch({
+          type: "automation.create",
+          title: "Nowhere",
+          prompt: "Test",
+          trigger: { type: "board", boardId: null, columnId: null },
+          action,
+        })
+        .pipe(Effect.flip);
+      expect(error.message).toMatch(/kind of column/);
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });

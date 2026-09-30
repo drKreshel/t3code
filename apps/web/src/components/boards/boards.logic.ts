@@ -203,3 +203,22 @@ export function ticketsNewlyInAttention(
   if (previous === null) return { current, added: [] };
   return { current, added: waiting.filter((ticket) => !previous.has(ticket.id)) };
 }
+
+/**
+ * Live boards by latest activity (the newest ticket change, else the board's
+ * own), most recent first. Stands in for "recently used" without tracking it.
+ */
+export function recentBoardsByActivity(snapshot: BoardsSnapshot, limit: number): Board[] {
+  const lastActivity = new Map<string, string>();
+  for (const board of snapshot.boards) lastActivity.set(board.id, board.updatedAt);
+  for (const ticket of snapshot.tickets) {
+    const current = lastActivity.get(ticket.boardId);
+    if (current !== undefined && ticket.updatedAt > current) {
+      lastActivity.set(ticket.boardId, ticket.updatedAt);
+    }
+  }
+  return snapshot.boards
+    .filter((board) => board.archivedAt === null)
+    .toSorted((a, b) => (lastActivity.get(b.id) ?? "").localeCompare(lastActivity.get(a.id) ?? ""))
+    .slice(0, limit);
+}

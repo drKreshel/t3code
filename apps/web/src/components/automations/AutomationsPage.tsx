@@ -62,6 +62,8 @@ const TEMPLATES: ReadonlyArray<{ readonly label: string; readonly draft: Automat
   {
     label: "Test tickets entering Testing",
     draft: {
+      trigger: "board",
+      anyBoardColumnType: "review",
       title: "Test ticket",
       prompt:
         "Test {{ticket.key}}: {{ticket.title}}. Read the ticket with get_ticket, verify each acceptance criterion and check off the ones that pass. If all pass, move it to Done. Otherwise leave a handoff comment saying what failed and move it back to In progress.",

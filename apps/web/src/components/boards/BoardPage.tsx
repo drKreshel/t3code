@@ -99,9 +99,9 @@ function BoardView({
   const hooks = useMemo(
     () =>
       automations.status === "ready"
-        ? hooksByColumn(automations.snapshot.automations, board.id)
+        ? hooksByColumn(automations.snapshot.automations, board)
         : new Map<string, Automation[]>(),
-    [automations, board.id],
+    [automations, board],
   );
   const hooksPaused =
     automations.status === "ready" &&
