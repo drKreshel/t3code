@@ -15,6 +15,8 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
 import { useBoardsDispatch } from "../../state/boards";
+import { useWorkspacesDispatch } from "../../state/workspaces";
+import { toastManager } from "../ui/toast";
 import { useProjects } from "../../state/entities";
 import type { TicketView } from "./useBoardsModel";
 
@@ -68,13 +70,42 @@ export function useStartTicketSession(): (
 ) => Promise<void> {
   const handleNewThread = useNewThreadHandler();
   const dispatch = useBoardsDispatch();
+  const workspacesDispatch = useWorkspacesDispatch();
   const lookupProject = useProjectLookup();
   return useCallback(
     async (view, options) => {
       if (!(await confirmStartBlocked(view))) return;
-      const start = async (projectRef: ScopedProjectRef) => {
-        const result = await handleNewThread(projectRef);
+      const start = async (projectRef: ScopedProjectRef, inTicketProject: boolean) => {
+        // In the ticket's own project the chat runs in the ticket's workspace,
+        // shared with its hook chats; a project picked by hand gets a plain chat.
+        const workspace = inTicketProject
+          ? await workspacesDispatch(
+              { type: "workspace.ensure", ticketId: view.ticket.id },
+              { quiet: true },
+            )
+          : undefined;
+        if (workspace && !workspace.ok) {
+          toastManager.add({
+            type: "info",
+            title: "Starting in the project checkout",
+            description: workspace.message,
+          });
+        }
+        const placed = workspace?.ok ? workspace.result : null;
+        const result = await handleNewThread(
+          projectRef,
+          placed?.path
+            ? { worktreePath: placed.path, branch: placed.branch, envMode: "worktree" }
+            : undefined,
+        );
         if (result === null) return;
+        if (placed?.created) {
+          void workspacesDispatch({
+            type: "workspace.setup",
+            ticketId: view.ticket.id,
+            threadId: result.threadId,
+          });
+        }
         await dispatch({
           type: "thread.link",
           threadKey: scopedThreadKey(scopeThreadRef(projectRef.environmentId, result.threadId)),
@@ -91,14 +122,14 @@ export function useStartTicketSession(): (
         ? null
         : (lookupProject(view.ticket.projectKey) ?? lookupProject(view.board.defaultProjectKey));
       if (project) {
-        await start(scopeProjectRef(project.environmentId, project.id));
+        await start(scopeProjectRef(project.environmentId, project.id), true);
         return;
       }
       openCommandPalette({
         open: "new-thread-in",
-        onPickProject: (picked) => void start(picked),
+        onPickProject: (picked) => void start(picked, false),
       });
     },
-    [dispatch, handleNewThread, lookupProject],
+    [dispatch, handleNewThread, lookupProject, workspacesDispatch],
   );
 }

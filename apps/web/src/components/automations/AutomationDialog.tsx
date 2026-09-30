@@ -77,6 +77,7 @@ const REPEAT_LABEL: Record<RepeatKind, string> = {
 const REPEATS = Object.keys(REPEAT_LABEL) as RepeatKind[];
 
 const CHECKOUT_LABEL: Record<AutomationCheckout, string> = {
+  ticket: "Ticket's workspace",
   local: "Project checkout",
   worktree: "New worktree per run",
 };
@@ -246,8 +247,9 @@ function AutomationForm({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     automation?.action.runtimeMode ?? "full-access",
   );
+  // Hooks default to the ticket's workspace, so every chat on a ticket shares one checkout.
   const [checkout, setCheckout] = useState<AutomationCheckout>(
-    automation?.action.checkout ?? "local",
+    automation?.action.checkout ?? (kind === "board" ? "ticket" : "local"),
   );
   const [enabled, setEnabled] = useState(automation?.enabled ?? true);
   const [submitting, setSubmitting] = useState(false);
@@ -368,7 +370,10 @@ function AutomationForm({
               value={[kind]}
               onValueChange={(next) => {
                 const value = next[0];
-                if (value === "schedule" || value === "board") setKind(value);
+                if (value === "schedule" || value === "board") {
+                  setKind(value);
+                  if (value === "schedule" && checkout === "ticket") setCheckout("local");
+                }
               }}
             >
               <Toggle value="schedule">On a schedule</Toggle>
@@ -614,11 +619,14 @@ function AutomationForm({
                   <SelectValue>{CHECKOUT_LABEL[checkout]}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup alignItemWithTrigger={false}>
-                  {(Object.keys(CHECKOUT_LABEL) as AutomationCheckout[]).map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {CHECKOUT_LABEL[option]}
-                    </SelectItem>
-                  ))}
+                  {(Object.keys(CHECKOUT_LABEL) as AutomationCheckout[])
+                    // A schedule has no ticket to share a workspace with.
+                    .filter((option) => kind === "board" || option !== "ticket")
+                    .map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {CHECKOUT_LABEL[option]}
+                      </SelectItem>
+                    ))}
                 </SelectPopup>
               </Select>
             </Field>

@@ -35,6 +35,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
+import { TicketWorkspaceSection } from "./WorkspaceSettings";
 import { describeTicketEvent, moveStartsTicket } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { COLUMN_TYPE_DOT_CLASS, PRIORITIES, PRIORITY_LABEL } from "./boardsPresentation";
@@ -122,6 +123,12 @@ function TicketBody({
           <DescriptionSection view={view} readOnly={readOnly} />
           <CriteriaSection view={view} readOnly={readOnly} />
           <SessionsSection view={view} readOnly={readOnly} />
+          <TicketWorkspaceSection
+            ticketId={view.ticket.id}
+            boardId={view.board.id}
+            projectKey={view.ticket.projectKey ?? view.board.defaultProjectKey}
+            readOnly={readOnly}
+          />
           <TicketRunsSection view={view} readOnly={readOnly} />
           <CommentsSection
             view={view}

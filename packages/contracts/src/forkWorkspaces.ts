@@ -157,3 +157,55 @@ export const ForkWorkspacesListReposRpc = Rpc.make(FORK_WORKSPACES_WS_METHODS.li
   success: ProjectRepos,
   error: Schema.Union([WorkspacesCommandError, EnvironmentAuthorizationError]),
 });
+
+export interface PlannedRepo {
+  readonly repo: string;
+  readonly checkout: "worktree" | "local";
+  /** Null: the repo's remote default branch. */
+  readonly startFrom: string | null;
+}
+
+/**
+ * The repos a ticket's workspace holds, with their checkout and start branch.
+ * Layers apply in order (project, board, ticket): a layer's defaults apply to
+ * every repo, then its per-repo rules; a later layer overrides an earlier one
+ * field by field.
+ *
+ * Without rules, a single-repo project gets a worktree and a folder of repos
+ * gets nothing: a folder can hold many repos, and a ticket should only carry
+ * the ones it works on.
+ */
+export function planWorkspace(
+  project: ProjectRepos,
+  layers: ReadonlyArray<Pick<WorkspaceRules, "defaults" | "repos"> | undefined>,
+): PlannedRepo[] {
+  if (project.kind === "none") return [];
+  const repos = project.kind === "repo" ? ["."] : project.repos;
+  let defaultCheckout: WorkspaceCheckout = project.kind === "repo" ? "worktree" : "skip";
+  let defaultStartFrom: string | undefined;
+  const perRepo = new Map<string, { checkout?: WorkspaceCheckout; startFrom?: string }>();
+  for (const layer of layers) {
+    if (!layer) continue;
+    if (layer.defaults.checkout !== undefined) {
+      defaultCheckout = layer.defaults.checkout;
+      // A layer's default overrides earlier layers' per-repo checkouts too.
+      for (const entry of perRepo.values()) delete entry.checkout;
+    }
+    if (layer.defaults.startFrom !== undefined) {
+      defaultStartFrom = layer.defaults.startFrom;
+      for (const entry of perRepo.values()) delete entry.startFrom;
+    }
+    for (const rule of layer.repos) {
+      const entry = perRepo.get(rule.repo) ?? {};
+      if (rule.checkout !== undefined) entry.checkout = rule.checkout;
+      if (rule.startFrom !== undefined) entry.startFrom = rule.startFrom;
+      perRepo.set(rule.repo, entry);
+    }
+  }
+  return repos.flatMap((repo) => {
+    const entry = perRepo.get(repo);
+    const checkout = entry?.checkout ?? defaultCheckout;
+    if (checkout === "skip") return [];
+    return [{ repo, checkout, startFrom: entry?.startFrom ?? defaultStartFrom ?? null }];
+  });
+}

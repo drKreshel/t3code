@@ -18,7 +18,9 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { rulesOf, useWorkspaces } from "../../state/workspaces";
 import { BOARD_KEY_PATTERN, positionBetween } from "./boards.logic";
+import { WorkspaceRulesEditor } from "./WorkspaceSettings";
 import { COLUMN_TYPE_LABEL, COLUMN_TYPES } from "./boardsPresentation";
 
 /** Renames a board, changes its key, and edits its columns. */
@@ -160,7 +162,57 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
           Add column
         </Button>
       </div>
+      <BoardWorkspaceSettings board={board} />
     </DialogPanel>
+  );
+}
+
+/**
+ * Which repos this board's tickets work in, how, and from which branch. The
+ * project's settings apply to every board using the project; the board's
+ * override them; a ticket can override both.
+ */
+function BoardWorkspaceSettings({ board }: { readonly board: Board }) {
+  const snapshot = useWorkspaces();
+  const projectKey = board.defaultProjectKey;
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <Label>Ticket workspaces</Label>
+        <p className="text-xs text-muted-foreground">
+          Each ticket's chats run in its own folder, with a git worktree per repo on the branch
+          ticket/&lt;key&gt;. Empty fields inherit.
+        </p>
+      </div>
+      {projectKey === null ? (
+        <p className="text-sm text-muted-foreground">
+          Set the board's default project to choose its workspace settings.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium text-muted-foreground">This board</span>
+            <WorkspaceRulesEditor
+              scope="board"
+              scopeId={board.id}
+              projectKey={projectKey}
+              earlierLayers={[rulesOf(snapshot, "project", projectKey)]}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Every board using this project
+            </span>
+            <WorkspaceRulesEditor
+              scope="project"
+              scopeId={projectKey}
+              projectKey={projectKey}
+              earlierLayers={[]}
+            />
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
