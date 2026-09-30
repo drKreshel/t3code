@@ -66,16 +66,13 @@ export function ThreadTicketChip({
     }
     const { snapshot } = boards;
     const needle = query.trim().toLowerCase();
-    const liveBoards = snapshot.boards
-      .filter((board) => board.archivedAt === null)
-      .toSorted((a, b) => a.position - b.position);
+    // Most recently active first, so tickets follow the same order as the boards above them.
+    const liveBoards = recentBoardsByActivity(snapshot, Number.POSITIVE_INFINITY);
     const boardMatches = (board: (typeof liveBoards)[number]) =>
       board.name.toLowerCase().includes(needle) || board.key.toLowerCase().includes(needle);
     // Empty query: the most recently active boards; otherwise every matching board.
     const shownBoards =
-      needle === ""
-        ? recentBoardsByActivity(snapshot, RECENT_BOARD_COUNT)
-        : liveBoards.filter(boardMatches);
+      needle === "" ? liveBoards.slice(0, RECENT_BOARD_COUNT) : liveBoards.filter(boardMatches);
     const openTickets = (boardId: string) =>
       snapshot.tickets.filter((ticket) => ticket.boardId === boardId && ticket.archivedAt === null)
         .length;
