@@ -1,4 +1,9 @@
-import { FORK_BOARDS_WS_METHODS, ORCHESTRATION_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
+import {
+  FORK_AUTOMATIONS_WS_METHODS,
+  FORK_BOARDS_WS_METHODS,
+  ORCHESTRATION_WS_METHODS,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import type * as Duration from "effect/Duration";
@@ -61,7 +66,8 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.subscribeProjectClones
   | typeof WS_METHODS.terminalAttach
   | typeof FORK_BOARDS_WS_METHODS.subscribe
-  | typeof FORK_BOARDS_WS_METHODS.subscribeTicket;
+  | typeof FORK_BOARDS_WS_METHODS.subscribeTicket
+  | typeof FORK_AUTOMATIONS_WS_METHODS.subscribe;
 
 export type EnvironmentStreamCommandRpcTag =
   | typeof WS_METHODS.cloudInstallRelayClient

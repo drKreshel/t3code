@@ -18,11 +18,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Link } from "@tanstack/react-router";
-import type { Board, BoardColumn } from "@t3tools/contracts";
+import type { Automation, Board, BoardColumn } from "@t3tools/contracts";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   EllipsisIcon,
+  PauseIcon,
+  PlayIcon,
+  ZapIcon,
   FolderIcon,
   LockIcon,
   PlusIcon,
@@ -31,7 +34,10 @@ import {
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { cn } from "../../lib/utils";
+import { useAutomations, useAutomationsDispatch } from "../../state/automations";
 import { useBoardsDispatch } from "../../state/boards";
+import { AutomationDialog, type AutomationDraft } from "../automations/AutomationDialog";
+import { hooksByColumn } from "../automations/automations.logic";
 import { resolveProjectStatusIndicator, resolveThreadStatusPill } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -84,6 +90,22 @@ function BoardView({
   const defaultProject = lookupProject(board.defaultProjectKey);
   const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const automations = useAutomations();
+  const automationsDispatch = useAutomationsDispatch();
+  const [hookDialog, setHookDialog] = useState<{
+    readonly automation: Automation | null;
+    readonly draft: AutomationDraft | null;
+  } | null>(null);
+  const hooks = useMemo(
+    () =>
+      automations.status === "ready"
+        ? hooksByColumn(automations.snapshot.automations, board.id)
+        : new Map<string, Automation[]>(),
+    [automations, board.id],
+  );
+  const hooksPaused =
+    automations.status === "ready" &&
+    automations.snapshot.boardHooks.some((state) => state.boardId === board.id && state.paused);
   const columns = useMemo(
     () => board.columns.toSorted((a, b) => a.position - b.position),
     [board.columns],
@@ -271,6 +293,26 @@ function BoardView({
                 <SettingsIcon />
                 Board settings
               </MenuItem>
+              <MenuItem
+                onClick={() => setHookDialog({ automation: null, draft: { boardId: board.id } })}
+              >
+                <ZapIcon />
+                Add hook…
+              </MenuItem>
+              {hooks.size > 0 ? (
+                <MenuItem
+                  onClick={() =>
+                    void automationsDispatch({
+                      type: "board.pauseHooks",
+                      boardId: board.id,
+                      paused: !hooksPaused,
+                    })
+                  }
+                >
+                  {hooksPaused ? <PlayIcon /> : <PauseIcon />}
+                  {hooksPaused ? "Resume hooks" : "Pause hooks"}
+                </MenuItem>
+              ) : null}
               <MenuSeparator />
               <MenuItem
                 onClick={() =>
@@ -318,12 +360,29 @@ function BoardView({
               adding={addingColumnId === column.id}
               onAddingChange={(adding) => setAddingColumnId(adding ? column.id : null)}
               justDraggedRef={justDraggedRef}
+              hooks={hooks.get(column.id) ?? []}
+              hooksPaused={hooksPaused}
+              onEditHook={(automation) => setHookDialog({ automation, draft: null })}
+              onAddHook={() =>
+                setHookDialog({
+                  automation: null,
+                  draft: { boardId: board.id, columnId: column.id },
+                })
+              }
             />
           ))}
         </div>
         <DragOverlay>{activeView ? <TicketCard view={activeView} overlay /> : null}</DragOverlay>
       </DndContext>
       <BoardSettingsDialog board={board} open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <AutomationDialog
+        open={hookDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setHookDialog(null);
+        }}
+        automation={hookDialog?.automation ?? null}
+        draft={hookDialog?.draft ?? null}
+      />
     </BoardsPageFrame>
   );
 }
@@ -335,6 +394,10 @@ function BoardColumnView({
   adding,
   onAddingChange,
   justDraggedRef,
+  hooks,
+  hooksPaused,
+  onEditHook,
+  onAddHook,
 }: {
   readonly board: Board;
   readonly column: BoardColumn;
@@ -342,6 +405,11 @@ function BoardColumnView({
   readonly adding: boolean;
   readonly onAddingChange: (adding: boolean) => void;
   readonly justDraggedRef: { readonly current: boolean };
+  /** Automations that run when a ticket enters this column. */
+  readonly hooks: ReadonlyArray<Automation>;
+  readonly hooksPaused: boolean;
+  readonly onEditHook: (automation: Automation) => void;
+  readonly onAddHook: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id: column.id });
   const highlighted = column.type === "attention" && views.length > 0;
@@ -358,9 +426,39 @@ function BoardColumnView({
         <h2 className="min-w-0 truncate font-medium">{column.name}</h2>
         <span className="text-xs tabular-nums text-muted-foreground">{views.length}</span>
         {board.archivedAt === null ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  aria-label={
+                    hooks.length > 0
+                      ? `${hooks.length} hook${hooks.length === 1 ? "" : "s"} on ${column.name}${hooksPaused ? " (paused)" : ""}`
+                      : `Add a hook to ${column.name}`
+                  }
+                  className="ml-auto"
+                  size={hooks.length > 0 ? "xs" : "icon-xs"}
+                  variant={hooks.length > 0 && !hooksPaused ? "secondary" : "ghost"}
+                />
+              }
+            >
+              <ZapIcon />
+              {hooks.length > 0 ? hooks.length : null}
+            </MenuTrigger>
+            <MenuPopup align="end">
+              {hooks.map((automation) => (
+                <MenuItem key={automation.id} onClick={() => onEditHook(automation)}>
+                  {automation.title}
+                  {automation.enabled ? "" : " (off)"}
+                </MenuItem>
+              ))}
+              {hooks.length > 0 ? <MenuSeparator /> : null}
+              <MenuItem onClick={onAddHook}>Add hook to {column.name}…</MenuItem>
+            </MenuPopup>
+          </Menu>
+        ) : null}
+        {board.archivedAt === null ? (
           <Button
             aria-label={`Add ticket to ${column.name}`}
-            className="ml-auto"
             size="icon-xs"
             variant="ghost"
             onClick={() => onAddingChange(true)}

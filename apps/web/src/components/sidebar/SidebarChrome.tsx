@@ -1,4 +1,10 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon, SquareKanbanIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  SettingsIcon,
+  SquareKanbanIcon,
+  ZapIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -179,6 +185,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/boards" });
   }, [closeMobileSidebar, navigate]);
 
+  const handleAutomationsClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/automations" });
+  }, [closeMobileSidebar, navigate]);
+
   const handleUsageClick = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -219,6 +230,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Boards"
             onClick={handleBoardsClick}
             count={boardsNeedsYou}
+          />
+          <SidebarUtilityItem
+            icon={<ZapIcon />}
+            label="Automations"
+            onClick={handleAutomationsClick}
           />
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}

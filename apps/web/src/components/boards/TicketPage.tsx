@@ -1,4 +1,8 @@
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  parseScopedThreadKey,
+  scopedThreadKey,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { TicketComment, TicketEvent, TicketPriority } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
@@ -9,6 +13,7 @@ import {
   LockIcon,
   MessageSquarePlusIcon,
   PlusIcon,
+  RotateCcwIcon,
   Trash2Icon,
   UnlinkIcon,
   XIcon,
@@ -16,6 +21,7 @@ import {
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
+import { useAutomations, useAutomationsDispatch } from "../../state/automations";
 import { useBoardsDispatch, useTicketDetail } from "../../state/boards";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import ChatMarkdown from "../ChatMarkdown";
@@ -116,6 +122,7 @@ function TicketBody({
           <DescriptionSection view={view} readOnly={readOnly} />
           <CriteriaSection view={view} readOnly={readOnly} />
           <SessionsSection view={view} readOnly={readOnly} />
+          <TicketRunsSection view={view} readOnly={readOnly} />
           <CommentsSection
             view={view}
             comments={comments}
@@ -847,5 +854,79 @@ function TicketProperties({
         </Button>
       ) : null}
     </aside>
+  );
+}
+
+/** Automation runs on this ticket, and the way back from the run limit. */
+function TicketRunsSection({
+  view,
+  readOnly,
+}: {
+  readonly view: TicketView;
+  readonly readOnly: boolean;
+}) {
+  const automations = useAutomations();
+  const dispatch = useAutomationsDispatch();
+  if (automations.status !== "ready") return null;
+  const runs = automations.snapshot.runs.filter((run) => run.ticketId === view.ticket.id);
+  if (runs.length === 0) return null;
+  const titleOf = (automationId: string) =>
+    automations.snapshot.automations.find((automation) => automation.id === automationId)?.title ??
+    "Deleted automation";
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionHeading
+        actions={
+          !readOnly ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      void dispatch({ type: "ticket.resumeHooks", ticketId: view.ticket.id })
+                    }
+                  >
+                    <RotateCcwIcon />
+                    Resume hooks
+                  </Button>
+                }
+              />
+              <TooltipPopup side="top">
+                Resets the run limit and runs the hooks of its current column
+              </TooltipPopup>
+            </Tooltip>
+          ) : null
+        }
+      >
+        Automation runs
+      </SectionHeading>
+      <ol className="flex flex-col gap-1.5 text-sm">
+        {runs.slice(0, 10).map((run) => {
+          const threadRef = run.threadKey ? parseScopedThreadKey(run.threadKey) : null;
+          return (
+            <li key={run.id} className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 text-foreground">{titleOf(run.automationId)}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {run.status} {formatRelativeTimeLabel(run.startedAt ?? run.createdAt)}
+              </span>
+              {threadRef ? (
+                <Link
+                  className="shrink-0 text-xs hover:underline"
+                  to="/$environmentId/$threadId"
+                  params={{ environmentId: threadRef.environmentId, threadId: threadRef.threadId }}
+                >
+                  Open chat
+                </Link>
+              ) : null}
+              {run.reason ? (
+                <span className="min-w-0 truncate text-xs text-muted-foreground">{run.reason}</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }

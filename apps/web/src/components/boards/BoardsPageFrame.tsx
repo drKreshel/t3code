@@ -23,22 +23,25 @@ export interface BoardsCrumb {
  * vertical scroll area; the board view scrolls its columns itself.
  */
 export function BoardsPageFrame({
+  root = "Boards",
   crumbs,
   actions,
   scroll = true,
   children,
 }: {
+  /** The first crumb, and the page it links to. */
+  readonly root?: "Boards" | "Automations";
   readonly crumbs: ReadonlyArray<BoardsCrumb>;
   readonly actions?: ReactNode;
   readonly scroll?: boolean;
   readonly children: ReactNode;
 }) {
-  const trail: ReadonlyArray<BoardsCrumb> = [{ label: "Boards", to: {} }, ...crumbs];
+  const trail: ReadonlyArray<BoardsCrumb> = [{ label: root, to: {} }, ...crumbs];
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>
-          <WorkspaceBreadcrumb ariaLabel="Boards breadcrumb" className="min-w-0 flex-1">
+          <WorkspaceBreadcrumb ariaLabel={`${root} breadcrumb`} className="min-w-0 flex-1">
             {trail.map((crumb, index) => {
               const current = index === trail.length - 1;
               return [
@@ -49,7 +52,10 @@ export function BoardsPageFrame({
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </h1>
                   ) : crumb.to.boardKey === undefined ? (
-                    <Link className="hover:text-foreground" to="/boards">
+                    <Link
+                      className="hover:text-foreground"
+                      to={root === "Boards" ? "/boards" : "/automations"}
+                    >
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </Link>
                   ) : (
