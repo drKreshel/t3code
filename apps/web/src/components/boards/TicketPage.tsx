@@ -115,7 +115,7 @@ function TicketBody({
           ) : null}
           <DescriptionSection view={view} readOnly={readOnly} />
           <CriteriaSection view={view} readOnly={readOnly} />
-          <SessionsSection view={view} handoff={handoff?.body ?? null} readOnly={readOnly} />
+          <SessionsSection view={view} readOnly={readOnly} />
           <CommentsSection
             view={view}
             comments={comments}
@@ -342,11 +342,9 @@ function CriteriaSection({
 
 function SessionsSection({
   view,
-  handoff,
   readOnly,
 }: {
   readonly view: TicketView;
-  readonly handoff: string | null;
   readonly readOnly: boolean;
 }) {
   const dispatch = useBoardsDispatch();
@@ -354,7 +352,7 @@ function SessionsSection({
   const knownKeys = new Set(view.threads.map((thread) => threadKeyOf(thread)));
   const unknownCount = view.ticket.threadKeys.filter((key) => !knownKeys.has(key)).length;
   const handleStart = (event: MouseEvent) => {
-    void startSession(view, { pickProject: event.shiftKey || event.altKey, handoff });
+    void startSession(view, { pickProject: event.shiftKey || event.altKey });
   };
   return (
     <section className="flex flex-col gap-2">

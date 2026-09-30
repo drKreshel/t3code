@@ -139,29 +139,6 @@ export function moveStartsTicket(from: BoardColumnType | undefined, to: BoardCol
   return STARTED_COLUMN_TYPES.has(to) && (from === undefined || !STARTED_COLUMN_TYPES.has(from));
 }
 
-/**
- * The first message of a chat started from a ticket: what to do, what done
- * means, and the note the last chat left. Kreshel edits it before sending.
- */
-export function ticketBriefing(input: {
-  readonly label: string;
-  readonly ticket: Pick<Ticket, "title" | "description" | "criteria">;
-  readonly handoff: string | null;
-}): string {
-  const sections = [`Work on ticket ${input.label}: ${input.ticket.title}`];
-  const description = input.ticket.description.trim();
-  if (description) sections.push(description);
-  if (input.ticket.criteria.length > 0) {
-    const criteria = [...input.ticket.criteria]
-      .sort((a, b) => a.position - b.position)
-      .map((criterion) => `- [${criterion.checked ? "x" : " "}] ${criterion.text}`);
-    sections.push(["Acceptance criteria:", ...criteria].join("\n"));
-  }
-  if (input.handoff?.trim())
-    sections.push(`Handoff from the last session:\n${input.handoff.trim()}`);
-  return `${sections.join("\n\n")}\n`;
-}
-
 /** One line for a timeline event, from its kind and payload. */
 export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">): string {
   const text = (key: string) => {

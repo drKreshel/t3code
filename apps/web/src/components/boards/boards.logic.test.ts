@@ -9,7 +9,6 @@ import {
   suggestBoardKey,
   ticketAttention,
   ticketBlockers,
-  ticketBriefing,
   ticketsByColumn,
   ticketsNewlyInAttention,
 } from "./boards.logic";
@@ -125,31 +124,6 @@ describe("moveStartsTicket", () => {
     expect(moveStartsTicket("backlog", "done")).toBe(true);
     expect(moveStartsTicket("active", "review")).toBe(false);
     expect(moveStartsTicket("todo", "attention")).toBe(false);
-  });
-});
-
-describe("ticketBriefing", () => {
-  it("includes the description, criteria in order, and the handoff", () => {
-    const briefing = ticketBriefing({
-      label: "WEB-3",
-      ticket: {
-        title: "Fix login",
-        description: "Session cookie expires early.",
-        criteria: [
-          { id: "c2", text: "Stays signed in", checked: false, position: 2 },
-          { id: "c1", text: "Repro written", checked: true, position: 1 },
-        ],
-      },
-      handoff: "Cookie max-age is wrong.",
-    });
-    expect(briefing).toBe(
-      [
-        "Work on ticket WEB-3: Fix login",
-        "Session cookie expires early.",
-        "Acceptance criteria:\n- [x] Repro written\n- [ ] Stays signed in",
-        "Handoff from the last session:\nCookie max-age is wrong.",
-      ].join("\n\n") + "\n",
-    );
   });
 });
 

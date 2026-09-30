@@ -16,7 +16,6 @@ import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { readLocalApi } from "../../localApi";
 import { useBoardsDispatch } from "../../state/boards";
 import { useProjects } from "../../state/entities";
-import { ticketBriefing } from "./boards.logic";
 import type { TicketView } from "./useBoardsModel";
 
 /** Asks before starting a blocked ticket; resolves true when it may go ahead. */
@@ -61,11 +60,11 @@ export function pickProjectKey(onPick: (projectKey: string) => void): void {
 /**
  * Starts a chat for a ticket: in the ticket's project, then the board's
  * default, else (or with `pickProject`) the project picker. The chat is linked
- * to the ticket and its composer is prefilled with a briefing.
+ * to the ticket and its composer is prefilled with a one-line opener.
  */
 export function useStartTicketSession(): (
   view: TicketView,
-  options: { readonly pickProject: boolean; readonly handoff: string | null },
+  options: { readonly pickProject: boolean },
 ) => Promise<void> {
   const handleNewThread = useNewThreadHandler();
   const dispatch = useBoardsDispatch();
@@ -83,13 +82,10 @@ export function useStartTicketSession(): (
         });
         const store = useComposerDraftStore.getState();
         const existing = store.getComposerDraft(result.draftId)?.prompt.trim() ?? "";
-        const briefing = ticketBriefing({
-          label: view.label,
-          ticket: view.ticket,
-          handoff: options.handoff,
-        });
-        // A reused draft may hold text already; keep it above the briefing.
-        store.setPrompt(result.draftId, existing ? `${existing}\n\n${briefing}` : briefing);
+        // One line: the agent reads the rest (criteria, handoff) with get_ticket, so it
+        // stays current. A reused draft may hold text already; keep it above.
+        const opener = `Work on ticket ${view.label}: ${view.ticket.title}`;
+        store.setPrompt(result.draftId, existing ? `${existing}\n\n${opener}` : opener);
       };
       const project = options.pickProject
         ? null
