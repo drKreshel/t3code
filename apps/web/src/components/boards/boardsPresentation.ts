@@ -1,35 +1,37 @@
-import type { BoardColumnType, TicketPriority } from "@t3tools/contracts";
+import type { TicketPriority, TicketStatus } from "@t3tools/contracts";
 
-/** Dot color per column type; names are free, so color follows meaning. */
-export const COLUMN_TYPE_DOT_CLASS: Record<BoardColumnType, string> = {
-  backlog: "bg-muted-foreground/40",
-  todo: "bg-muted-foreground/80",
-  active: "bg-info",
-  review: "bg-indigo-500 dark:bg-indigo-300/90",
-  attention: "bg-warning",
-  done: "bg-success",
-  canceled: "bg-muted-foreground/25",
+/** Column colors a board can pick; a column without one gets the neutral dot. */
+export const COLUMN_COLORS = ["gray", "blue", "violet", "amber", "green", "red"] as const;
+export type ColumnColor = (typeof COLUMN_COLORS)[number];
+
+const COLUMN_DOT_CLASS: Record<ColumnColor, string> = {
+  gray: "bg-muted-foreground/40",
+  blue: "bg-info",
+  violet: "bg-indigo-500 dark:bg-indigo-300/90",
+  amber: "bg-warning",
+  green: "bg-success",
+  red: "bg-destructive",
 };
 
-export const COLUMN_TYPE_LABEL: Record<BoardColumnType, string> = {
-  backlog: "Backlog",
-  todo: "To do",
-  active: "In progress",
-  review: "Review",
-  attention: "Needs you",
+export const COLUMN_COLOR_LABEL: Record<ColumnColor, string> = {
+  gray: "Gray",
+  blue: "Blue",
+  violet: "Violet",
+  amber: "Amber",
+  green: "Green",
+  red: "Red",
+};
+
+/** The dot class for a column's stored color token. */
+export function columnDotClass(color: string | null): string {
+  return (color && COLUMN_DOT_CLASS[color as ColumnColor]) || "bg-muted-foreground/70";
+}
+
+export const STATUS_LABEL: Record<TicketStatus, string> = {
+  open: "Open",
   done: "Done",
   canceled: "Canceled",
 };
-
-export const COLUMN_TYPES: ReadonlyArray<BoardColumnType> = [
-  "backlog",
-  "todo",
-  "active",
-  "review",
-  "attention",
-  "done",
-  "canceled",
-];
 
 export const PRIORITY_LABEL: Record<TicketPriority, string> = {
   none: "No priority",

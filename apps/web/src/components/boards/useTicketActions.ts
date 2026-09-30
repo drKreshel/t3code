@@ -6,33 +6,17 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/models";
-import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useCallback } from "react";
 
 import { openCommandPalette } from "../../commandPaletteBus";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
-import { readLocalApi } from "../../localApi";
 import { useBoardsDispatch } from "../../state/boards";
 import { useWorkspacesDispatch } from "../../state/workspaces";
 import { toastManager } from "../ui/toast";
 import { useProjects } from "../../state/entities";
 import type { TicketView } from "./useBoardsModel";
-
-/** Asks before starting a blocked ticket; resolves true when it may go ahead. */
-export async function confirmStartBlocked(view: TicketView): Promise<boolean> {
-  if (view.blockers.length === 0) return true;
-  const api = readLocalApi();
-  if (!api) return false;
-  const waitingOn = view.blockerLabels.join(", ");
-  const confirmed = await settlePromise(() =>
-    api.dialogs.confirm(
-      `Start ${view.label} anyway?\nIt requires ${waitingOn}, which ${view.blockers.length === 1 ? "is" : "are"} not done yet.`,
-    ),
-  );
-  return confirmed._tag === "Success" && confirmed.value;
-}
 
 /** Resolves a stored scoped project key to a project this client still has. */
 export function useProjectLookup(): (key: string | null) => EnvironmentProject | null {
@@ -74,7 +58,6 @@ export function useStartTicketSession(): (
   const lookupProject = useProjectLookup();
   return useCallback(
     async (view, options) => {
-      if (!(await confirmStartBlocked(view))) return;
       const start = async (projectRef: ScopedProjectRef, inTicketProject: boolean) => {
         // In the ticket's own project the chat runs in the ticket's workspace,
         // shared with its hook chats; a project picked by hand gets a plain chat.

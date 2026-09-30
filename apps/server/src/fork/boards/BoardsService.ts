@@ -7,7 +7,6 @@
  */
 import {
   type Board,
-  type BoardColumnType,
   BoardsCommandError,
   type BoardsCommand,
   type BoardsCommandErrorCode,
@@ -15,7 +14,10 @@ import {
   type BoardsSnapshot,
   type Ticket,
   type TicketDetail,
+  type TicketFlag,
+  TicketFlag as TicketFlagSchema,
   type TicketPriority,
+  type TicketStatus,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -47,7 +49,13 @@ export type BoardEvent =
       readonly columnId: string;
       readonly actor: BoardsActor;
     }
-  | { readonly type: "ticket.unblocked"; readonly ticketId: string };
+  | { readonly type: "ticket.unblocked"; readonly ticketId: string }
+  /** A flag was resolved (or cleared by a person moving the ticket): held hooks may run. */
+  | {
+      readonly type: "ticket.flagResolved";
+      readonly ticketId: string;
+      readonly actor: BoardsActor;
+    };
 
 export class BoardsService extends Context.Service<
   BoardsService,
@@ -66,21 +74,24 @@ export class BoardsService extends Context.Service<
   }
 >()("t3/fork/boards/BoardsService") {}
 
-/** Columns a new board starts with. */
+/**
+ * Columns a new board starts with. Names and colors only: columns carry no
+ * behavior, which boards add with automations (and templates set up).
+ */
 export const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
   readonly name: string;
-  readonly type: BoardColumnType;
+  readonly color: string | null;
 }> = [
-  { name: "Backlog", type: "backlog" },
-  { name: "Todo", type: "todo" },
-  { name: "In progress", type: "active" },
-  { name: "Testing", type: "review" },
-  { name: "Needs you", type: "attention" },
-  { name: "Done", type: "done" },
+  { name: "Backlog", color: null },
+  { name: "Todo", color: null },
+  { name: "In progress", color: "blue" },
+  { name: "Review", color: "violet" },
+  { name: "Done", color: "green" },
 ];
 
-/** Blocked tickets cannot enter these; they mean the work has started. */
-const STARTED_COLUMN_TYPES: ReadonlySet<BoardColumnType> = new Set(["active", "review", "done"]);
+const FlagJson = Schema.fromJsonString(TicketFlagSchema);
+const decodeFlag = Schema.decodeUnknownSync(FlagJson);
+const encodeFlag = Schema.encodeSync(FlagJson);
 
 const fail = (code: BoardsCommandErrorCode, message: string) =>
   Effect.fail(new BoardsCommandError({ code, message }));
@@ -113,7 +124,7 @@ interface ColumnRow {
   readonly id: string;
   readonly board_id: string;
   readonly name: string;
-  readonly type: BoardColumnType;
+  readonly color: string | null;
   readonly position: number;
 }
 interface TicketRow {
@@ -126,7 +137,8 @@ interface TicketRow {
   readonly priority: TicketPriority;
   readonly project_key: string | null;
   readonly position: number;
-  readonly attention_reason: string | null;
+  readonly status: TicketStatus;
+  readonly flag_json: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly archived_at: string | null;
@@ -186,7 +198,7 @@ const make = Effect.gen(function* () {
         columns: (columnsByBoard.get(row.id) ?? []).map((column) => ({
           id: column.id,
           name: column.name,
-          type: column.type,
+          color: column.color,
           position: column.position,
         })),
         createdAt: row.created_at,
@@ -203,7 +215,8 @@ const make = Effect.gen(function* () {
         priority: row.priority,
         projectKey: row.project_key,
         position: row.position,
-        attentionReason: row.attention_reason,
+        status: row.status,
+        flag: row.flag_json === null ? null : decodeFlag(row.flag_json),
         requires: (requiresByTicket.get(row.id) ?? []).map((entry) => entry.requires_ticket_id),
         criteria: (criteriaByTicket.get(row.id) ?? []).map((criterion) => ({
           id: criterion.id,
@@ -286,15 +299,18 @@ const make = Effect.gen(function* () {
       Effect.map((rows) => `${rows[0]?.key ?? "?"}-${ticket.number}`),
     );
 
-  /** Required tickets that are not in a `done` column yet. */
+  /** Required tickets that are not done yet (canceled does not count). */
   const blockersOf = (ticketId: string) =>
     sql<{ readonly id: string; readonly board_id: string; readonly number: number }>`
       SELECT t.id, t.board_id, t.number
       FROM fork_ticket_requires r
       JOIN fork_tickets t ON t.id = r.requires_ticket_id
-      JOIN fork_board_columns c ON c.id = t.column_id
-      WHERE r.ticket_id = ${ticketId} AND c.type != 'done'
+      WHERE r.ticket_id = ${ticketId} AND t.status != 'done'
     `;
+
+  const setFlag = (ticketId: string, flag: TicketFlag | null) =>
+    sql`UPDATE fork_tickets SET flag_json = ${flag === null ? null : encodeFlag(flag)}
+      WHERE id = ${ticketId}`;
 
   const nextPosition = (table: "tickets" | "columns" | "criteria" | "boards", scope: string) => {
     const query =
@@ -376,8 +392,8 @@ const make = Effect.gen(function* () {
           for (const [index, column] of DEFAULT_BOARD_COLUMNS.entries()) {
             const columnId = yield* newId;
             yield* sql`
-              INSERT INTO fork_board_columns (id, board_id, name, type, position)
-              VALUES (${columnId}, ${id}, ${column.name}, ${column.type}, ${index + 1})
+              INSERT INTO fork_board_columns (id, board_id, name, color, position)
+              VALUES (${columnId}, ${id}, ${column.name}, ${column.color}, ${index + 1})
             `;
           }
           return { id, touched: [] };
@@ -420,8 +436,8 @@ const make = Effect.gen(function* () {
           const id = yield* newId;
           const position = yield* nextPosition("columns", board.id);
           yield* sql`
-            INSERT INTO fork_board_columns (id, board_id, name, type, position)
-            VALUES (${id}, ${board.id}, ${command.name}, ${command.columnType}, ${position})
+            INSERT INTO fork_board_columns (id, board_id, name, color, position)
+            VALUES (${id}, ${board.id}, ${command.name}, ${command.color ?? null}, ${position})
           `;
           return { id, touched: [] };
         }
@@ -429,7 +445,8 @@ const make = Effect.gen(function* () {
           const column = yield* findColumn(command.columnId);
           yield* sql`
             UPDATE fork_board_columns
-            SET name = ${command.name ?? column.name}, type = ${command.columnType ?? column.type}
+            SET name = ${command.name ?? column.name},
+              color = ${command.color === undefined ? column.color : command.color}
             WHERE id = ${column.id}
           `;
           return { id: null, touched: [] };
@@ -475,8 +492,7 @@ const make = Effect.gen(function* () {
               ? yield* findColumn(command.columnId)
               : ((yield* sql<ColumnRow>`
                   SELECT * FROM fork_board_columns WHERE board_id = ${board.id}
-                  ORDER BY CASE type WHEN 'backlog' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END, position
-                  LIMIT 1
+                  ORDER BY position LIMIT 1
                 `)[0] ?? (yield* fail("invalid", "The board has no columns.")));
           if (column.board_id !== board.id) {
             return yield* fail("invalid", "That column belongs to another board.");
@@ -554,59 +570,87 @@ const make = Effect.gen(function* () {
           if (to.board_id !== ticket.board_id) {
             return yield* fail("invalid", "That column belongs to another board.");
           }
-          if (STARTED_COLUMN_TYPES.has(to.type) && !STARTED_COLUMN_TYPES.has(from.type)) {
-            const blockers = yield* blockersOf(ticket.id);
-            const overridden = command.overrideBlocked === true && actor === "user";
-            if (blockers.length > 0 && !overridden) {
-              const labels = yield* Effect.forEach(blockers, (blocker) =>
-                ticketLabel({ ...ticket, board_id: blocker.board_id, number: blocker.number }),
-              );
-              return yield* fail("blocked", `Waiting on ${labels.join(", ")}.`);
-            }
-          }
           const position = command.position ?? (yield* nextPosition("tickets", to.id));
-          const attentionReason = to.type === "attention" ? (command.reason ?? null) : null;
           yield* sql`
-            UPDATE fork_tickets SET column_id = ${to.id}, position = ${position},
-              attention_reason = ${attentionReason}, updated_at = ${at}
+            UPDATE fork_tickets SET column_id = ${to.id}, position = ${position}, updated_at = ${at}
             WHERE id = ${ticket.id}
           `;
-          const touched = [ticket.id];
           if (from.id !== to.id) {
+            yield* recordEvent(ticket.id, "moved", { from: from.name, to: to.name }, actor, at);
+            // A person moving a flagged ticket has dealt with it.
+            if (actor === "user" && ticket.flag_json !== null) {
+              yield* setFlag(ticket.id, null);
+              yield* recordEvent(ticket.id, "flag.resolved", {}, actor, at);
+              emit({ type: "ticket.flagResolved", ticketId: ticket.id, actor });
+            }
             emit({ type: "ticket.entered", ticketId: ticket.id, columnId: to.id, actor });
-            yield* recordEvent(
-              ticket.id,
-              "moved",
-              {
-                from: from.name,
-                to: to.name,
-                ...(attentionReason ? { reason: attentionReason } : {}),
-                ...(command.overrideBlocked ? { overrideBlocked: true } : {}),
-              },
-              actor,
-              at,
-            );
-            // Finishing (or reopening) a ticket can unblock (or block) the
-            // tickets that require it; their timelines say so.
-            if ((from.type === "done") !== (to.type === "done")) {
-              const dependents = yield* sql<{ readonly ticket_id: string }>`
-                SELECT ticket_id FROM fork_ticket_requires WHERE requires_ticket_id = ${ticket.id}
-              `;
-              const label = yield* ticketLabel(ticket);
-              for (const dependent of dependents) {
-                const remaining = yield* blockersOf(dependent.ticket_id);
-                if (to.type === "done" && remaining.length === 0) {
-                  yield* recordEvent(dependent.ticket_id, "unblocked", { by: label }, actor, at);
-                  emit({ type: "ticket.unblocked", ticketId: dependent.ticket_id });
-                  touched.push(dependent.ticket_id);
-                } else if (from.type === "done" && remaining.length === 1) {
-                  yield* recordEvent(dependent.ticket_id, "blocked", { by: label }, actor, at);
-                  touched.push(dependent.ticket_id);
-                }
+          }
+          return { id: null, touched: [ticket.id] };
+        }
+        case "ticket.setStatus": {
+          const ticket = yield* findTicket(command.ticketId);
+          if (ticket.status === command.status) return { id: null, touched: [] };
+          yield* sql`
+            UPDATE fork_tickets SET status = ${command.status}, updated_at = ${at}
+            WHERE id = ${ticket.id}
+          `;
+          yield* recordEvent(
+            ticket.id,
+            "status",
+            { from: ticket.status, to: command.status },
+            actor,
+            at,
+          );
+          const touched = [ticket.id];
+          // Finishing (or reopening) a ticket can unblock (or block) the
+          // tickets that require it; their timelines say so.
+          const wasDone = ticket.status === "done";
+          const isDone = command.status === "done";
+          if (wasDone !== isDone) {
+            const dependents = yield* sql<{ readonly ticket_id: string }>`
+              SELECT ticket_id FROM fork_ticket_requires WHERE requires_ticket_id = ${ticket.id}
+            `;
+            const label = yield* ticketLabel(ticket);
+            for (const dependent of dependents) {
+              const remaining = yield* blockersOf(dependent.ticket_id);
+              if (isDone && remaining.length === 0) {
+                yield* recordEvent(dependent.ticket_id, "unblocked", { by: label }, actor, at);
+                emit({ type: "ticket.unblocked", ticketId: dependent.ticket_id });
+                touched.push(dependent.ticket_id);
+              } else if (wasDone && remaining.length === 1) {
+                yield* recordEvent(dependent.ticket_id, "blocked", { by: label }, actor, at);
+                touched.push(dependent.ticket_id);
               }
             }
           }
           return { id: null, touched };
+        }
+        case "ticket.flag": {
+          const ticket = yield* findTicket(command.ticketId);
+          yield* setFlag(ticket.id, {
+            level: command.level,
+            reason: command.reason,
+            by: actor,
+            at,
+          });
+          yield* touchTicket(ticket.id, at);
+          yield* recordEvent(
+            ticket.id,
+            "flagged",
+            { level: command.level, reason: command.reason },
+            actor,
+            at,
+          );
+          return { id: null, touched: [ticket.id] };
+        }
+        case "ticket.resolveFlag": {
+          const ticket = yield* findTicket(command.ticketId);
+          if (ticket.flag_json === null) return { id: null, touched: [] };
+          yield* setFlag(ticket.id, null);
+          yield* touchTicket(ticket.id, at);
+          yield* recordEvent(ticket.id, "flag.resolved", {}, actor, at);
+          emit({ type: "ticket.flagResolved", ticketId: ticket.id, actor });
+          return { id: null, touched: [ticket.id] };
         }
         case "ticket.archive": {
           const ticket = yield* findTicket(command.ticketId);

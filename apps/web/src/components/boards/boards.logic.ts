@@ -1,10 +1,4 @@
-import type {
-  Board,
-  BoardColumnType,
-  BoardsSnapshot,
-  Ticket,
-  TicketEvent,
-} from "@t3tools/contracts";
+import type { Board, BoardsSnapshot, Ticket, TicketEvent } from "@t3tools/contracts";
 
 export function ticketKey(board: Pick<Board, "key">, ticket: Pick<Ticket, "number">): string {
   return `${board.key}-${ticket.number}`;
@@ -15,28 +9,21 @@ export interface BoardsIndex {
   readonly boardById: ReadonlyMap<string, Board>;
   readonly boardByKey: ReadonlyMap<string, Board>;
   readonly ticketById: ReadonlyMap<string, Ticket>;
-  readonly columnTypeById: ReadonlyMap<string, BoardColumnType>;
 }
 
 export function indexBoards(snapshot: BoardsSnapshot): BoardsIndex {
-  const columnTypeById = new Map<string, BoardColumnType>();
-  for (const board of snapshot.boards) {
-    for (const column of board.columns) columnTypeById.set(column.id, column.type);
-  }
   return {
     boardById: new Map(snapshot.boards.map((board) => [board.id, board])),
     boardByKey: new Map(snapshot.boards.map((board) => [board.key, board])),
     ticketById: new Map(snapshot.tickets.map((ticket) => [ticket.id, ticket])),
-    columnTypeById,
   };
 }
 
-/** Required tickets that are not done yet; a ticket with any is blocked. */
+/** Required tickets that are not done yet (canceled does not count); any means blocked. */
 export function ticketBlockers(ticket: Ticket, index: BoardsIndex): Ticket[] {
   return ticket.requires.flatMap((id) => {
     const required = index.ticketById.get(id);
-    if (!required) return [];
-    return index.columnTypeById.get(required.columnId) === "done" ? [] : [required];
+    return required && required.status !== "done" ? [required] : [];
   });
 }
 
@@ -45,39 +32,42 @@ export function ticketLabel(ticket: Ticket, index: BoardsIndex): string {
   return board ? ticketKey(board, ticket) : `#${ticket.number}`;
 }
 
-/** What a linked chat is waiting on, from the thread shell's attention flags. */
+/** What a linked chat is waiting on, from its thread shell. */
 export interface LinkedThreadAttention {
   readonly hasPendingApprovals?: boolean;
   readonly hasPendingUserInput?: boolean;
+  /** Set when the chat's session stopped with an error (limits, model down, crash). */
+  readonly sessionError?: string | null;
 }
 
-export type TicketAttention =
-  | { readonly kind: "attention"; readonly reason: string }
-  | { readonly kind: "approval"; readonly reason: string }
-  | { readonly kind: "input"; readonly reason: string };
-
 /**
- * Why a ticket needs Kreshel, or null. Only human-required states count: the
- * attention column (with its reason) and linked chats waiting on an approval or
- * an answer. Review is ordinary work and does not count.
+ * Why a ticket waits on Kreshel, shown wherever it sits. `error` (red) beats
+ * `warning` (yellow). Stored flags come from agents and automations; the rest
+ * is read live from the ticket's chats and clears when they recover.
  */
+export interface TicketAttention {
+  readonly level: "warning" | "error";
+  readonly kind: "flag" | "approval" | "input" | "session";
+  readonly reason: string;
+}
+
 export function ticketAttention(
   ticket: Ticket,
-  columnType: BoardColumnType | undefined,
   linkedThreads: ReadonlyArray<LinkedThreadAttention>,
 ): TicketAttention | null {
-  if (ticket.archivedAt !== null || columnType === "done" || columnType === "canceled") {
-    return null;
+  if (ticket.archivedAt !== null) return null;
+  const sessionError = linkedThreads.find((thread) => thread.sessionError)?.sessionError;
+  if (ticket.flag?.level === "error") {
+    return { level: "error", kind: "flag", reason: ticket.flag.reason };
   }
+  if (sessionError) return { level: "error", kind: "session", reason: sessionError };
   if (linkedThreads.some((thread) => thread.hasPendingApprovals)) {
-    return { kind: "approval", reason: "A chat is waiting for your approval" };
+    return { level: "warning", kind: "approval", reason: "A chat is waiting for your approval" };
   }
   if (linkedThreads.some((thread) => thread.hasPendingUserInput)) {
-    return { kind: "input", reason: "A chat asked you a question" };
+    return { level: "warning", kind: "input", reason: "A chat asked you a question" };
   }
-  if (columnType === "attention") {
-    return { kind: "attention", reason: ticket.attentionReason ?? "Needs you" };
-  }
+  if (ticket.flag) return { level: "warning", kind: "flag", reason: ticket.flag.reason };
   return null;
 }
 
@@ -128,17 +118,6 @@ export function suggestBoardKey(name: string, taken: ReadonlySet<string>): strin
 
 export const BOARD_KEY_PATTERN = /^[A-Z][A-Z0-9]{1,4}$/;
 
-const STARTED_COLUMN_TYPES: ReadonlySet<BoardColumnType> = new Set(["active", "review", "done"]);
-
-/**
- * Whether moving a ticket starts it: from a not-started column into active,
- * review, or done. A blocked ticket needs a person to confirm that move; the
- * server refuses it otherwise.
- */
-export function moveStartsTicket(from: BoardColumnType | undefined, to: BoardColumnType): boolean {
-  return STARTED_COLUMN_TYPES.has(to) && (from === undefined || !STARTED_COLUMN_TYPES.has(from));
-}
-
 /** One line for a timeline event, from its kind and payload. */
 export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">): string {
   const text = (key: string) => {
@@ -170,6 +149,12 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
       return `Blocked again: ${text("by")} was reopened`;
     case "unblocked":
       return `Unblocked: ${text("by")} is done`;
+    case "status":
+      return text("to") === "open" ? "Reopened" : `Closed as ${text("to")}`;
+    case "flagged":
+      return `Flagged: ${text("reason")}`;
+    case "flag.resolved":
+      return "Resolved the flag";
     case "thread.linked":
       return "Linked a chat";
     case "thread.unlinked":
@@ -184,24 +169,27 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
 }
 
 /**
- * Tickets that entered an attention column since `previous` (ids). The first
- * snapshot (previous null) only sets the baseline, so opening the app does
- * not replay every ticket already waiting.
+ * Tickets whose stored flag was raised since `previous` (ticket id → flag
+ * time). The first snapshot (previous null) only sets the baseline, so opening
+ * the app does not replay every ticket already flagged.
  */
-export function ticketsNewlyInAttention(
-  previous: ReadonlySet<string> | null,
+export function ticketsNewlyFlagged(
+  previous: ReadonlyMap<string, string> | null,
   snapshot: BoardsSnapshot,
-): { readonly current: ReadonlySet<string>; readonly added: ReadonlyArray<Ticket> } {
+): { readonly current: ReadonlyMap<string, string>; readonly added: ReadonlyArray<Ticket> } {
   const index = indexBoards(snapshot);
-  const waiting = snapshot.tickets.filter(
+  const flagged = snapshot.tickets.filter(
     (ticket) =>
+      ticket.flag !== null &&
       ticket.archivedAt === null &&
-      index.boardById.get(ticket.boardId)?.archivedAt === null &&
-      index.columnTypeById.get(ticket.columnId) === "attention",
+      index.boardById.get(ticket.boardId)?.archivedAt === null,
   );
-  const current = new Set(waiting.map((ticket) => ticket.id));
+  const current = new Map(flagged.map((ticket) => [ticket.id, ticket.flag!.at]));
   if (previous === null) return { current, added: [] };
-  return { current, added: waiting.filter((ticket) => !previous.has(ticket.id)) };
+  return {
+    current,
+    added: flagged.filter((ticket) => previous.get(ticket.id) !== ticket.flag!.at),
+  };
 }
 
 /**

@@ -6,12 +6,10 @@
 import {
   type Board,
   type BoardColumn,
-  BoardColumnType,
   type BoardsSnapshot,
   type Ticket,
   type TicketCriterion,
 } from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
 
 export type Lookup<A> =
   | { readonly ok: true; readonly value: A }
@@ -52,22 +50,13 @@ export function findTicket(snapshot: BoardsSnapshot, ref: string): Lookup<Ticket
   return ticket ? found(ticket) : missing(`There is no ticket ${board.value.key}-${number}.`);
 }
 
-const isColumnType = Schema.is(BoardColumnType);
-
-/**
- * A column by name (case-insensitive) or by type (`active`, `attention`, ...);
- * a type picks the first column of that type.
- */
+/** A column by name (case-insensitive). */
 export function findColumn(board: Board, ref: string): Lookup<BoardColumn> {
   const wanted = ref.trim().toLowerCase();
   const columns = board.columns.toSorted((a, b) => a.position - b.position);
   const byName = columns.find((column) => column.name.toLowerCase() === wanted);
   if (byName) return found(byName);
-  if (isColumnType(wanted)) {
-    const byType = columns.find((column) => column.type === wanted);
-    if (byType) return found(byType);
-  }
-  const names = columns.map((column) => `${column.name} (${column.type})`).join(", ");
+  const names = columns.map((column) => column.name).join(", ");
   return missing(`Board ${board.key} has no column "${ref.trim()}". Columns: ${names}.`);
 }
 

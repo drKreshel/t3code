@@ -1,5 +1,5 @@
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
-import type { Board, BoardColumn, BoardColumnType } from "@t3tools/contracts";
+import type { Board, BoardColumn } from "@t3tools/contracts";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
@@ -21,7 +21,15 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { rulesOf, useWorkspaces } from "../../state/workspaces";
 import { BOARD_KEY_PATTERN, positionBetween } from "./boards.logic";
 import { WorkspaceRulesEditor } from "./WorkspaceSettings";
-import { COLUMN_TYPE_LABEL, COLUMN_TYPES } from "./boardsPresentation";
+import {
+  COLUMN_COLOR_LABEL,
+  COLUMN_COLORS,
+  columnDotClass,
+  type ColumnColor,
+} from "./boardsPresentation";
+import { cn } from "../../lib/utils";
+
+const NO_COLOR = "none";
 
 /** Renames a board, changes its key, and edits its columns. */
 export function BoardSettingsDialog({
@@ -39,8 +47,8 @@ export function BoardSettingsDialog({
         <DialogHeader>
           <DialogTitle>Board settings</DialogTitle>
           <DialogDescription>
-            Column types decide what a column means: blocked tickets cannot start, and Needs you
-            columns count as waiting on you.
+            Columns are just names. What happens when a ticket enters one comes from automations
+            (the ⚡ on each column).
           </DialogDescription>
         </DialogHeader>
         {/* Remount on open so the fields start from the board's current values. */}
@@ -154,7 +162,6 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
               type: "column.create",
               boardId: board.id,
               name: "New column",
-              columnType: "todo",
             })
           }
         >
@@ -250,22 +257,38 @@ function ColumnRow({
         }}
       />
       <Select
-        value={column.type}
+        value={column.color ?? NO_COLOR}
         onValueChange={(value) =>
           void dispatch({
             type: "column.update",
             columnId: column.id,
-            columnType: value as BoardColumnType,
+            color: value === NO_COLOR ? null : String(value),
           })
         }
       >
-        <SelectTrigger size="sm" className="w-32" aria-label="Column type">
-          <SelectValue>{COLUMN_TYPE_LABEL[column.type]}</SelectValue>
+        <SelectTrigger size="sm" className="w-28" aria-label="Column color">
+          <SelectValue>
+            <span className="flex items-center gap-2">
+              <span className={cn("size-2 rounded-full", columnDotClass(column.color))} />
+              {column.color
+                ? (COLUMN_COLOR_LABEL[column.color as ColumnColor] ?? column.color)
+                : "None"}
+            </span>
+          </SelectValue>
         </SelectTrigger>
         <SelectPopup align="end" alignItemWithTrigger={false}>
-          {COLUMN_TYPES.map((type) => (
-            <SelectItem key={type} value={type}>
-              {COLUMN_TYPE_LABEL[type]}
+          <SelectItem value={NO_COLOR}>
+            <span className="flex items-center gap-2">
+              <span className={cn("size-2 rounded-full", columnDotClass(null))} />
+              None
+            </span>
+          </SelectItem>
+          {COLUMN_COLORS.map((color) => (
+            <SelectItem key={color} value={color}>
+              <span className="flex items-center gap-2">
+                <span className={cn("size-2 rounded-full", columnDotClass(color))} />
+                {COLUMN_COLOR_LABEL[color]}
+              </span>
             </SelectItem>
           ))}
         </SelectPopup>

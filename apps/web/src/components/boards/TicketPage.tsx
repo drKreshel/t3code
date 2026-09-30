@@ -4,7 +4,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { TicketComment, TicketEvent, TicketPriority } from "@t3tools/contracts";
+import type { TicketComment, TicketEvent, TicketPriority, TicketStatus } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -36,16 +36,11 @@ import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { TicketWorkspaceSection } from "./WorkspaceSettings";
-import { describeTicketEvent, moveStartsTicket } from "./boards.logic";
+import { describeTicketEvent } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
-import { COLUMN_TYPE_DOT_CLASS, PRIORITIES, PRIORITY_LABEL } from "./boardsPresentation";
+import { columnDotClass, PRIORITIES, PRIORITY_LABEL, STATUS_LABEL } from "./boardsPresentation";
 import { useBoardsModel, type TicketView } from "./useBoardsModel";
-import {
-  confirmStartBlocked,
-  pickProjectKey,
-  useProjectLookup,
-  useStartTicketSession,
-} from "./useTicketActions";
+import { pickProjectKey, useProjectLookup, useStartTicketSession } from "./useTicketActions";
 
 /** A ticket's details, criteria, requirements, chats, comments, and timeline. */
 export function TicketPage({
@@ -103,11 +98,7 @@ function TicketBody({
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col gap-6">
           <TicketHeading view={view} readOnly={readOnly} />
-          {view.attention ? (
-            <p className="rounded-lg bg-warning/8 px-3 py-2 text-sm text-warning-foreground dark:bg-warning/16">
-              Needs you: {view.attention.reason}
-            </p>
-          ) : null}
+          {view.attention ? <TicketAttentionBanner view={view} readOnly={readOnly} /> : null}
           {view.blockers.length > 0 ? (
             <p className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
               <LockIcon className="size-3.5 shrink-0" />
@@ -651,32 +642,48 @@ function TicketProperties({
     )
     .toSorted((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 
-  const moveTo = async (columnId: string) => {
-    const to = columns.find((candidate) => candidate.id === columnId);
-    if (!to || to.id === ticket.columnId) return;
-    const starting = moveStartsTicket(view.columnType, to.type) && view.blockers.length > 0;
-    if (starting && !(await confirmStartBlocked(view))) return;
-    void dispatch({
-      type: "ticket.move",
-      ticketId: ticket.id,
-      columnId,
-      ...(starting ? { overrideBlocked: true } : {}),
-    });
+  const moveTo = (columnId: string) => {
+    if (columnId === ticket.columnId) return;
+    void dispatch({ type: "ticket.move", ticketId: ticket.id, columnId });
   };
 
   return (
     <aside className="flex flex-col gap-5 lg:sticky lg:top-6 lg:self-start">
       <PropertyRow label="Status">
         <Select
-          value={ticket.columnId}
+          value={ticket.status}
           disabled={readOnly}
-          onValueChange={(value) => void moveTo(String(value))}
+          onValueChange={(value) =>
+            void dispatch({
+              type: "ticket.setStatus",
+              ticketId: ticket.id,
+              status: value as TicketStatus,
+            })
+          }
         >
           <SelectTrigger size="sm" aria-label="Status">
+            <SelectValue>{STATUS_LABEL[ticket.status]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup alignItemWithTrigger={false}>
+            {TICKET_STATUSES.map((status) => (
+              <SelectItem key={status} value={status}>
+                {STATUS_LABEL[status]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </PropertyRow>
+      <PropertyRow label="Column">
+        <Select
+          value={ticket.columnId}
+          disabled={readOnly}
+          onValueChange={(value) => moveTo(String(value))}
+        >
+          <SelectTrigger size="sm" aria-label="Column">
             <SelectValue>
               {column ? (
                 <span className="flex items-center gap-2">
-                  <span className={cn("size-2 rounded-full", COLUMN_TYPE_DOT_CLASS[column.type])} />
+                  <span className={cn("size-2 rounded-full", columnDotClass(column.color))} />
                   {column.name}
                 </span>
               ) : null}
@@ -686,9 +693,7 @@ function TicketProperties({
             {columns.map((candidate) => (
               <SelectItem key={candidate.id} value={candidate.id}>
                 <span className="flex items-center gap-2">
-                  <span
-                    className={cn("size-2 rounded-full", COLUMN_TYPE_DOT_CLASS[candidate.type])}
-                  />
+                  <span className={cn("size-2 rounded-full", columnDotClass(candidate.color))} />
                   {candidate.name}
                 </span>
               </SelectItem>
@@ -766,9 +771,11 @@ function TicketProperties({
                 <span
                   className={cn(
                     "size-2 shrink-0 rounded-full",
-                    requiredView.columnType
-                      ? COLUMN_TYPE_DOT_CLASS[requiredView.columnType]
-                      : "bg-muted",
+                    requiredView.ticket.status === "done"
+                      ? "bg-success"
+                      : requiredView.ticket.status === "canceled"
+                        ? "bg-muted-foreground/30"
+                        : "bg-muted-foreground/70",
                   )}
                 />
                 <Link
@@ -935,5 +942,46 @@ function TicketRunsSection({
         })}
       </ol>
     </section>
+  );
+}
+
+const TICKET_STATUSES: ReadonlyArray<TicketStatus> = ["open", "done", "canceled"];
+
+/**
+ * What the ticket waits on, with the way out: Resolve clears a stored flag and
+ * lets the ticket's held automations run. Chat waits clear themselves.
+ */
+function TicketAttentionBanner({
+  view,
+  readOnly,
+}: {
+  readonly view: TicketView;
+  readonly readOnly: boolean;
+}) {
+  const dispatch = useBoardsDispatch();
+  const attention = view.attention!;
+  const error = attention.level === "error";
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm",
+        error
+          ? "bg-destructive/8 text-destructive-foreground dark:bg-destructive/16"
+          : "bg-warning/8 text-warning-foreground dark:bg-warning/16",
+      )}
+    >
+      <span className="min-w-0 flex-1">
+        {error ? "Error" : "Needs you"}: {attention.reason}
+      </span>
+      {attention.kind === "flag" && !readOnly ? (
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() => void dispatch({ type: "ticket.resolveFlag", ticketId: view.ticket.id })}
+        >
+          Resolve
+        </Button>
+      ) : null}
+    </div>
   );
 }

@@ -60,6 +60,7 @@ import {
   nextScheduledAt,
   renderPrompt,
   scheduleProblem,
+  stepsProblem,
 } from "./automationLogic.ts";
 import { AutomationsStore, type StoredAutomation } from "./AutomationsStore.ts";
 import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
@@ -112,20 +113,18 @@ const make = (options: { readonly background: boolean }) =>
       return `${board?.key ?? "?"}-${ticket.number}`;
     };
 
-    /** Moves a ticket to its board's attention column with a reason; quiet if it has none. */
-    const escalate = (ticketId: string, reason: string, actor: string) =>
+    /**
+     * Flags a ticket for a person: red for a failed run, yellow for a stop
+     * (run limit). Its hooks then wait until the flag is resolved.
+     */
+    const escalate = (
+      ticketId: string,
+      reason: string,
+      actor: string,
+      level: "warning" | "error",
+    ) =>
       Effect.gen(function* () {
-        const snapshot = yield* boards.snapshot;
-        const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
-        const board = snapshot.boards.find((candidate) => candidate.id === ticket?.boardId);
-        const attention = board?.columns
-          .toSorted((a, b) => a.position - b.position)
-          .find((column) => column.type === "attention");
-        if (!ticket || !attention) return;
-        yield* boards.dispatch(
-          { type: "ticket.move", ticketId, columnId: attention.id, reason },
-          actor,
-        );
+        yield* boards.dispatch({ type: "ticket.flag", ticketId, level, reason }, actor);
       }).pipe(
         Effect.catch((error) =>
           Effect.logWarning("Automation could not escalate ticket", { error }),
@@ -157,6 +156,83 @@ const make = (options: { readonly background: boolean }) =>
      * Starts the chat for a run that already has a row, and marks it running.
      * The chat is linked to the ticket for board runs.
      */
+    /** Applies built-in steps in order; the first failure stops the rest. */
+    const runSteps = (
+      automation: StoredAutomation,
+      ticket: Ticket | undefined,
+      snapshot: BoardsSnapshot,
+    ) =>
+      Effect.gen(function* () {
+        const actor = actorOf(automation);
+        const asStepError = (error: { readonly message: string }) =>
+          new RunStartError({ message: error.message });
+        for (const step of automation.action.steps ?? []) {
+          if (step.type === "moveStale") {
+            const cutoff =
+              DateTime.toEpochMillis(yield* DateTime.now) -
+              step.olderThanDays * 24 * 60 * 60 * 1000;
+            for (const board of snapshot.boards) {
+              if (board.archivedAt !== null) continue;
+              const named = (name: string) =>
+                board.columns.find(
+                  (column) => column.name.trim().toLowerCase() === name.trim().toLowerCase(),
+                );
+              const from = named(step.from);
+              const to = named(step.to);
+              if (!from || !to || from.id === to.id) continue;
+              for (const stale of snapshot.tickets) {
+                if (stale.columnId !== from.id || stale.archivedAt !== null) continue;
+                if (DateTime.toEpochMillis(DateTime.makeUnsafe(stale.updatedAt)) > cutoff) continue;
+                yield* boards
+                  .dispatch({ type: "ticket.move", ticketId: stale.id, columnId: to.id }, actor)
+                  .pipe(Effect.mapError(asStepError));
+              }
+            }
+            continue;
+          }
+          if (!ticket) {
+            return yield* new RunStartError({ message: "This step needs a ticket to act on." });
+          }
+          switch (step.type) {
+            case "setStatus":
+              yield* boards
+                .dispatch(
+                  { type: "ticket.setStatus", ticketId: ticket.id, status: step.status },
+                  actor,
+                )
+                .pipe(Effect.mapError(asStepError));
+              break;
+            case "moveTo": {
+              const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
+              const column = board?.columns.find(
+                (candidate) =>
+                  candidate.name.trim().toLowerCase() === step.column.trim().toLowerCase(),
+              );
+              if (!column) {
+                return yield* new RunStartError({
+                  message: `The board has no column named "${step.column}".`,
+                });
+              }
+              yield* boards
+                .dispatch({ type: "ticket.move", ticketId: ticket.id, columnId: column.id }, actor)
+                .pipe(Effect.mapError(asStepError));
+              break;
+            }
+            case "removeWorkspace":
+              if (Option.isNone(workspaces)) break;
+              yield* workspaces.value
+                .dispatch({ type: "workspace.remove", ticketId: ticket.id })
+                .pipe(Effect.mapError(asStepError));
+              break;
+            case "resolveFlag":
+              yield* boards
+                .dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, actor)
+                .pipe(Effect.mapError(asStepError));
+              break;
+          }
+        }
+      });
+
     const startRun = (automation: StoredAutomation, runId: string, ticketId: string | null) =>
       Effect.gen(function* () {
         const snapshot = yield* boardsSnapshot;
@@ -164,6 +240,13 @@ const make = (options: { readonly background: boolean }) =>
           ticketId === null ? undefined : snapshot.tickets.find((t) => t.id === ticketId);
         if (ticketId !== null && !ticket)
           return yield* new RunStartError({ message: "The ticket no longer exists." });
+        if (automation.action.steps && automation.action.steps.length > 0) {
+          const startedAt = yield* nowIso;
+          yield* store.updateRun(runId, { status: "running", startedAt });
+          yield* runSteps(automation, ticket, snapshot);
+          yield* store.updateRun(runId, { status: "succeeded", finishedAt: yield* nowIso });
+          return;
+        }
         const board = ticket ? snapshot.boards.find((b) => b.id === ticket.boardId) : undefined;
 
         // In the ticket's workspace the chat belongs to the ticket's project.
@@ -338,7 +421,12 @@ const make = (options: { readonly background: boolean }) =>
       Effect.gen(function* () {
         yield* store.updateRun(runId, { status: "failed", reason, finishedAt: yield* nowIso });
         if (ticketId !== null) {
-          yield* escalate(ticketId, `"${automation.title}" failed: ${reason}`, actorOf(automation));
+          yield* escalate(
+            ticketId,
+            `"${automation.title}" failed: ${reason}`,
+            actorOf(automation),
+            "error",
+          );
         }
       }).pipe(
         Effect.catch((error) => Effect.logWarning("Could not record a failed run", { error })),
@@ -367,6 +455,8 @@ const make = (options: { readonly background: boolean }) =>
         // The ticket's own board decides pausing, including for any-board hooks.
         if (yield* store.boardPaused(ticket.boardId)) return;
         if (isBlocked(snapshot, ticket)) return;
+        // A flagged ticket waits for a person; resolving the flag runs this again.
+        if (ticket.flag !== null) return;
 
         const runs = yield* store.runsForTicket(ticketId);
         if (queuedRunId === undefined && runs.some((run) => run.status === "running")) {
@@ -391,7 +481,7 @@ const make = (options: { readonly background: boolean }) =>
               finishedAt: yield* nowIso,
             });
           }
-          yield* escalate(ticketId, reason, actorOf(automation));
+          yield* escalate(ticketId, reason, actorOf(automation), "warning");
           return;
         }
         const runId =
@@ -536,6 +626,12 @@ const make = (options: { readonly background: boolean }) =>
               yield* fireHooksForTicket(event.ticketId);
               return;
             }
+            if (event.type === "ticket.flagResolved") {
+              // Resolving gives the hooks a fresh count, then runs what was held.
+              yield* store.resetTicket(event.ticketId, yield* nowIso);
+              yield* fireHooksForTicket(event.ticketId);
+              return;
+            }
             // A person moving a ticket gives its hooks a fresh start.
             if (event.actor === "user") yield* store.resetTicket(event.ticketId, yield* nowIso);
             // The ticket now sits in the column it entered; run what watches it.
@@ -595,7 +691,14 @@ const make = (options: { readonly background: boolean }) =>
               const problem =
                 scheduleProblem(command.trigger) ?? boardTriggerProblem(command.trigger);
               if (problem) return yield* invalid(problem);
-              if (command.trigger.type === "schedule" && command.action.projectKey === null) {
+              const actionProblem = stepsProblem(command.trigger, command.action, command.prompt);
+              if (actionProblem) return yield* invalid(actionProblem);
+              const runsSteps = (command.action.steps?.length ?? 0) > 0;
+              if (
+                !runsSteps &&
+                command.trigger.type === "schedule" &&
+                command.action.projectKey === null
+              ) {
                 return yield* invalid("A scheduled automation needs a project.");
               }
               if (command.trigger.type === "schedule" && command.action.checkout === "ticket") {
@@ -609,11 +712,19 @@ const make = (options: { readonly background: boolean }) =>
                 trigger: command.trigger,
                 action: command.action,
                 enabled: command.enabled ?? true,
-                maxRunsPerTicket: command.maxRunsPerTicket ?? 3,
+                // A safety net against runaway loops; hook prompts decide sooner.
+                maxRunsPerTicket: command.maxRunsPerTicket ?? 5,
               });
               return { id };
             }
             case "automation.update": {
+              const current = yield* store.get(command.automationId);
+              const stepProblem = stepsProblem(
+                command.trigger ?? current.trigger,
+                command.action ?? current.action,
+                command.prompt ?? current.prompt,
+              );
+              if (stepProblem) return yield* invalid(stepProblem);
               if (command.trigger) {
                 const problem =
                   scheduleProblem(command.trigger) ?? boardTriggerProblem(command.trigger);
@@ -648,12 +759,26 @@ const make = (options: { readonly background: boolean }) =>
               yield* startRun(automation, runId, ticketId);
               return { id: runId };
             }
-            case "ticket.resumeHooks":
-              yield* store.resetTicket(command.ticketId, yield* nowIso);
-              yield* fireHooksForTicket(command.ticketId).pipe(
-                Effect.catch((error) => Effect.logWarning("Resume hooks failed", { error })),
+            case "ticket.resumeHooks": {
+              // Same as resolving the flag: fresh count, then the held hooks run.
+              const snapshot = yield* boards.snapshot.pipe(
+                Effect.mapError((error) => invalid(error.message)),
               );
+              const flagged =
+                snapshot.tickets.find((ticket) => ticket.id === command.ticketId)?.flag != null;
+              if (flagged) {
+                // The flag-resolved event resets the count and runs the hooks.
+                yield* boards
+                  .dispatch({ type: "ticket.resolveFlag", ticketId: command.ticketId }, "user")
+                  .pipe(Effect.mapError((error) => invalid(error.message)));
+              } else {
+                yield* store.resetTicket(command.ticketId, yield* nowIso);
+                yield* fireHooksForTicket(command.ticketId).pipe(
+                  Effect.catch((error) => Effect.logWarning("Resume hooks failed", { error })),
+                );
+              }
               return { id: null };
+            }
             case "board.pauseHooks": {
               yield* store.setBoardPaused(command.boardId, command.paused);
               if (!command.paused) {

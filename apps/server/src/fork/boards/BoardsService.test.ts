@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import type { BoardColumnType, BoardsCommand, BoardsSnapshot } from "@t3tools/contracts";
+import type { BoardsCommand, BoardsSnapshot } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -22,8 +22,8 @@ const snapshot = Effect.gen(function* () {
 const createdId = (command: BoardsCommand) =>
   dispatch(command).pipe(Effect.map((result) => result.id!));
 
-const columnOfType = (state: BoardsSnapshot, boardId: string, type: BoardColumnType) =>
-  state.boards.find((board) => board.id === boardId)!.columns.find((c) => c.type === type)!.id;
+const columnNamed = (state: BoardsSnapshot, boardId: string, name: string) =>
+  state.boards.find((board) => board.id === boardId)!.columns.find((c) => c.name === name)!.id;
 
 /** The first ticket detail the stream sends: its current comments and events. */
 const ticketDetail = (ticketId: string) =>
@@ -35,35 +35,21 @@ const ticketDetail = (ticketId: string) =>
     return [...details][0]!;
   });
 
-// Tests share one database, so each uses its own board key.
-const setupBoard = (key: string) =>
-  Effect.gen(function* () {
-    const boardId = yield* createdId({ type: "board.create", name: key, key });
-    const state = yield* snapshot;
-    return {
-      boardId,
-      todo: columnOfType(state, boardId, "todo"),
-      active: columnOfType(state, boardId, "active"),
-      attention: columnOfType(state, boardId, "attention"),
-      done: columnOfType(state, boardId, "done"),
-    };
-  });
-
 it.layer(TestLayer)("BoardsService", (it) => {
-  it.effect("creates boards with the default typed columns and unique keys", () =>
+  it.effect("creates boards with plain default columns and unique keys", () =>
     Effect.gen(function* () {
-      const { boardId } = yield* setupBoard("WEB");
+      const boardId = yield* createdId({ type: "board.create", name: "Web", key: "WEB" });
       const board = (yield* snapshot).boards.find((entry) => entry.id === boardId)!;
       assert.deepEqual(
-        board.columns.map((column) => column.type),
-        ["backlog", "todo", "active", "review", "attention", "done"],
+        board.columns.map((column) => column.name),
+        ["Backlog", "Todo", "In progress", "Review", "Done"],
       );
       const error = yield* Effect.flip(dispatch({ type: "board.create", name: "Dup", key: "WEB" }));
       assert.equal(error.code, "key-taken");
     }),
   );
 
-  it.effect("numbers tickets per board and starts them in the backlog", () =>
+  it.effect("numbers tickets per board and starts them open in the first column", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Api", key: "API" });
       const first = yield* createdId({ type: "ticket.create", boardId, title: "One" });
@@ -72,13 +58,15 @@ it.layer(TestLayer)("BoardsService", (it) => {
       const byId = new Map(state.tickets.map((ticket) => [ticket.id, ticket]));
       assert.equal(byId.get(first)!.number, 1);
       assert.equal(byId.get(second)!.number, 2);
-      assert.equal(byId.get(first)!.columnId, columnOfType(state, boardId, "backlog"));
+      assert.equal(byId.get(first)!.columnId, columnNamed(state, boardId, "Backlog"));
+      assert.equal(byId.get(first)!.status, "open");
     }),
   );
 
-  it.effect("blocks starting a ticket until what it requires is done", () =>
+  it.effect("moves tickets freely and unblocks dependents when a requirement is done", () =>
     Effect.gen(function* () {
-      const { boardId, active, done } = yield* setupBoard("OPS");
+      const boardId = yield* createdId({ type: "board.create", name: "Ops", key: "OPS" });
+      const active = columnNamed(yield* snapshot, boardId, "In progress");
       const base = yield* createdId({ type: "ticket.create", boardId, title: "Base" });
       const dependent = yield* createdId({
         type: "ticket.create",
@@ -86,28 +74,17 @@ it.layer(TestLayer)("BoardsService", (it) => {
         title: "Dependent",
         requires: [base],
       });
-
-      const blocked = yield* Effect.flip(
-        dispatch({ type: "ticket.move", ticketId: dependent, columnId: active }),
-      );
-      assert.equal(blocked.code, "blocked");
-
-      // Agents cannot override; people can, after confirming.
-      const agentOverride = yield* Effect.flip(
-        dispatch(
-          { type: "ticket.move", ticketId: dependent, columnId: active, overrideBlocked: true },
-          "thread:env:agent",
-        ),
-      );
-      assert.equal(agentOverride.code, "blocked");
-
-      yield* dispatch({ type: "ticket.move", ticketId: base, columnId: done });
+      // Columns mean nothing: a blocked ticket may go anywhere.
       yield* dispatch({ type: "ticket.move", ticketId: dependent, columnId: active });
-      const moved = (yield* snapshot).tickets.find((ticket) => ticket.id === dependent)!;
-      assert.equal(moved.columnId, active);
-
-      const detail = yield* ticketDetail(dependent);
-      assert.ok(detail.events.some((event) => event.kind === "unblocked"));
+      assert.equal(
+        (yield* snapshot).tickets.find((ticket) => ticket.id === dependent)!.columnId,
+        active,
+      );
+      // Canceled does not satisfy a requirement; done does.
+      yield* dispatch({ type: "ticket.setStatus", ticketId: base, status: "canceled" });
+      assert.notOk((yield* ticketDetail(dependent)).events.some((e) => e.kind === "unblocked"));
+      yield* dispatch({ type: "ticket.setStatus", ticketId: base, status: "done" });
+      assert.ok((yield* ticketDetail(dependent)).events.some((e) => e.kind === "unblocked"));
     }),
   );
 
@@ -124,23 +101,36 @@ it.layer(TestLayer)("BoardsService", (it) => {
     }),
   );
 
-  it.effect("keeps an attention reason only while the ticket needs you", () =>
+  it.effect("keeps a flag where the ticket stands until resolved or moved by a person", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Help", key: "HELP" });
-      const state = yield* snapshot;
-      const attention = columnOfType(state, boardId, "attention");
-      const todo = columnOfType(state, boardId, "todo");
+      const todo = columnNamed(yield* snapshot, boardId, "Todo");
       const ticket = yield* createdId({ type: "ticket.create", boardId, title: "Stuck" });
-      yield* dispatch({
-        type: "ticket.move",
-        ticketId: ticket,
-        columnId: attention,
-        reason: "Which API version?",
-      });
       const find = Effect.map(snapshot, (next) => next.tickets.find((t) => t.id === ticket)!);
-      assert.equal((yield* find).attentionReason, "Which API version?");
-      yield* dispatch({ type: "ticket.move", ticketId: ticket, columnId: todo });
-      assert.equal((yield* find).attentionReason, null);
+      yield* dispatch(
+        { type: "ticket.flag", ticketId: ticket, level: "warning", reason: "Which API version?" },
+        "thread:env:agent",
+      );
+      assert.deepInclude((yield* find).flag, {
+        level: "warning",
+        reason: "Which API version?",
+        by: "thread:env:agent",
+      });
+      // An agent moving it keeps the flag; a person moving it resolves it.
+      yield* dispatch({ type: "ticket.move", ticketId: ticket, columnId: todo }, "automation:a");
+      assert.ok((yield* find).flag);
+      const backlog = columnNamed(yield* snapshot, boardId, "Backlog");
+      yield* dispatch({ type: "ticket.move", ticketId: ticket, columnId: backlog });
+      assert.equal((yield* find).flag, null);
+
+      yield* dispatch({
+        type: "ticket.flag",
+        ticketId: ticket,
+        level: "error",
+        reason: "Run failed",
+      });
+      yield* dispatch({ type: "ticket.resolveFlag", ticketId: ticket });
+      assert.equal((yield* find).flag, null);
     }),
   );
 
@@ -165,8 +155,8 @@ it.layer(TestLayer)("BoardsService", (it) => {
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Cols", key: "COLS" });
       const state = yield* snapshot;
-      const todo = columnOfType(state, boardId, "todo");
-      const backlog = columnOfType(state, boardId, "backlog");
+      const todo = columnNamed(state, boardId, "Todo");
+      const backlog = columnNamed(state, boardId, "Backlog");
       const ticket = yield* createdId({
         type: "ticket.create",
         boardId,

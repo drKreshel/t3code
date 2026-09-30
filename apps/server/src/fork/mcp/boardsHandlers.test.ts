@@ -82,7 +82,7 @@ describe("boards toolkit handlers", () => {
         useThisChatsProject: true,
       });
       expect(board.defaultProject).toBe("Atlas");
-      expect(board.columns.map((column) => column.type)).toContain("attention");
+      expect(board.columns.map((column) => column.name)).toContain("Review");
 
       const created = yield* call("create_ticket", {
         board: "atlas",
@@ -135,27 +135,35 @@ describe("boards toolkit handlers", () => {
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 
-  it.effect("refuses to start a blocked ticket and escalates to the attention column", () =>
+  it.effect("flags a ticket in place, and closes it with a status", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;
       yield* call("create_board", { name: "Api", key: "API" });
       yield* call("create_ticket", { board: "API", title: "Schema" });
       yield* call("create_ticket", { board: "API", title: "Endpoint", requires: ["API-1"] });
 
-      const refused = yield* call("move_ticket", { ticket: "API-2", column: "active" }).pipe(
-        Effect.flip,
-      );
-      expect(refused).toMatchObject({ _tag: "BoardsCommandError", code: "blocked" });
+      // Columns mean nothing, so a blocked ticket moves freely.
+      const moved = yield* call("move_ticket", { ticket: "API-2", column: "in progress" });
+      expect(moved.column).toBe("In progress");
 
       const escalated = yield* call("request_human", {
         ticket: "API-2",
         reason: "Which auth scheme?",
       });
-      expect(escalated.column).toBe("Needs you");
-      const listed = yield* call("list_tickets", { board: "API", column: "attention" });
+      expect(escalated.column).toBe("In progress");
+      const listed = yield* call("list_tickets", { board: "API", column: "In progress" });
       expect(listed.tickets).toMatchObject([
-        { key: "API-2", attentionReason: "Which auth scheme?", blockedBy: ["API-1"] },
+        {
+          key: "API-2",
+          flag: { level: "warning", reason: "Which auth scheme?" },
+          blockedBy: ["API-1"],
+        },
       ]);
+
+      yield* call("update_ticket", { ticket: "API-1", status: "done" });
+      const unblocked = yield* call("get_ticket", { ticket: "API-2" });
+      expect(unblocked.blockedBy).toEqual([]);
+      expect(unblocked.requires).toEqual([{ key: "API-1", title: "Schema", done: true }]);
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 
@@ -165,7 +173,7 @@ describe("boards toolkit handlers", () => {
       yield* call("create_board", { name: "Web", key: "WEB" });
       const error = yield* call("list_tickets", { board: "WEB", column: "QA" }).pipe(Effect.flip);
       expect(error).toMatchObject({ code: "not-found" });
-      expect(String((error as { message: string }).message)).toContain("Testing (review)");
+      expect(String((error as { message: string }).message)).toContain("Columns: Backlog, Todo");
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 });

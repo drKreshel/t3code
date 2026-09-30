@@ -43,12 +43,12 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
-import { moveStartsTicket, positionBetween, ticketsByColumn } from "./boards.logic";
+import { positionBetween, ticketsByColumn } from "./boards.logic";
 import { BoardSettingsDialog } from "./BoardSettingsDialog";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
-import { COLUMN_TYPE_DOT_CLASS, PRIORITY_LABEL } from "./boardsPresentation";
+import { columnDotClass, PRIORITY_LABEL, STATUS_LABEL } from "./boardsPresentation";
 import { useBoardsModel, type TicketView } from "./useBoardsModel";
-import { confirmStartBlocked, pickProjectKey, useProjectLookup } from "./useTicketActions";
+import { pickProjectKey, useProjectLookup } from "./useTicketActions";
 
 /** One board's columns of tickets, with drag between and within columns. */
 export function BoardPage({ boardKey }: { readonly boardKey: string }) {
@@ -70,12 +70,9 @@ export function BoardPage({ boardKey }: { readonly boardKey: string }) {
   return <BoardView board={board} viewById={model.viewById} />;
 }
 
-/** The column new tickets land in: the first backlog or todo column. */
+/** The column new tickets land in: the first one. */
 function defaultColumnId(board: Board): string | null {
-  const rank = (column: BoardColumn) =>
-    column.type === "backlog" ? 0 : column.type === "todo" ? 1 : 2;
-  const sorted = board.columns.toSorted((a, b) => rank(a) - rank(b) || a.position - b.position);
-  return sorted[0]?.id ?? null;
+  return board.columns.toSorted((a, b) => a.position - b.position)[0]?.id ?? null;
 }
 
 function BoardView({
@@ -198,24 +195,13 @@ function BoardView({
       const id = ids[index + offset];
       return id === undefined ? undefined : viewById.get(id)?.ticket.position;
     };
-    const toType = board.columns.find((column) => column.id === columnId)?.type;
-    let overrideBlocked = false;
-    if (toType && columnId !== view.ticket.columnId && moveStartsTicket(view.columnType, toType)) {
-      if (view.blockers.length > 0) {
-        if (!(await confirmStartBlocked(view))) {
-          setDragOrder(null);
-          return;
-        }
-        overrideBlocked = true;
-      }
-    }
+    // Columns mean nothing: tickets move freely. A blocked one's hooks wait.
     if (!unchanged) {
       await dispatch({
         type: "ticket.move",
         ticketId: activeKey,
         columnId,
         position: positionBetween(neighbour(-1), neighbour(1)),
-        ...(overrideBlocked ? { overrideBlocked } : {}),
       });
     }
     setDragOrder(null);
@@ -412,17 +398,13 @@ function BoardColumnView({
   readonly onAddHook: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id: column.id });
-  const highlighted = column.type === "attention" && views.length > 0;
   return (
     <section
       aria-label={column.name}
-      className={cn(
-        "flex w-72 shrink-0 flex-col rounded-lg bg-muted/40",
-        highlighted && "bg-warning/8 ring-1 ring-warning/30 dark:bg-warning/12",
-      )}
+      className="flex w-72 shrink-0 flex-col rounded-lg bg-muted/40"
     >
       <header className="flex items-center gap-2 px-3 pt-2.5 pb-2 text-sm">
-        <span className={cn("size-2 shrink-0 rounded-full", COLUMN_TYPE_DOT_CLASS[column.type])} />
+        <span className={cn("size-2 shrink-0 rounded-full", columnDotClass(column.color))} />
         <h2 className="min-w-0 truncate font-medium">{column.name}</h2>
         <span className="text-xs tabular-nums text-muted-foreground">{views.length}</span>
         {board.archivedAt === null ? (
@@ -613,11 +595,20 @@ function TicketCard({
         ) : null}
       </div>
       <p className="line-clamp-3 text-foreground">{ticket.title}</p>
-      {view.attention || view.blockers.length > 0 || ticket.criteria.length > 0 || project ? (
+      {view.attention ||
+      ticket.status !== "open" ||
+      view.blockers.length > 0 ||
+      ticket.criteria.length > 0 ||
+      project ? (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {view.attention ? (
-            <Badge variant="warning" size="sm">
-              Needs you
+            <Badge variant={view.attention.level === "error" ? "error" : "warning"} size="sm">
+              {view.attention.level === "error" ? "Error" : "Needs you"}
+            </Badge>
+          ) : null}
+          {ticket.status !== "open" ? (
+            <Badge variant={ticket.status === "done" ? "success" : "outline"} size="sm">
+              {STATUS_LABEL[ticket.status]}
             </Badge>
           ) : null}
           {view.blockers.length > 0 ? (
@@ -634,8 +625,17 @@ function TicketCard({
           {project ? <span className="ml-auto truncate">{project.title}</span> : null}
         </div>
       ) : null}
-      {view.attention?.kind === "attention" && ticket.attentionReason ? (
-        <p className="line-clamp-2 text-xs text-warning-foreground">{ticket.attentionReason}</p>
+      {view.attention ? (
+        <p
+          className={cn(
+            "line-clamp-2 text-xs",
+            view.attention.level === "error"
+              ? "text-destructive-foreground"
+              : "text-warning-foreground",
+          )}
+        >
+          {view.attention.reason}
+        </p>
       ) : null}
     </article>
   );

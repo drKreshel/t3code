@@ -8,7 +8,7 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { BoardColumnType } from "./forkBoards.ts";
+import { TicketStatus } from "./forkBoards.ts";
 import { ModelSelection, ProviderInteractionMode, RuntimeMode } from "./orchestration.ts";
 
 export const FORK_AUTOMATIONS_WS_METHODS = {
@@ -37,13 +37,15 @@ export const AutomationTrigger = Schema.Union([
   /**
    * A ticket entering a column (by any move, or created in it). With a board,
    * `columnId` names the column. With `boardId` null the hook applies to every
-   * board, matched by `columnType` since boards name their columns freely.
+   * board, matching columns by name (case-insensitive).
    */
   Schema.Struct({
     type: Schema.Literal("board"),
     boardId: Schema.NullOr(TrimmedNonEmptyString),
     columnId: Schema.NullOr(TrimmedNonEmptyString),
-    columnType: Schema.optional(Schema.NullOr(BoardColumnType)),
+    columnName: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+    /** @deprecated Stored by older versions; read as the type's default column name. */
+    columnType: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 ]);
 export type AutomationTrigger = typeof AutomationTrigger.Type;
@@ -56,6 +58,27 @@ export const AutomationCheckout = Schema.Literals(["local", "worktree", "ticket"
 export type AutomationCheckout = typeof AutomationCheckout.Type;
 
 /** How the started chat runs. Nulls fall back to defaults at run time. */
+/**
+ * A built-in action: applied instantly by the server, no chat, no tokens.
+ * Ticket steps act on the ticket that triggered a board hook; `moveStale`
+ * sweeps every board, for schedules.
+ */
+export const AutomationStep = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("setStatus"), status: TicketStatus }),
+  /** Moves the ticket to the column with this name on its board. */
+  Schema.Struct({ type: Schema.Literal("moveTo"), column: TrimmedNonEmptyString }),
+  Schema.Struct({ type: Schema.Literal("removeWorkspace") }),
+  Schema.Struct({ type: Schema.Literal("resolveFlag") }),
+  /** Moves tickets that sat in `from` longer than the given days into `to`, on every board. */
+  Schema.Struct({
+    type: Schema.Literal("moveStale"),
+    from: TrimmedNonEmptyString,
+    to: TrimmedNonEmptyString,
+    olderThanDays: PositiveInt,
+  }),
+]);
+export type AutomationStep = typeof AutomationStep.Type;
+
 export const AutomationAction = Schema.Struct({
   /**
    * Scoped project key (`environmentId:projectId`). Required for schedules;
@@ -67,14 +90,22 @@ export const AutomationAction = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   checkout: AutomationCheckout,
+  /**
+   * When set, the automation runs these steps instead of starting a chat, and
+   * the chat fields above are ignored.
+   */
+  steps: Schema.optional(Schema.Array(AutomationStep)),
 });
 export type AutomationAction = typeof AutomationAction.Type;
 
 export const Automation = Schema.Struct({
   id: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
-  /** Sent as the chat's first message; `{{ticket.key}}`-style variables are filled in. */
-  prompt: TrimmedNonEmptyString,
+  /**
+   * Sent as the chat's first message; `{{ticket.key}}`-style variables are
+   * filled in. Empty for automations that run steps.
+   */
+  prompt: Schema.String,
   trigger: AutomationTrigger,
   action: AutomationAction,
   enabled: Schema.Boolean,
@@ -137,7 +168,7 @@ const Id = TrimmedNonEmptyString;
 export const AutomationsCommand = Schema.Union([
   command("automation.create", {
     title: TrimmedNonEmptyString,
-    prompt: TrimmedNonEmptyString,
+    prompt: Schema.String,
     trigger: AutomationTrigger,
     action: AutomationAction,
     enabled: Schema.optional(Schema.Boolean),
@@ -146,7 +177,7 @@ export const AutomationsCommand = Schema.Union([
   command("automation.update", {
     automationId: Id,
     title: Schema.optional(TrimmedNonEmptyString),
-    prompt: Schema.optional(TrimmedNonEmptyString),
+    prompt: Schema.optional(Schema.String),
     trigger: Schema.optional(AutomationTrigger),
     action: Schema.optional(AutomationAction),
     enabled: Schema.optional(Schema.Boolean),
@@ -184,3 +215,21 @@ export const ForkAutomationsDispatchRpc = Rpc.make(FORK_AUTOMATIONS_WS_METHODS.d
   success: AutomationsCommandResult,
   error: Schema.Union([AutomationsCommandError, EnvironmentAuthorizationError]),
 });
+
+/** The column names older any-board hooks meant by their stored column type. */
+const LEGACY_TYPE_NAMES: Record<string, string> = {
+  backlog: "Backlog",
+  todo: "Todo",
+  active: "In progress",
+  review: "Testing",
+  attention: "Needs you",
+  done: "Done",
+  canceled: "Canceled",
+};
+
+/** The column name an any-board trigger watches, or null. */
+export function anyBoardColumnName(trigger: AutomationTrigger): string | null {
+  if (trigger.type !== "board" || trigger.boardId !== null) return null;
+  if (trigger.columnName) return trigger.columnName;
+  return trigger.columnType ? (LEGACY_TYPE_NAMES[trigger.columnType] ?? null) : null;
+}

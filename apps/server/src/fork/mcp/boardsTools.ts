@@ -4,10 +4,10 @@
  * BoardsService, so open windows update live and the timeline records the chat.
  */
 import {
-  BoardColumnType,
   BoardKey,
   BoardsCommandError,
   TicketPriority,
+  TicketStatus,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -33,14 +33,22 @@ const OptionalTicketRef = Schema.optional(
   }),
 );
 const ColumnRef = TrimmedNonEmptyString.annotate({
-  description:
-    "Column name (case-insensitive), or a column type: backlog, todo, active, review, attention, done, canceled.",
+  description: "Column name (case-insensitive), as list_boards shows it.",
 });
 
 const ColumnSummary = Schema.Struct({
   name: Schema.String,
-  type: BoardColumnType,
   tickets: Schema.Int,
+});
+
+const FlagSummary = Schema.NullOr(
+  Schema.Struct({
+    level: Schema.Literals(["warning", "error"]),
+    reason: Schema.String,
+  }),
+).annotate({
+  description:
+    "Set when the ticket waits on the user: warning (help was asked for) or error (a run failed). Its hooks wait until the user resolves it.",
 });
 
 export const BoardSummary = Schema.Struct({
@@ -56,12 +64,12 @@ export const TicketSummary = Schema.Struct({
   key: Schema.String,
   title: Schema.String,
   column: Schema.String,
-  columnType: BoardColumnType,
+  status: TicketStatus,
   priority: TicketPriority,
   criteriaChecked: Schema.Int,
   criteriaTotal: Schema.Int,
   blockedBy: Schema.Array(Schema.String),
-  attentionReason: Schema.NullOr(Schema.String),
+  flag: FlagSummary,
   linkedChats: Schema.Int,
 });
 export type TicketSummary = typeof TicketSummary.Type;
@@ -72,10 +80,12 @@ export const TicketDetailResult = Schema.Struct({
   title: Schema.String,
   description: Schema.String,
   column: Schema.String,
-  columnType: BoardColumnType,
+  status: TicketStatus.annotate({
+    description: "open, done, or canceled. Columns carry no meaning; the status does.",
+  }),
   priority: TicketPriority,
   project: Schema.NullOr(Schema.String),
-  attentionReason: Schema.NullOr(Schema.String),
+  flag: FlagSummary,
   criteria: Schema.Array(
     Schema.Struct({ number: Schema.Int, text: Schema.String, checked: Schema.Boolean }),
   ),
@@ -234,9 +244,10 @@ const CreateTicketTool = Tool.make("create_ticket", {
 
 const UpdateTicketTool = Tool.make("update_ticket", {
   description:
-    "Change a ticket's title, description, or priority, add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
+    "Change a ticket's title, description, priority, or status (open, done, canceled; done satisfies tickets that require this one), add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
+    status: Schema.optional(TicketStatus),
     title: Schema.optional(TrimmedNonEmptyString),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),
@@ -259,7 +270,7 @@ const UpdateTicketTool = Tool.make("update_ticket", {
 
 const MoveTicketTool = Tool.make("move_ticket", {
   description:
-    "Move a ticket to another column of its board. Refused while the ticket is blocked by unfinished required tickets and the move would start it. To ask the user for help, use request_human instead.",
+    "Move a ticket to another column of its board. Moving it can start that column's automations. To ask the user for help, use request_human instead.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     column: ColumnRef,
@@ -294,7 +305,7 @@ const AddCommentTool = Tool.make("add_comment", {
 
 const RequestHumanTool = Tool.make("request_human", {
   description:
-    "Escalate a ticket to the user: moves it to its board's Needs you column with the reason. Use when you are stuck, need a decision, or need an answer only the user has. Not for ordinary review.",
+    "Escalate a ticket to the user: flags it (yellow) with the reason, where it stands, and pauses its automations until the user resolves it. Use when you are stuck, need a decision, or need an answer only the user has. Not for ordinary review.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     reason: TrimmedNonEmptyString.annotate({

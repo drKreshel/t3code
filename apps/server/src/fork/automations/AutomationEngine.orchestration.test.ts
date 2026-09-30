@@ -111,7 +111,7 @@ describe("AutomationEngine with real orchestration", () => {
         "user",
       )).id!;
       const columns = (yield* boards.snapshot).boards[0]!.columns;
-      const active = columns.find((column) => column.type === "active")!.id;
+      const active = columns.find((column) => column.name === "In progress")!.id;
       yield* engine.dispatch({
         type: "automation.create",
         title: "Implement",

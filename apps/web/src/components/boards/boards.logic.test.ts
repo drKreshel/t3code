@@ -4,14 +4,13 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   describeTicketEvent,
   indexBoards,
-  moveStartsTicket,
   positionBetween,
   recentBoardsByActivity,
   suggestBoardKey,
   ticketAttention,
   ticketBlockers,
   ticketsByColumn,
-  ticketsNewlyInAttention,
+  ticketsNewlyFlagged,
 } from "./boards.logic";
 
 const board: Board = {
@@ -21,9 +20,9 @@ const board: Board = {
   defaultProjectKey: null,
   position: 1,
   columns: [
-    { id: "todo", name: "Todo", type: "todo", position: 1 },
-    { id: "attention", name: "Needs you", type: "attention", position: 2 },
-    { id: "done", name: "Done", type: "done", position: 3 },
+    { id: "todo", name: "Todo", color: null, position: 1 },
+    { id: "review", name: "Review", color: "violet", position: 2 },
+    { id: "done", name: "Done", color: "green", position: 3 },
   ],
   createdAt: "",
   updatedAt: "",
@@ -40,7 +39,8 @@ const ticket = (id: string, overrides: Partial<Ticket> = {}): Ticket => ({
   priority: "none",
   projectKey: null,
   position: 1,
-  attentionReason: null,
+  status: "open",
+  flag: null,
   requires: [],
   criteria: [],
   threadKeys: [],
@@ -56,7 +56,9 @@ describe("ticketBlockers", () => {
   it("lists required tickets that are not done", () => {
     const index = indexBoards(
       snapshot([
-        ticket("done-one", { columnId: "done" }),
+        ticket("done-one", { status: "done" }),
+        // Sitting in the Done column means nothing; the status decides.
+        ticket("canceled-one", { columnId: "done", status: "canceled" }),
         ticket("open-one"),
         ticket("t", { requires: ["done-one", "open-one"] }),
       ]),
@@ -68,23 +70,37 @@ describe("ticketBlockers", () => {
 });
 
 describe("ticketAttention", () => {
-  it("needs you only for questions, approvals, and the attention column", () => {
-    expect(ticketAttention(ticket("t"), "todo", [])).toBeNull();
-    expect(ticketAttention(ticket("t"), "review", [])).toBeNull();
-    expect(
-      ticketAttention(ticket("t", { attentionReason: "Which API?" }), "attention", []),
-    ).toEqual({ kind: "attention", reason: "Which API?" });
-    expect(ticketAttention(ticket("t"), "active", [{ hasPendingUserInput: true }])?.kind).toBe(
-      "input",
-    );
-    expect(ticketAttention(ticket("t"), "active", [{ hasPendingApprovals: true }])?.kind).toBe(
-      "approval",
-    );
+  const flag = (level: "warning" | "error", reason: string) => ({
+    level,
+    reason,
+    by: "automation:a",
+    at: "2026-09-30T00:00:00.000Z",
   });
 
-  it("ignores finished and archived tickets", () => {
-    expect(ticketAttention(ticket("t"), "done", [{ hasPendingUserInput: true }])).toBeNull();
-    expect(ticketAttention(ticket("t", { archivedAt: "2026-09-29" }), "attention", [])).toBeNull();
+  it("shows flags and waiting chats wherever the ticket sits, red before yellow", () => {
+    expect(ticketAttention(ticket("t", { columnId: "review" }), [])).toBeNull();
+    expect(ticketAttention(ticket("t", { flag: flag("warning", "Which API?") }), [])).toEqual({
+      level: "warning",
+      kind: "flag",
+      reason: "Which API?",
+    });
+    expect(ticketAttention(ticket("t"), [{ hasPendingUserInput: true }])?.kind).toBe("input");
+    expect(
+      ticketAttention(ticket("t", { flag: flag("warning", "Stuck") }), [
+        { sessionError: "Usage limit reached" },
+      ]),
+    ).toEqual({ level: "error", kind: "session", reason: "Usage limit reached" });
+    expect(
+      ticketAttention(ticket("t", { flag: flag("error", "Run failed") }), [
+        { hasPendingApprovals: true },
+      ])?.reason,
+    ).toBe("Run failed");
+  });
+
+  it("ignores archived tickets", () => {
+    expect(
+      ticketAttention(ticket("t", { archivedAt: "x", flag: flag("error", "Run failed") }), []),
+    ).toBeNull();
   });
 });
 
@@ -119,15 +135,6 @@ describe("suggestBoardKey", () => {
   });
 });
 
-describe("moveStartsTicket", () => {
-  it("is true only when leaving a not-started column for a started one", () => {
-    expect(moveStartsTicket("todo", "active")).toBe(true);
-    expect(moveStartsTicket("backlog", "done")).toBe(true);
-    expect(moveStartsTicket("active", "review")).toBe(false);
-    expect(moveStartsTicket("todo", "attention")).toBe(false);
-  });
-});
-
 describe("describeTicketEvent", () => {
   it("reads payloads and falls back to the kind", () => {
     expect(
@@ -146,22 +153,24 @@ describe("describeTicketEvent", () => {
   });
 });
 
-describe("ticketsNewlyInAttention", () => {
-  it("sets a baseline first, then reports only tickets that just arrived", () => {
-    const first = ticketsNewlyInAttention(
-      null,
-      snapshot([ticket("waiting", { columnId: "attention" }), ticket("todo")]),
-    );
+describe("ticketsNewlyFlagged", () => {
+  const flagged = (id: string, at: string) =>
+    ticket(id, { flag: { level: "warning", reason: "Help", by: "thread:x", at } });
+
+  it("sets a baseline first, then reports new and re-raised flags", () => {
+    const first = ticketsNewlyFlagged(null, snapshot([flagged("old", "t1"), ticket("calm")]));
     expect(first.added).toEqual([]);
-    const next = ticketsNewlyInAttention(
+    const next = ticketsNewlyFlagged(
       first.current,
-      snapshot([
-        ticket("waiting", { columnId: "attention" }),
-        ticket("todo", { columnId: "attention" }),
-        ticket("archived", { columnId: "attention", archivedAt: "x" }),
-      ]),
+      snapshot(
+        [flagged("old", "t1"), flagged("calm", "t2"), flagged("archived", "t3")].map((entry) =>
+          entry.id === "archived" ? { ...entry, archivedAt: "x" } : entry,
+        ),
+      ),
     );
-    expect(next.added.map((t) => t.id)).toEqual(["todo"]);
+    expect(next.added.map((t) => t.id)).toEqual(["calm"]);
+    const raisedAgain = ticketsNewlyFlagged(next.current, snapshot([flagged("old", "t9")]));
+    expect(raisedAgain.added.map((t) => t.id)).toEqual(["old"]);
   });
 });
 

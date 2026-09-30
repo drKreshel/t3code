@@ -3,7 +3,6 @@ import {
   AutomationsCommandError,
   type AutomationSchedule,
   type AutomationsSnapshot,
-  BoardColumnType,
   type BoardsSnapshot,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -12,18 +11,16 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { AutomationEngine } from "../automations/AutomationEngine.ts";
+import { anyBoardColumnName } from "../automations/automationLogic.ts";
 import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
 import { type AutomationSummary, AutomationsToolkit } from "./automationsTools.ts";
 import { findBoard, findColumn, findTicket, type Lookup } from "./boardsToolLogic.ts";
-
-const isBoardColumnType = Schema.is(BoardColumnType);
 
 const invalid = (message: string) => new AutomationsCommandError({ code: "invalid", message });
 const notFound = (message: string) => new AutomationsCommandError({ code: "not-found", message });
@@ -64,7 +61,7 @@ function describeTrigger(automation: Automation, boards: BoardsSnapshot | null):
       : `once at ${trigger.schedule.at}`;
   }
   if (trigger.boardId === null) {
-    return `ticket enters a ${trigger.columnType ?? "?"} column on any board`;
+    return `ticket enters a column named "${anyBoardColumnName(trigger) ?? "?"}" on any board`;
   }
   const board = boards?.boards.find((candidate) => candidate.id === trigger.boardId);
   const column = board?.columns.find((candidate) => candidate.id === trigger.columnId);
@@ -181,13 +178,13 @@ const make = Effect.gen(function* () {
             return yield* invalid("A board hook needs both board and column.");
           }
           if (input.board === "*") {
-            const columnType = input.column.toLowerCase();
-            if (!isBoardColumnType(columnType)) {
-              return yield* invalid(
-                "For every board, column must be a column type: backlog, todo, active, review, attention, done, or canceled.",
-              );
-            }
-            trigger = { type: "board" as const, boardId: null, columnId: null, columnType };
+            // Every board: the column is matched by name on whichever board.
+            trigger = {
+              type: "board" as const,
+              boardId: null,
+              columnId: null,
+              columnName: input.column,
+            };
           } else {
             const state = yield* boardsSnapshot;
             const board = yield* unwrap(findBoard(state, input.board));

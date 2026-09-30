@@ -1,5 +1,11 @@
 /** Pure pieces of the automation engine: schedules and prompt variables. */
-import type { AutomationTrigger, BoardsSnapshot, Ticket } from "@t3tools/contracts";
+import type {
+  AutomationAction,
+  AutomationTrigger,
+  BoardsSnapshot,
+  Ticket,
+} from "@t3tools/contracts";
+import { anyBoardColumnName } from "@t3tools/contracts";
 import * as Cron from "effect/Cron";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
@@ -83,23 +89,18 @@ export function renderPrompt(template: string, context: PromptContext): string {
   );
 }
 
-/** Required tickets not yet in a done column. */
+/** Required tickets that are not done yet (canceled does not count). */
 export function isBlocked(snapshot: BoardsSnapshot, ticket: Ticket): boolean {
-  const doneColumns = new Set(
-    snapshot.boards.flatMap((board) =>
-      board.columns.filter((column) => column.type === "done").map((column) => column.id),
-    ),
-  );
   return ticket.requires.some((id) => {
     const required = snapshot.tickets.find((candidate) => candidate.id === id);
-    return required !== undefined && !doneColumns.has(required.columnId);
+    return required !== undefined && required.status !== "done";
   });
 }
 
 /**
  * Whether a board trigger applies to a ticket where it sits now. A board
- * trigger names its column; an any-board trigger (`boardId` null) matches the
- * column's type on whichever board the ticket is on.
+ * trigger names its column; an any-board trigger (`boardId` null) matches
+ * columns by name on whichever board the ticket is on.
  */
 export function boardTriggerMatches(
   trigger: AutomationTrigger,
@@ -110,10 +111,11 @@ export function boardTriggerMatches(
   if (trigger.boardId !== null) {
     return trigger.boardId === ticket.boardId && trigger.columnId === ticket.columnId;
   }
-  if (!trigger.columnType) return false;
+  const name = anyBoardColumnName(trigger);
+  if (name === null) return false;
   const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
   const column = board?.columns.find((candidate) => candidate.id === ticket.columnId);
-  return column?.type === trigger.columnType;
+  return column !== undefined && column.name.trim().toLowerCase() === name.trim().toLowerCase();
 }
 
 /** Why a board trigger is incomplete, or null. */
@@ -122,5 +124,31 @@ export function boardTriggerProblem(trigger: AutomationTrigger): string | null {
   if (trigger.boardId !== null) {
     return trigger.columnId ? null : "Pick the column the hook watches.";
   }
-  return trigger.columnType ? null : "Pick the kind of column the hook watches on every board.";
+  return anyBoardColumnName(trigger) ? null : "Name the column the hook watches on every board.";
 }
+
+/**
+ * Why an automation's action does not fit its trigger, or null. Chat
+ * automations need a prompt; ticket steps need a board trigger; sweeping
+ * steps belong to schedules.
+ */
+export function stepsProblem(
+  trigger: AutomationTrigger,
+  action: AutomationAction,
+  prompt: string,
+): string | null {
+  const steps = action.steps ?? [];
+  if (steps.length === 0) {
+    return prompt.trim() ? null : "Write the prompt the chat starts with.";
+  }
+  for (const step of steps) {
+    if (step.type === "moveStale") {
+      if (trigger.type !== "schedule") return "Moving stale tickets runs on a schedule.";
+    } else if (trigger.type !== "board") {
+      return "Steps that act on a ticket run when a ticket enters a column.";
+    }
+  }
+  return null;
+}
+
+export { anyBoardColumnName };

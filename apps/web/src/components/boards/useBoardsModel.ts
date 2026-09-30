@@ -1,6 +1,6 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { Board, BoardColumnType, Ticket } from "@t3tools/contracts";
+import type { Board, Ticket } from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { useBoards } from "../../state/boards";
@@ -20,7 +20,6 @@ export interface TicketView {
   readonly ticket: Ticket;
   readonly board: Board;
   readonly label: string;
-  readonly columnType: BoardColumnType | undefined;
   readonly blockers: ReadonlyArray<Ticket>;
   /** Keys of the blockers, like `WEB-3`. */
   readonly blockerLabels: ReadonlyArray<string>;
@@ -64,7 +63,6 @@ export function useBoardsModel(): BoardsModel {
     for (const ticket of snapshot.tickets) {
       const board = index.boardById.get(ticket.boardId);
       if (!board) continue;
-      const columnType = index.columnTypeById.get(ticket.columnId);
       const threads = ticket.threadKeys.flatMap((key) => {
         const shell = shellByKey.get(key);
         return shell && shell.archivedAt === null ? [shell] : [];
@@ -74,10 +72,22 @@ export function useBoardsModel(): BoardsModel {
         ticket,
         board,
         label: ticketKey(board, ticket),
-        columnType,
         blockers,
         blockerLabels: blockers.map((blocker) => ticketLabel(blocker, index)),
-        attention: board.archivedAt === null ? ticketAttention(ticket, columnType, threads) : null,
+        attention:
+          board.archivedAt === null
+            ? ticketAttention(
+                ticket,
+                threads.map((thread) => ({
+                  hasPendingApprovals: thread.hasPendingApprovals,
+                  hasPendingUserInput: thread.hasPendingUserInput,
+                  sessionError:
+                    thread.session?.status === "error"
+                      ? (thread.session.lastError ?? "The chat stopped with an error")
+                      : null,
+                })),
+              )
+            : null,
         threads,
       });
     }
@@ -92,7 +102,12 @@ export function useBoardsModel(): BoardsModel {
       viewById,
       needsYou: [...viewById.values()]
         .filter((view) => view.attention !== null)
-        .toSorted((a, b) => a.ticket.updatedAt.localeCompare(b.ticket.updatedAt)),
+        // Errors first, then oldest first.
+        .toSorted(
+          (a, b) =>
+            Number(b.attention?.level === "error") - Number(a.attention?.level === "error") ||
+            a.ticket.updatedAt.localeCompare(b.ticket.updatedAt),
+        ),
     };
   }, [shells, state]);
 }

@@ -43,17 +43,10 @@ const ticketPath = (board: Board, ticket: Ticket) => `/boards/${board.key}/${tic
 
 /** Required tickets that are not in a done column. */
 function blockersOf(snapshot: BoardsSnapshot, ticket: Ticket): Ticket[] {
-  const columnType = columnTypes(snapshot);
   return ticket.requires.flatMap((id) => {
     const required = snapshot.tickets.find((candidate) => candidate.id === id);
-    return required && columnType.get(required.columnId) !== "done" ? [required] : [];
+    return required && required.status !== "done" ? [required] : [];
   });
-}
-
-function columnTypes(snapshot: BoardsSnapshot) {
-  return new Map(
-    snapshot.boards.flatMap((board) => board.columns.map((column) => [column.id, column.type])),
-  );
 }
 
 function labelOf(snapshot: BoardsSnapshot, ticket: Ticket): string {
@@ -150,7 +143,6 @@ const make = Effect.gen(function* () {
           .toSorted((a, b) => a.position - b.position)
           .map((column) => ({
             name: column.name,
-            type: column.type,
             tickets: live.filter((ticket) => ticket.columnId === column.id).length,
           })),
       } satisfies BoardSummary;
@@ -163,12 +155,12 @@ const make = Effect.gen(function* () {
       key: labelOf(snapshot, ticket),
       title: ticket.title,
       column: column?.name ?? "",
-      columnType: column?.type ?? "backlog",
+      status: ticket.status,
       priority: ticket.priority,
       criteriaChecked: ticket.criteria.filter((criterion) => criterion.checked).length,
       criteriaTotal: ticket.criteria.length,
       blockedBy: blockersOf(snapshot, ticket).map((blocker) => labelOf(snapshot, blocker)),
-      attentionReason: ticket.attentionReason,
+      flag: ticket.flag ? { level: ticket.flag.level, reason: ticket.flag.reason } : null,
       linkedChats: ticket.threadKeys.length,
     };
   };
@@ -222,7 +214,6 @@ const make = Effect.gen(function* () {
           onSome: (value) => value.comments,
         });
         const { threadKey, scope } = yield* caller;
-        const types = columnTypes(snapshot);
         const linkedChats = yield* Effect.forEach(ticket.threadKeys, (key) => {
           const separator = key.indexOf(":");
           const sameEnvironment = key.slice(0, separator) === scope.environmentId;
@@ -242,10 +233,10 @@ const make = Effect.gen(function* () {
           title: ticket.title,
           description: ticket.description,
           column: column?.name ?? "",
-          columnType: column?.type ?? "backlog",
+          status: ticket.status,
           priority: ticket.priority,
           project: yield* projectTitle(ticket.projectKey ?? board.defaultProjectKey),
-          attentionReason: ticket.attentionReason,
+          flag: ticket.flag ? { level: ticket.flag.level, reason: ticket.flag.reason } : null,
           criteria: ticket.criteria
             .toSorted((a, b) => a.position - b.position)
             .map((criterion, index) => ({
@@ -260,7 +251,7 @@ const make = Effect.gen(function* () {
                   {
                     key: labelOf(snapshot, required),
                     title: required.title,
-                    done: types.get(required.columnId) === "done",
+                    done: required.status === "done",
                   },
                 ]
               : [];
@@ -359,6 +350,9 @@ const make = Effect.gen(function* () {
             ...(input.priority !== undefined ? { priority: input.priority } : {}),
           });
         }
+        if (input.status !== undefined) {
+          yield* dispatch({ type: "ticket.setStatus", ticketId: ticket.id, status: input.status });
+        }
         // Resolve every criterion before writing, so a bad reference changes nothing.
         const check = yield* Effect.forEach(input.checkCriteria ?? [], (ref) =>
           unwrap(findCriterion(ticket, ref)),
@@ -433,12 +427,10 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, input.ticket);
-        const board = yield* boardOf(snapshot, ticket);
-        const column = yield* unwrap(findColumn(board, "attention"));
         yield* dispatch({
-          type: "ticket.move",
+          type: "ticket.flag",
           ticketId: ticket.id,
-          columnId: column.id,
+          level: "warning",
           reason: input.reason,
         });
         return yield* changed(ticket.id);

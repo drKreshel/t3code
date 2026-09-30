@@ -1,12 +1,13 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type {
-  Automation,
-  AutomationCheckout,
-  AutomationTrigger,
-  BoardColumnType,
-  EnvironmentId,
-  ModelSelection,
-  RuntimeMode,
+import {
+  anyBoardColumnName,
+  type Automation,
+  type AutomationCheckout,
+  type AutomationStep,
+  type AutomationTrigger,
+  type EnvironmentId,
+  type ModelSelection,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
@@ -43,7 +44,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import {
-  COLUMN_TYPE_LABEL,
+  columnNamesAcrossBoards,
   DEFAULT_SCHEDULE_FORM,
   formToSchedule,
   type RepeatKind,
@@ -51,6 +52,7 @@ import {
   scheduleToForm,
   WEEKDAY_LABELS,
 } from "./automations.logic";
+import { type StepRow, StepsEditor, toStepRows } from "./StepsEditor";
 
 /** Prefill for a new automation: a template, or a board hook from a board. */
 export interface AutomationDraft {
@@ -61,8 +63,10 @@ export interface AutomationDraft {
   readonly trigger?: AutomationTrigger["type"];
   readonly boardId?: string;
   readonly columnId?: string;
-  /** Watches this kind of column on every board. */
-  readonly anyBoardColumnType?: BoardColumnType;
+  /** Watches the column with this name on every board. */
+  readonly anyBoardColumnName?: string;
+  /** Built-in steps instead of a chat. */
+  readonly steps?: ReadonlyArray<AutomationStep>;
 }
 
 const REPEAT_LABEL: Record<RepeatKind, string> = {
@@ -85,8 +89,6 @@ const CHECKOUT_LABEL: Record<AutomationCheckout, string> = {
 /** Select values that are not ids. */
 const ANY_BOARD = "__any__";
 const INHERIT_PROJECT = "__inherit__";
-
-const COLUMN_TYPES = Object.keys(COLUMN_TYPE_LABEL) as BoardColumnType[];
 
 const HOOK_PROMPT_HINT =
   "Variables: {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.criteria}}, {{ticket.handoff}}, {{board.name}}, {{run.number}}.";
@@ -213,10 +215,14 @@ function AutomationForm({
 
   const [title, setTitle] = useState(automation?.title ?? draft?.title ?? "");
   const [prompt, setPrompt] = useState(automation?.prompt ?? draft?.prompt ?? "");
+  const initialSteps = automation?.action.steps ?? draft?.steps ?? [];
+  const [does, setDoes] = useState<"chat" | "steps">(initialSteps.length > 0 ? "steps" : "chat");
+  const [stepRows, setStepRows] = useState<StepRow[]>(() => toStepRows(initialSteps));
+  const steps = stepRows.map((row) => row.step);
   const [kind, setKind] = useState<AutomationTrigger["type"]>(
     initialTrigger?.type ??
       draft?.trigger ??
-      (draft?.boardId || draft?.anyBoardColumnType ? "board" : "schedule"),
+      (draft?.boardId || draft?.anyBoardColumnName ? "board" : "schedule"),
   );
   const [schedule, setSchedule] = useState<ScheduleForm>(
     initialTrigger?.type === "schedule"
@@ -229,13 +235,15 @@ function AutomationForm({
   const [boardScope, setBoardScope] = useState(
     initialBoardTrigger
       ? (initialBoardTrigger.boardId ?? ANY_BOARD)
-      : draft?.anyBoardColumnType
+      : draft?.anyBoardColumnName
         ? ANY_BOARD
         : (draft?.boardId ?? ""),
   );
   const [columnId, setColumnId] = useState(initialBoardTrigger?.columnId ?? draft?.columnId ?? "");
-  const [columnType, setColumnType] = useState<BoardColumnType | "">(
-    initialBoardTrigger?.columnType ?? draft?.anyBoardColumnType ?? "",
+  const [columnName, setColumnName] = useState<string>(
+    (initialBoardTrigger ? anyBoardColumnName(initialBoardTrigger) : null) ??
+      draft?.anyBoardColumnName ??
+      "",
   );
   const [maxRuns, setMaxRuns] = useState(automation?.maxRunsPerTicket ?? 3);
   const [projectKey, setProjectKey] = useState<string | null>(
@@ -260,6 +268,13 @@ function AutomationForm({
       ? boards.snapshot.boards.filter((board) => board.archivedAt === null)
       : [];
   const anyBoard = boardScope === ANY_BOARD;
+  // Names used across boards; a stored name no board uses anymore stays pickable.
+  const columnNameOptions = [
+    ...new Set([
+      ...columnNamesAcrossBoards(liveBoards),
+      ...(columnName.trim() ? [columnName.trim()] : []),
+    ]),
+  ];
   const board = anyBoard ? undefined : liveBoards.find((candidate) => candidate.id === boardScope);
   const columns = board?.columns.toSorted((a, b) => a.position - b.position) ?? [];
   const projectOptions = useMemo(
@@ -287,31 +302,37 @@ function AutomationForm({
     if (kind === "schedule") {
       const compiled = formToSchedule(schedule);
       if (!compiled.ok) return setError(compiled.message);
-      if (projectKey === null) return setError("A scheduled automation needs a project.");
+      if (does === "chat" && projectKey === null) {
+        return setError("A scheduled automation needs a project.");
+      }
       trigger = {
         type: "schedule",
         schedule: compiled.schedule,
         timezone: timezone.trim() || "UTC",
       };
     } else if (anyBoard) {
-      if (!columnType) return setError("Pick which kind of column to watch.");
-      trigger = { type: "board", boardId: null, columnId: null, columnType };
+      if (!columnName.trim()) return setError("Pick the column name to watch on every board.");
+      trigger = { type: "board", boardId: null, columnId: null, columnName: columnName.trim() };
     } else {
       if (!board || !columnId) return setError("Pick the board and the column.");
       trigger = { type: "board", boardId: board.id, columnId };
     }
-    if (!title.trim() || !prompt.trim()) return setError("Give it a title and a prompt.");
+    if (!title.trim()) return setError("Give it a title.");
+    if (does === "chat" && !prompt.trim())
+      return setError("Write the prompt the chat starts with.");
+    if (does === "steps" && steps.length === 0) return setError("Add at least one step.");
     const action = {
       projectKey,
       modelSelection,
       runtimeMode,
       interactionMode: automation?.action.interactionMode ?? ("default" as const),
       checkout,
+      ...(does === "steps" ? { steps } : {}),
     };
     setSubmitting(true);
     const common = {
       title: title.trim(),
-      prompt: prompt.trim(),
+      prompt: does === "chat" ? prompt.trim() : "",
       trigger,
       action,
       enabled,
@@ -345,23 +366,49 @@ function AutomationForm({
               placeholder="Weekly dependency audit"
             />
           </Field>
-          <Field
-            label="Prompt"
-            htmlFor="automation-prompt"
-            hint={kind === "board" ? HOOK_PROMPT_HINT : undefined}
-          >
-            <Textarea
-              id="automation-prompt"
-              rows={5}
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder={
-                kind === "board"
-                  ? "Test {{ticket.key}} and check off its acceptance criteria…"
-                  : "Check for outdated dependencies and open a PR…"
-              }
-            />
+          <Field label="Does">
+            <ToggleGroup
+              aria-label="What it does"
+              variant="segmented"
+              value={[does]}
+              onValueChange={(next) => {
+                const value = next[0];
+                if (value === "chat" || value === "steps") setDoes(value);
+              }}
+            >
+              <Toggle value="chat">Start a chat</Toggle>
+              <Toggle value="steps">Run steps (no chat)</Toggle>
+            </ToggleGroup>
           </Field>
+          {does === "steps" ? (
+            <Field label="Steps">
+              <StepsEditor
+                trigger={kind}
+                rows={stepRows}
+                onChange={setStepRows}
+                columnNames={columnNameOptions}
+              />
+            </Field>
+          ) : null}
+          {does === "chat" ? (
+            <Field
+              label="Prompt"
+              htmlFor="automation-prompt"
+              hint={kind === "board" ? HOOK_PROMPT_HINT : undefined}
+            >
+              <Textarea
+                id="automation-prompt"
+                rows={5}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder={
+                  kind === "board"
+                    ? "Test {{ticket.key}} and check off its acceptance criteria…"
+                    : "Check for outdated dependencies and open a PR…"
+                }
+              />
+            </Field>
+          ) : null}
 
           <Field label="Runs">
             <ToggleGroup
@@ -515,20 +562,18 @@ function AutomationForm({
                 </Select>
               </Field>
               {anyBoard ? (
-                <Field label="Column kind">
+                <Field label="Column name">
                   <Select
-                    value={columnType}
-                    onValueChange={(value) => setColumnType(value as BoardColumnType)}
+                    value={columnName}
+                    onValueChange={(value) => setColumnName(String(value))}
                   >
-                    <SelectTrigger aria-label="Column kind">
-                      <SelectValue>
-                        {columnType ? COLUMN_TYPE_LABEL[columnType] : "Choose a kind"}
-                      </SelectValue>
+                    <SelectTrigger aria-label="Column name">
+                      <SelectValue>{columnName || "Choose a column"}</SelectValue>
                     </SelectTrigger>
                     <SelectPopup alignItemWithTrigger={false}>
-                      {COLUMN_TYPES.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {COLUMN_TYPE_LABEL[type]}
+                      {columnNameOptions.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
                         </SelectItem>
                       ))}
                     </SelectPopup>
@@ -574,83 +619,87 @@ function AutomationForm({
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Project">
-              <Select
-                value={projectKey ?? INHERIT_PROJECT}
-                onValueChange={(value) =>
-                  setProjectKey(value === INHERIT_PROJECT || !value ? null : String(value))
-                }
-              >
-                <SelectTrigger aria-label="Project">
-                  <SelectValue>{projectLabel}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup alignItemWithTrigger={false}>
-                  {kind === "board" ? (
-                    <SelectItem value={INHERIT_PROJECT}>
-                      Inherit from the ticket, then the board
-                    </SelectItem>
-                  ) : null}
-                  {projectOptions.map((option) => (
-                    <SelectItem key={option.key} value={option.key}>
-                      {option.title}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
-            <Field label="Model">
-              {primaryEnvironmentId ? (
-                <AutomationModelField
-                  environmentId={primaryEnvironmentId}
-                  value={modelSelection}
-                  onChange={setModelSelection}
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">Not connected</p>
-              )}
-            </Field>
-            <Field label="Checkout">
-              <Select
-                value={checkout}
-                onValueChange={(value) => setCheckout(value as AutomationCheckout)}
-              >
-                <SelectTrigger aria-label="Checkout">
-                  <SelectValue>{CHECKOUT_LABEL[checkout]}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup alignItemWithTrigger={false}>
-                  {(Object.keys(CHECKOUT_LABEL) as AutomationCheckout[])
-                    // A schedule has no ticket to share a workspace with.
-                    .filter((option) => kind === "board" || option !== "ticket")
-                    .map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {CHECKOUT_LABEL[option]}
+          {does === "chat" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Project">
+                <Select
+                  value={projectKey ?? INHERIT_PROJECT}
+                  onValueChange={(value) =>
+                    setProjectKey(value === INHERIT_PROJECT || !value ? null : String(value))
+                  }
+                >
+                  <SelectTrigger aria-label="Project">
+                    <SelectValue>{projectLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    {kind === "board" ? (
+                      <SelectItem value={INHERIT_PROJECT}>
+                        Inherit from the ticket, then the board
+                      </SelectItem>
+                    ) : null}
+                    {projectOptions.map((option) => (
+                      <SelectItem key={option.key} value={option.key}>
+                        {option.title}
                       </SelectItem>
                     ))}
-                </SelectPopup>
-              </Select>
-            </Field>
-            <Field label="Access">
-              <Select
-                value={runtimeMode}
-                onValueChange={(value) => setRuntimeMode(value as RuntimeMode)}
-              >
-                <SelectTrigger aria-label="Access">
-                  <SelectValue>{runtimeModeConfig[runtimeMode].label}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup alignItemWithTrigger={false}>
-                  {runtimeModeOptions.map((mode) => (
-                    <SelectItem key={mode} value={mode}>
-                      {runtimeModeConfig[mode].label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </Field>
-          </div>
+                  </SelectPopup>
+                </Select>
+              </Field>
+              <Field label="Model">
+                {primaryEnvironmentId ? (
+                  <AutomationModelField
+                    environmentId={primaryEnvironmentId}
+                    value={modelSelection}
+                    onChange={setModelSelection}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">Not connected</p>
+                )}
+              </Field>
+              <Field label="Checkout">
+                <Select
+                  value={checkout}
+                  onValueChange={(value) => setCheckout(value as AutomationCheckout)}
+                >
+                  <SelectTrigger aria-label="Checkout">
+                    <SelectValue>{CHECKOUT_LABEL[checkout]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    {(Object.keys(CHECKOUT_LABEL) as AutomationCheckout[])
+                      // A schedule has no ticket to share a workspace with.
+                      .filter((option) => kind === "board" || option !== "ticket")
+                      .map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {CHECKOUT_LABEL[option]}
+                        </SelectItem>
+                      ))}
+                  </SelectPopup>
+                </Select>
+              </Field>
+              <Field label="Access">
+                <Select
+                  value={runtimeMode}
+                  onValueChange={(value) => setRuntimeMode(value as RuntimeMode)}
+                >
+                  <SelectTrigger aria-label="Access">
+                    <SelectValue>{runtimeModeConfig[runtimeMode].label}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup alignItemWithTrigger={false}>
+                    {runtimeModeOptions.map((mode) => (
+                      <SelectItem key={mode} value={mode}>
+                        {runtimeModeConfig[mode].label}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </Field>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-4">
             <p className="text-xs text-muted-foreground">
-              Full access runs do not stop to ask; pick Supervised to approve each command.
+              {does === "chat"
+                ? "Full access runs do not stop to ask; pick Supervised to approve each command."
+                : "Steps run instantly without a chat; the first that fails stops and flags the ticket."}
             </p>
             <label className="flex shrink-0 items-center gap-2 text-sm">
               <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enabled" />

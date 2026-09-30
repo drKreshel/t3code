@@ -3,20 +3,20 @@ import { HandIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { getClientSettings, useClientSettings } from "../../hooks/useSettings";
-import { isRecentLocalTicketMove, useBoards } from "../../state/boards";
+import { useBoards } from "../../state/boards";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
   playNotificationSound,
 } from "../../threadNotifications";
 import { toastManager } from "../ui/toast";
-import { indexBoards, ticketLabel, ticketsNewlyInAttention } from "./boards.logic";
+import { indexBoards, ticketLabel, ticketsNewlyFlagged } from "./boards.logic";
 
 /**
- * Tells Kreshel when a ticket lands in a Needs you column, for example after
- * an agent's request_human. Chats waiting on an approval or an answer already
- * notify through the thread notifications, so only the column counts here.
- * Follows the same notification settings; mount once, beside those.
+ * Tells Kreshel when a ticket gets flagged: an agent's request_human (yellow)
+ * or a failed automation run (red). Chats waiting on an approval or an answer
+ * already notify through the thread notifications. Follows the same
+ * notification settings; mount once, beside those.
  */
 export function BoardsNotificationCoordinator() {
   const boards = useBoards();
@@ -25,21 +25,21 @@ export function BoardsNotificationCoordinator() {
     (settings) => settings.inAppNotificationsEnabled,
   );
   const navigate = useNavigate();
-  const previous = useRef<ReadonlySet<string> | null>(null);
+  const previous = useRef<ReadonlyMap<string, string> | null>(null);
 
   useEffect(() => {
     if (boards.status !== "ready") return;
-    const { current, added } = ticketsNewlyInAttention(previous.current, boards.snapshot);
+    const { current, added } = ticketsNewlyFlagged(previous.current, boards.snapshot);
     previous.current = current;
     if (added.length === 0) return;
     const index = indexBoards(boards.snapshot);
     for (const ticket of added) {
-      if (isRecentLocalTicketMove(ticket.id)) continue;
       const board = index.boardById.get(ticket.boardId);
       if (!board) continue;
       const label = ticketLabel(ticket, index);
-      const title = `${label} needs you`;
-      const body = ticket.attentionReason ?? ticket.title;
+      const failed = ticket.flag?.level === "error";
+      const title = failed ? `${label} hit an error` : `${label} needs you`;
+      const body = ticket.flag?.reason ?? ticket.title;
       const open = () =>
         void navigate({
           to: "/boards/$boardKey/$ticketNumber",

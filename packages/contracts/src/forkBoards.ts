@@ -16,19 +16,26 @@ export const FORK_BOARDS_WS_METHODS = {
 } as const;
 
 /**
- * What a column means, independent of its name. Blocking, indicators, and
- * (later) hooks key off the type, so a board can call its review column "QA".
+ * Where a ticket stands, independent of which column it sits in. Columns carry
+ * no meaning of their own; people and automations set the status. Requires is
+ * satisfied only by `done`.
  */
-export const BoardColumnType = Schema.Literals([
-  "backlog",
-  "todo",
-  "active",
-  "review",
-  "attention",
-  "done",
-  "canceled",
-]);
-export type BoardColumnType = typeof BoardColumnType.Type;
+export const TicketStatus = Schema.Literals(["open", "done", "canceled"]);
+export type TicketStatus = typeof TicketStatus.Type;
+
+/**
+ * A ticket waiting on a person. `warning` (yellow): an agent asked for help or
+ * a hook hit its run limit. `error` (red): a run failed. While flagged, the
+ * ticket's hooks wait; resolving the flag lets them run again.
+ */
+export const TicketFlag = Schema.Struct({
+  level: Schema.Literals(["warning", "error"]),
+  reason: Schema.String,
+  /** `user`, `thread:<key>`, or `automation:<id>`. */
+  by: Schema.String,
+  at: IsoDateTime,
+});
+export type TicketFlag = typeof TicketFlag.Type;
 
 export const TicketPriority = Schema.Literals(["none", "low", "medium", "high", "urgent"]);
 export type TicketPriority = typeof TicketPriority.Type;
@@ -36,10 +43,12 @@ export type TicketPriority = typeof TicketPriority.Type;
 /** Two to five capital letters or digits, starting with a letter: `WEB`, `API2`. */
 export const BoardKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Z][A-Z0-9]{1,4}$/));
 
+/** A column is only a name and a place; automations give it behavior. */
 export const BoardColumn = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
-  type: BoardColumnType,
+  /** A color token for the column's dot, like `blue`; null for the neutral one. */
+  color: Schema.NullOr(Schema.String),
   position: Schema.Number,
 });
 export type BoardColumn = typeof BoardColumn.Type;
@@ -77,8 +86,8 @@ export const Ticket = Schema.Struct({
   /** Overrides the board's default project for new chats. */
   projectKey: Schema.NullOr(Schema.String),
   position: Schema.Number,
-  /** Why the ticket sits in an attention column, when a person or agent said. */
-  attentionReason: Schema.NullOr(Schema.String),
+  status: TicketStatus,
+  flag: Schema.NullOr(TicketFlag),
   /** Ticket ids that must be done before this one can start. */
   requires: Schema.Array(TrimmedNonEmptyString),
   criteria: Schema.Array(TicketCriterion),
@@ -151,12 +160,12 @@ export const BoardsCommand = Schema.Union([
   command("column.create", {
     boardId: Id,
     name: TrimmedNonEmptyString,
-    columnType: BoardColumnType,
+    color: Schema.optional(Schema.NullOr(Schema.String)),
   }),
   command("column.update", {
     columnId: Id,
     name: Schema.optional(TrimmedNonEmptyString),
-    columnType: Schema.optional(BoardColumnType),
+    color: Schema.optional(Schema.NullOr(Schema.String)),
   }),
   command("column.delete", { columnId: Id, moveTicketsTo: Id }),
   command("column.reorder", { columnId: Id, position: Schema.Number }),
@@ -182,11 +191,15 @@ export const BoardsCommand = Schema.Union([
     columnId: Id,
     /** Omitted: the end of the column. */
     position: Schema.optional(Schema.Number),
-    /** Why, when moving into an attention column. */
-    reason: Schema.optional(Schema.String),
-    /** A person may start a blocked ticket after confirming. */
-    overrideBlocked: Schema.optional(Schema.Boolean),
   }),
+  command("ticket.setStatus", { ticketId: Id, status: TicketStatus }),
+  /** Raises (or replaces) the ticket's flag. */
+  command("ticket.flag", {
+    ticketId: Id,
+    level: TicketFlag.fields.level,
+    reason: TrimmedNonEmptyString,
+  }),
+  command("ticket.resolveFlag", { ticketId: Id }),
   command("ticket.archive", { ticketId: Id, archived: Schema.Boolean }),
   command("criterion.add", { ticketId: Id, text: TrimmedNonEmptyString }),
   command("criterion.update", {

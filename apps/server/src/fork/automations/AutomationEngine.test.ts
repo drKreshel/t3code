@@ -145,13 +145,13 @@ const setupBoard = (harness: Effect.Success<typeof makeHarness>) =>
       "user",
     )).id!;
     const snapshot: BoardsSnapshot = yield* harness.boards.snapshot;
-    const column = (type: string) =>
-      snapshot.boards[0]!.columns.find((candidate) => candidate.type === type)!.id;
+    const column = (name: string) =>
+      snapshot.boards[0]!.columns.find((candidate) => candidate.name === name)!.id;
     const hookId = (yield* harness.engine.dispatch({
       type: "automation.create",
       title: "Implement",
       prompt: "Implement {{ticket.key}}: {{ticket.title}}",
-      trigger: { type: "board", boardId, columnId: column("active") },
+      trigger: { type: "board", boardId, columnId: column("In progress") },
       action,
       maxRunsPerTicket: 2,
     })).id!;
@@ -173,7 +173,11 @@ describe("AutomationEngine", () => {
         const harness = yield* makeHarness;
         const { column, ticket } = yield* setupBoard(harness);
         const ticketId = yield* ticket("Meter notes");
-        yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("active") });
+        yield* harness.boardDispatch({
+          type: "ticket.move",
+          ticketId,
+          columnId: column("In progress"),
+        });
 
         const commands = yield* Ref.get(harness.commands);
         expect(commands.map((command) => command.type)).toEqual([
@@ -197,18 +201,18 @@ describe("AutomationEngine", () => {
       const harness = yield* makeHarness;
       const { column, ticket } = yield* setupBoard(harness);
       const ticketId = yield* ticket("Meter notes");
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("todo") });
+      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Todo") });
       yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("active") },
+        { type: "ticket.move", ticketId, columnId: column("In progress") },
         "automation:other",
       );
       // Re-entering while the first chat still runs queues one run.
       yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("todo") },
+        { type: "ticket.move", ticketId, columnId: column("Todo") },
         "agent",
       );
       yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("active") },
+        { type: "ticket.move", ticketId, columnId: column("In progress") },
         "agent",
       );
       expect((yield* harness.threadIdsStarted).length).toBe(1);
@@ -225,7 +229,7 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("stops at the run limit and sends the ticket to Needs you", () =>
+  it.effect("stops at the run limit and flags the ticket where it stands", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
       const { column, ticket } = yield* setupBoard(harness);
@@ -233,24 +237,25 @@ describe("AutomationEngine", () => {
       // Two runs that end without the ticket moving on: the agent bounces it back.
       for (let attempt = 0; attempt < 2; attempt += 1) {
         yield* harness.boardDispatch(
-          { type: "ticket.move", ticketId, columnId: column("active") },
+          { type: "ticket.move", ticketId, columnId: column("In progress") },
           "agent",
         );
         yield* harness.endTurn((yield* harness.threadIdsStarted).at(-1)!, "completed");
         yield* harness.boardDispatch(
-          { type: "ticket.move", ticketId, columnId: column("review") },
+          { type: "ticket.move", ticketId, columnId: column("Review") },
           "agent",
         );
       }
       // The third entry hits the limit of 2.
       yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("active") },
+        { type: "ticket.move", ticketId, columnId: column("In progress") },
         "agent",
       );
       expect((yield* harness.threadIdsStarted).length).toBe(2);
       const current = (yield* harness.boards.snapshot).tickets[0]!;
-      expect(current.columnId).toBe(column("attention"));
-      expect(current.attentionReason).toMatch(/ran 2 times/);
+      expect(current.columnId).toBe(column("In progress"));
+      expect(current.flag).toMatchObject({ level: "warning" });
+      expect(current.flag?.reason).toMatch(/ran 2 times/);
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -260,19 +265,14 @@ describe("AutomationEngine", () => {
       const { column, ticket } = yield* setupBoard(harness);
       const schema = yield* ticket("Schema");
       const endpoint = yield* ticket("Endpoint", [schema]);
-      // A person may start a blocked ticket; the hook still waits for it to be unblocked.
+      // A blocked ticket moves freely; its hook waits until it is unblocked.
       yield* harness.boardDispatch({
         type: "ticket.move",
         ticketId: endpoint,
-        columnId: column("active"),
-        overrideBlocked: true,
+        columnId: column("In progress"),
       });
       expect((yield* harness.threadIdsStarted).length).toBe(0);
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId: schema,
-        columnId: column("done"),
-      });
+      yield* harness.boardDispatch({ type: "ticket.setStatus", ticketId: schema, status: "done" });
       expect((yield* harness.threadIdsStarted).length).toBe(1);
     }).pipe(Effect.provide(TestLayer)),
   );
@@ -282,12 +282,16 @@ describe("AutomationEngine", () => {
       const harness = yield* makeHarness;
       const { column, ticket } = yield* setupBoard(harness);
       const ticketId = yield* ticket("Crashy");
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("active") });
+      yield* harness.boardDispatch({
+        type: "ticket.move",
+        ticketId,
+        columnId: column("In progress"),
+      });
       const [threadId] = yield* harness.threadIdsStarted;
       yield* harness.endTurn(threadId!, "error");
       const current = (yield* harness.boards.snapshot).tickets[0]!;
-      expect(current.columnId).toBe(column("attention"));
-      expect(current.attentionReason).toMatch(/"Implement" failed/);
+      expect(current.flag).toMatchObject({ level: "error" });
+      expect(current.flag?.reason).toMatch(/"Implement" failed/);
       expect((yield* harness.store.snapshot).runs[0]!.status).toBe("failed");
     }).pipe(Effect.provide(TestLayer)),
   );
@@ -365,12 +369,12 @@ describe("AutomationEngine", () => {
         type: "automation.create",
         title: "Test anything",
         prompt: "Test {{ticket.key}}",
-        trigger: { type: "board", boardId: null, columnId: null, columnType: "review" },
+        trigger: { type: "board", boardId: null, columnId: null, columnName: "review" },
         action,
       });
       const columns = (yield* harness.boards.snapshot).boards[0]!.columns;
-      const review = columns.find((column) => column.type === "review")!.id;
-      const active = columns.find((column) => column.type === "active")!.id;
+      const review = columns.find((column) => column.name === "Review")!.id;
+      const active = columns.find((column) => column.name === "In progress")!.id;
       const ticketId = (yield* harness.boards.dispatch(
         { type: "ticket.create", boardId, title: "Anywhere" },
         "user",
@@ -385,7 +389,7 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("rejects an any-board hook without a column type", () =>
+  it.effect("rejects an any-board hook without a column name", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
       const error = yield* harness.engine
@@ -397,7 +401,98 @@ describe("AutomationEngine", () => {
           action,
         })
         .pipe(Effect.flip);
-      expect(error.message).toMatch(/kind of column/);
+      expect(error.message).toMatch(/Name the column/);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+  it.effect("runs built-in steps without a chat: close on entering Done", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { boardId, column, ticket } = yield* setupBoard(harness);
+      yield* harness.engine.dispatch({
+        type: "automation.create",
+        title: "Close when done",
+        prompt: "",
+        trigger: { type: "board", boardId, columnId: column("Done") },
+        action: { ...action, steps: [{ type: "setStatus", status: "done" }] },
+      });
+      const schema = yield* ticket("Schema");
+      const endpoint = yield* ticket("Endpoint", [schema]);
+      yield* harness.boardDispatch({
+        type: "ticket.move",
+        ticketId: schema,
+        columnId: column("Done"),
+      });
+      const tickets = new Map((yield* harness.boards.snapshot).tickets.map((t) => [t.id, t]));
+      expect(tickets.get(schema)!.status).toBe("done");
+      // No chat started, and the dependent is no longer blocked.
+      expect(yield* harness.threadIdsStarted).toEqual([]);
+      expect(tickets.get(endpoint)!.requires).toEqual([schema]);
+      const runs = (yield* harness.store.snapshot).runs;
+      expect(runs.map((run) => run.status)).toContain("succeeded");
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("flags the ticket when a step cannot run", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { boardId, column, ticket } = yield* setupBoard(harness);
+      yield* harness.engine.dispatch({
+        type: "automation.create",
+        title: "Park it",
+        prompt: "",
+        trigger: { type: "board", boardId, columnId: column("Review") },
+        action: { ...action, steps: [{ type: "moveTo", column: "Parking" }] },
+      });
+      const ticketId = yield* ticket("Lost");
+      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Review") });
+      const flagged = (yield* harness.boards.snapshot).tickets[0]!;
+      expect(flagged.flag).toMatchObject({ level: "error" });
+      expect(flagged.flag?.reason).toMatch(/no column named "Parking"/);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("moves stale tickets between columns on a schedule", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { column, ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Old news");
+      yield* harness.boards.dispatch(
+        { type: "ticket.move", ticketId, columnId: column("Done") },
+        "user",
+      );
+      const sweep = (olderThanDays: number) =>
+        harness.engine.dispatch({
+          type: "automation.create",
+          title: `Settle after ${olderThanDays}`,
+          prompt: "",
+          trigger: {
+            type: "schedule",
+            schedule: { kind: "cron", cron: "0 3 * * *" },
+            timezone: "UTC",
+          },
+          action: {
+            ...action,
+            steps: [{ type: "moveStale", from: "done", to: "Backlog", olderThanDays }],
+          },
+        });
+      // A ticket moved just now is not stale yet.
+      const recent = (yield* sweep(1)).id!;
+      yield* harness.engine.dispatch({ type: "automation.runNow", automationId: recent });
+      expect((yield* harness.boards.snapshot).tickets[0]!.columnId).toBe(column("Done"));
+      expect(
+        (yield* harness.engine
+          .dispatch({
+            type: "automation.create",
+            title: "Wrong trigger",
+            prompt: "",
+            trigger: { type: "board", boardId: null, columnId: null, columnName: "Done" },
+            action: {
+              ...action,
+              steps: [{ type: "moveStale", from: "Done", to: "Backlog", olderThanDays: 1 }],
+            },
+          })
+          .pipe(Effect.flip)).message,
+      ).toMatch(/runs on a schedule/);
     }).pipe(Effect.provide(TestLayer)),
   );
 });

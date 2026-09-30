@@ -99,17 +99,6 @@ export function useTicketDetail(ticketId: string | null): TicketDetail | null {
   );
 }
 
-// Tickets this window moved in the last few seconds, so the notifier does not
-// announce Kreshel's own drag. Entries expire so a later agent move still counts.
-const LOCAL_MOVE_WINDOW_MS = 10_000;
-const localTicketMoves = new Map<string, number>();
-
-/** Whether this window moved the ticket just now. */
-export function isRecentLocalTicketMove(ticketId: string): boolean {
-  const movedAt = localTicketMoves.get(ticketId);
-  return movedAt !== undefined && Date.now() - movedAt < LOCAL_MOVE_WINDOW_MS;
-}
-
 /**
  * Sends one board command to the primary environment. Resolves with the id a
  * create command made (or null); a refused command toasts its reason and
@@ -123,7 +112,6 @@ export function useBoardsDispatch(): (
   return useCallback(
     async (command: BoardsCommand) => {
       if (environmentId === null) return undefined;
-      if (command.type === "ticket.move") localTicketMoves.set(command.ticketId, Date.now());
       const result = await dispatch({ environmentId, input: command });
       if (result._tag === "Success") return result.value.id;
       if (!isAtomCommandInterrupted(result)) {

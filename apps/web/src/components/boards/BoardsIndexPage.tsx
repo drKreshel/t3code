@@ -11,7 +11,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "..
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { ticketsByColumn } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
-import { COLUMN_TYPE_DOT_CLASS } from "./boardsPresentation";
+import { columnDotClass } from "./boardsPresentation";
 import { NewBoardDialog } from "./NewBoardDialog";
 import { useBoardsModel, type TicketView } from "./useBoardsModel";
 import { useProjectLookup } from "./useTicketActions";
@@ -171,7 +171,7 @@ function BoardRow({
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {board.columns.map((column) => (
             <span key={column.id} className="flex items-center gap-1.5">
-              <span className={`size-1.5 rounded-full ${COLUMN_TYPE_DOT_CLASS[column.type]}`} />
+              <span className={`size-1.5 rounded-full ${columnDotClass(column.color)}`} />
               {column.name}
               <span className="tabular-nums text-foreground">
                 {byColumn.get(column.id)?.length ?? 0}

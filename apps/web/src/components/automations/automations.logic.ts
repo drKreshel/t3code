@@ -1,10 +1,5 @@
-import type {
-  Automation,
-  AutomationSchedule,
-  AutomationTrigger,
-  Board,
-  BoardColumnType,
-} from "@t3tools/contracts";
+import { anyBoardColumnName } from "@t3tools/contracts";
+import type { Automation, AutomationSchedule, AutomationTrigger, Board } from "@t3tools/contracts";
 
 export type RepeatKind = "once" | "hourly" | "daily" | "weekdays" | "weekly" | "monthly" | "custom";
 
@@ -134,17 +129,6 @@ export function describeSchedule(schedule: AutomationSchedule): string {
   }
 }
 
-/** Human names for column types, for any-board hooks. */
-export const COLUMN_TYPE_LABEL: Record<BoardColumnType, string> = {
-  backlog: "Backlog",
-  todo: "Todo",
-  active: "In progress",
-  review: "Testing / review",
-  attention: "Needs you",
-  done: "Done",
-  canceled: "Canceled",
-};
-
 /** A trigger in words; board names come from the caller. */
 export function describeTrigger(
   trigger: AutomationTrigger,
@@ -152,15 +136,14 @@ export function describeTrigger(
 ): string {
   if (trigger.type === "schedule") return describeSchedule(trigger.schedule);
   if (trigger.boardId === null || trigger.columnId === null) {
-    const type = trigger.columnType ? COLUMN_TYPE_LABEL[trigger.columnType] : "a";
-    return `When a ticket enters a ${type} column on any board`;
+    return `When a ticket enters "${anyBoardColumnName(trigger) ?? "?"}" on any board`;
   }
   return `When a ticket enters ${boardColumnLabel(trigger.boardId, trigger.columnId)}`;
 }
 
 /**
  * Hooks that watch each column of one board, by column id: the board's own,
- * plus any-board hooks for the column's type.
+ * plus any-board hooks naming the column.
  */
 export function hooksByColumn(
   automations: ReadonlyArray<Automation>,
@@ -176,12 +159,28 @@ export function hooksByColumn(
     const { trigger } = automation;
     if (trigger.type !== "board") continue;
     if (trigger.boardId === null) {
+      const name = anyBoardColumnName(trigger)?.trim().toLowerCase();
       for (const column of board.columns) {
-        if (column.type === trigger.columnType) add(column.id, automation);
+        if (name && column.name.trim().toLowerCase() === name) add(column.id, automation);
       }
     } else if (trigger.boardId === board.id && trigger.columnId !== null) {
       add(trigger.columnId, automation);
     }
   }
   return byColumn;
+}
+
+/** Every column name used on live boards, for any-board hooks to pick from. */
+export function columnNamesAcrossBoards(
+  boards: ReadonlyArray<Pick<Board, "archivedAt" | "columns">>,
+): string[] {
+  const names = new Map<string, string>();
+  for (const board of boards) {
+    if (board.archivedAt !== null) continue;
+    for (const column of board.columns) {
+      const key = column.name.trim().toLowerCase();
+      if (!names.has(key)) names.set(key, column.name.trim());
+    }
+  }
+  return [...names.values()].toSorted((a, b) => a.localeCompare(b));
 }

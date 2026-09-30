@@ -162,6 +162,29 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       )`,
     ],
   },
+  {
+    // Columns lose their type: status and flags move onto tickets, and
+    // behavior moves to automations. Existing data carries over.
+    version: 4,
+    statements: [
+      `ALTER TABLE fork_tickets ADD COLUMN status TEXT NOT NULL DEFAULT 'open'`,
+      `ALTER TABLE fork_tickets ADD COLUMN flag_json TEXT`,
+      `UPDATE fork_tickets SET status = 'done'
+        WHERE column_id IN (SELECT id FROM fork_board_columns WHERE type = 'done')`,
+      `UPDATE fork_tickets SET status = 'canceled'
+        WHERE column_id IN (SELECT id FROM fork_board_columns WHERE type = 'canceled')`,
+      `UPDATE fork_tickets SET flag_json = json_object(
+          'level', 'warning', 'reason', COALESCE(attention_reason, 'Needs you'),
+          'by', 'user', 'at', updated_at)
+        WHERE column_id IN (SELECT id FROM fork_board_columns WHERE type = 'attention')`,
+      `ALTER TABLE fork_board_columns ADD COLUMN color TEXT`,
+      `UPDATE fork_board_columns SET color = CASE type
+          WHEN 'active' THEN 'blue' WHEN 'review' THEN 'violet' WHEN 'attention' THEN 'amber'
+          WHEN 'done' THEN 'green' WHEN 'canceled' THEN 'gray' ELSE NULL END`,
+      `ALTER TABLE fork_board_columns DROP COLUMN type`,
+      `ALTER TABLE fork_tickets DROP COLUMN attention_reason`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {
