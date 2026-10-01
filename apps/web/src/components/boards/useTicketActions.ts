@@ -97,6 +97,7 @@ export function useStartTicketSession(): (
               { quiet: true },
             )
           : undefined;
+        if (inTicketProject && workspace === undefined) return;
         // Only a ticket set to work in the project checkout starts there; any
         // other failure stops, so ticket work never lands in the shared checkout.
         if (workspace && !workspace.ok && workspace.code !== "no-workspace") {

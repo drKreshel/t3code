@@ -5,6 +5,7 @@ import { SquareKanbanIcon } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { useBoards, useBoardsDispatch, useThreadTicketKey } from "../../state/boards";
+import { usePrimaryEnvironmentId } from "../../state/environments";
 import { Button } from "../ui/button";
 import {
   Combobox,
@@ -58,10 +59,12 @@ export function ThreadTicketChip({
   const boards = useBoards();
   const dispatch = useBoardsDispatch();
   const navigate = useNavigate();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const canLink = environmentId === primaryEnvironmentId;
 
   // Built only while the picker is open; the closed chip reads one string.
   const { boardCandidates, ticketCandidates } = useMemo(() => {
-    if (!open || boards.status !== "ready") {
+    if (!open || !canLink || boards.status !== "ready") {
       return { boardCandidates: [] as BoardCandidate[], ticketCandidates: [] as TicketCandidate[] };
     }
     const { snapshot } = boards;
@@ -103,7 +106,7 @@ export function ThreadTicketChip({
           );
       }),
     };
-  }, [boards, open, query]);
+  }, [boards, canLink, open, query]);
 
   const actions = linkedKey === null ? [] : [OPEN, UNLINK];
   const boardValues = boardCandidates.map((board) => `${BOARD_PREFIX}${board.key}`);
@@ -125,8 +128,12 @@ export function ThreadTicketChip({
         to: "/boards/$boardKey",
         params: { boardKey: key.slice(BOARD_PREFIX.length) },
       });
-    } else void dispatch({ type: "thread.link", threadKey, ticketId: key });
+    } else if (canLink) void dispatch({ type: "thread.link", threadKey, ticketId: key });
   };
+
+  // Keep existing links accessible for opening and unlinking; new links need
+  // a chat on the server whose tools can read the ticket.
+  if (!canLink && linkedKey === null) return null;
 
   const trigger =
     linkedKey === null ? (
