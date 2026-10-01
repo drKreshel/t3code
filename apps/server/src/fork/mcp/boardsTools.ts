@@ -185,7 +185,7 @@ const GetTicketTool = Tool.make("get_ticket", {
 
 const CreateBoardTool = Tool.make("create_board", {
   description:
-    "Create a board. It starts with the columns Backlog, Todo, In progress, Testing, Needs you, and Done.",
+    "Create a board. Without a template it starts with the columns Backlog, Todo, In progress, Review, and Done, and no automations.",
   parameters: Schema.Struct({
     name: TrimmedNonEmptyString,
     key: BoardKey.annotate({
@@ -194,6 +194,12 @@ const CreateBoardTool = Tool.make("create_board", {
     useThisChatsProject: Schema.optional(
       Schema.Boolean.annotate({
         description: "Make this chat's project the board's default project for new chats.",
+      }),
+    ),
+    template: Schema.optional(
+      TrimmedNonEmptyString.annotate({
+        description:
+          'A board template\'s name, like "Ship with agents": the board gets its columns and automations. Only when the user asks for one.',
       }),
     ),
   }),

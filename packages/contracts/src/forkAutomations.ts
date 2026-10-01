@@ -67,12 +67,16 @@ export const AutomationStep = Schema.Union([
   Schema.Struct({ type: Schema.Literal("moveTo"), column: TrimmedNonEmptyString }),
   /** Removes the ticket's worktrees (branches stay); refused while work is unsaved. */
   Schema.Struct({ type: Schema.Literal("removeWorkspace") }),
-  /** Moves tickets that sat in `from` longer than the given days into `to`, on every board. */
+  /**
+   * Moves tickets that sat in `from` longer than the given days into `to`, on
+   * the board named by `boardId`, or on every board with those columns.
+   */
   Schema.Struct({
     type: Schema.Literal("moveStale"),
     from: TrimmedNonEmptyString,
     to: TrimmedNonEmptyString,
     olderThanDays: PositiveInt,
+    boardId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   }),
 ]);
 export type AutomationStep = typeof AutomationStep.Type;

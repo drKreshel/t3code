@@ -15,7 +15,7 @@ import * as Option from "effect/Option";
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { AutomationEngine } from "../automations/AutomationEngine.ts";
-import { anyBoardColumnName } from "../automations/automationLogic.ts";
+import { anyBoardColumnName, serverTimezone } from "../automations/automationLogic.ts";
 import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
@@ -31,9 +31,6 @@ const unavailable = new AutomationsCommandError({
 
 const unwrap = <A>(lookup: Lookup<A>): Effect.Effect<A, AutomationsCommandError> =>
   lookup.ok ? Effect.succeed(lookup.value) : Effect.fail(notFound(lookup.message));
-
-/** The zone the server runs in; T3 Code's server is usually the user's own machine. */
-const serverTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
 /** A schedule from the tool's cron/at inputs, or undefined when neither was given. */
 function scheduleOf(input: {

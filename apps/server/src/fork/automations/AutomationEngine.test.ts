@@ -18,6 +18,7 @@ import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
@@ -482,6 +483,47 @@ describe("AutomationEngine", () => {
           })
           .pipe(Effect.flip)).message,
       ).toMatch(/runs on a schedule/);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+  it.effect("sweeps only the board a stale-ticket step names", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { boardId, column, ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Old news");
+      yield* harness.boards.dispatch(
+        { type: "ticket.move", ticketId, columnId: column("Done") },
+        "user",
+      );
+      yield* TestClock.adjust("2 days");
+      const sweep = (target: string) =>
+        Effect.gen(function* () {
+          const automationId = (yield* harness.engine.dispatch({
+            type: "automation.create",
+            title: `Settle ${target}`,
+            prompt: "",
+            trigger: {
+              type: "schedule",
+              schedule: { kind: "cron", cron: "0 3 * * *" },
+              timezone: "UTC",
+            },
+            action: {
+              ...action,
+              steps: [
+                {
+                  type: "moveStale",
+                  from: "Done",
+                  to: "Backlog",
+                  olderThanDays: 1,
+                  boardId: target,
+                },
+              ],
+            },
+          })).id!;
+          yield* harness.engine.dispatch({ type: "automation.runNow", automationId });
+          return (yield* harness.boards.snapshot).tickets[0]!.columnId;
+        });
+      expect(yield* sweep("another-board")).toBe(column("Done"));
+      expect(yield* sweep(boardId)).toBe(column("Backlog"));
     }).pipe(Effect.provide(TestLayer)),
   );
   it.effect("runs no hooks for a quiet move", () =>

@@ -144,3 +144,6 @@ export function stepsProblem(
 }
 
 export { anyBoardColumnName };
+
+/** The zone the server runs in; T3 Code's server is usually the user's own machine. */
+export const serverTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";

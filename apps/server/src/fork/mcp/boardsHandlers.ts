@@ -16,6 +16,7 @@ import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
+import { BoardTemplates } from "../templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
 import {
   filterTickets,
@@ -68,6 +69,7 @@ const make = Effect.gen(function* () {
   );
   const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
+  const templates = yield* Effect.serviceOption(BoardTemplates);
   const workspaceOf = (ticketId: string): Effect.Effect<TicketWorkspace | null> =>
     Option.match(workspaces, {
       onNone: () => Effect.succeed(null),
@@ -288,12 +290,36 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const defaultProjectKey =
           input.useThisChatsProject === true ? yield* callerProjectKey : null;
-        yield* dispatch({
-          type: "board.create",
-          name: input.name,
-          key: input.key,
-          defaultProjectKey,
-        });
+        if (input.template === undefined) {
+          yield* dispatch({
+            type: "board.create",
+            name: input.name,
+            key: input.key,
+            defaultProjectKey,
+          });
+        } else {
+          if (Option.isNone(templates)) return yield* notFound("Board templates are unavailable.");
+          const service = templates.value;
+          const wanted = input.template.trim().toLowerCase();
+          const { templates: all } = yield* service.snapshot;
+          const template = all.find((candidate) => candidate.name.toLowerCase() === wanted);
+          if (!template) {
+            return yield* notFound(
+              `No template "${input.template}". Templates: ${all.map((t) => t.name).join(", ")}.`,
+            );
+          }
+          const { actor } = yield* caller;
+          yield* service.dispatch(
+            {
+              type: "board.create",
+              templateId: template.id,
+              name: input.name,
+              key: input.key,
+              defaultProjectKey,
+            },
+            actor,
+          );
+        }
         const snapshot = yield* boards.snapshot;
         const board = yield* unwrap(findBoard(snapshot, input.key));
         return yield* summarizeBoard(snapshot, board);

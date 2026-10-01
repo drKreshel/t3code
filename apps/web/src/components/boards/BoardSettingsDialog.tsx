@@ -18,6 +18,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { useBoardTemplates, useTemplatesDispatch } from "../../state/templates";
 import { rulesOf, useWorkspaces } from "../../state/workspaces";
 import { BOARD_KEY_PATTERN, positionBetween } from "./boards.logic";
 import { WorkspaceRulesEditor } from "./WorkspaceSettings";
@@ -170,7 +171,54 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
         </Button>
       </div>
       <BoardWorkspaceSettings board={board} />
+      <SaveAsTemplate board={board} />
     </DialogPanel>
+  );
+}
+
+/** Saves the board's columns and its own automations for new boards to start from. */
+function SaveAsTemplate({ board }: { readonly board: Board }) {
+  const dispatch = useTemplatesDispatch();
+  const templates = useBoardTemplates();
+  const [name, setName] = useState(board.name);
+  const [saved, setSaved] = useState<string | null>(null);
+  const trimmed = name.trim();
+  const replaces = templates.some((template) => !template.builtIn && template.name === trimmed);
+  const save = async () => {
+    if (!trimmed) return;
+    const id = await dispatch({ type: "template.save", boardId: board.id, name: trimmed });
+    if (id) setSaved(trimmed);
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="board-settings-template">Save as template</Label>
+        <p className="text-xs text-muted-foreground">
+          New boards can start from it: these columns, this board's column automations, and the
+          schedules that move its old tickets. Hooks use each new board's own project.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          id="board-settings-template"
+          value={name}
+          onChange={(event) => {
+            setName(event.target.value);
+            setSaved(null);
+          }}
+        />
+        <Button size="sm" variant="outline" disabled={!trimmed} onClick={() => void save()}>
+          {replaces ? "Replace" : "Save"}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {saved === trimmed && saved !== null
+          ? `Saved. Pick "${saved}" when creating a board.`
+          : replaces
+            ? `Replaces your template "${trimmed}".`
+            : "Delete templates from the New board dialog."}
+      </p>
+    </div>
   );
 }
 

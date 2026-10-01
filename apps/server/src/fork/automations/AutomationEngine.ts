@@ -171,6 +171,7 @@ const make = (options: { readonly background: boolean }) =>
               step.olderThanDays * 24 * 60 * 60 * 1000;
             for (const board of snapshot.boards) {
               if (board.archivedAt !== null) continue;
+              if (step.boardId && step.boardId !== board.id) continue;
               const named = (name: string) =>
                 board.columns.find(
                   (column) => column.name.trim().toLowerCase() === name.trim().toLowerCase(),

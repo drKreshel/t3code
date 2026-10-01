@@ -52,12 +52,14 @@ export function StepsEditor({
   rows,
   onChange,
   columnNames,
+  boardNameOf,
 }: {
   readonly trigger: "board" | "schedule";
   readonly rows: ReadonlyArray<StepRow>;
   readonly onChange: (rows: StepRow[]) => void;
   /** Column names to offer for moves. */
   readonly columnNames: ReadonlyArray<string>;
+  readonly boardNameOf: (boardId: string) => string;
 }) {
   const allowed = STEPS_FOR[trigger];
   const replace = (id: number, step: AutomationStep) =>
@@ -97,6 +99,7 @@ export function StepsEditor({
               <StepFields
                 step={step}
                 columnNames={columnNames}
+                boardNameOf={boardNameOf}
                 onChange={(next) => replace(id, next)}
               />
               <Button
@@ -156,10 +159,12 @@ function ColumnSelect({
 function StepFields({
   step,
   columnNames,
+  boardNameOf,
   onChange,
 }: {
   readonly step: AutomationStep;
   readonly columnNames: ReadonlyArray<string>;
+  readonly boardNameOf: (boardId: string) => string;
   readonly onChange: (step: AutomationStep) => void;
 }) {
   switch (step.type) {
@@ -201,7 +206,7 @@ function StepFields({
               onChange({ ...step, olderThanDays: Math.max(1, Number(event.target.value) || 1) })
             }
           />
-          days
+          days, on {step.boardId ? boardNameOf(step.boardId) : "every board"}
         </span>
       );
     case "removeWorkspace":

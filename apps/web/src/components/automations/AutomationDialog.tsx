@@ -387,6 +387,9 @@ function AutomationForm({
                 rows={stepRows}
                 onChange={setStepRows}
                 columnNames={columnNameOptions}
+                boardNameOf={(boardId) =>
+                  liveBoards.find((board) => board.id === boardId)?.name ?? "a deleted board"
+                }
               />
             </Field>
           ) : null}

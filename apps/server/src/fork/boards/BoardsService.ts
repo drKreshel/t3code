@@ -376,7 +376,7 @@ const make = Effect.gen(function* () {
             VALUES (${id}, ${command.key}, ${command.name}, ${command.defaultProjectKey ?? null},
               ${position}, ${at}, ${at})
           `;
-          for (const [index, column] of DEFAULT_BOARD_COLUMNS.entries()) {
+          for (const [index, column] of (command.columns ?? DEFAULT_BOARD_COLUMNS).entries()) {
             const columnId = yield* newId;
             yield* sql`
               INSERT INTO fork_board_columns (id, board_id, name, color, position)

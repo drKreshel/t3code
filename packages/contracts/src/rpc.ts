@@ -8,6 +8,7 @@ import {
   ForkBoardsSubscribeTicketRpc,
 } from "./forkBoards.ts";
 import { ForkAutomationsDispatchRpc, ForkAutomationsSubscribeRpc } from "./forkAutomations.ts";
+import { ForkTemplatesDispatchRpc, ForkTemplatesSubscribeRpc } from "./forkBoardTemplates.ts";
 import {
   ForkWorkspacesDispatchRpc,
   ForkWorkspacesListReposRpc,
@@ -1555,4 +1556,6 @@ export const WsRpcGroup = RpcGroup.make(
   ForkWorkspacesSubscribeRpc,
   ForkWorkspacesDispatchRpc,
   ForkWorkspacesListReposRpc,
+  ForkTemplatesSubscribeRpc,
+  ForkTemplatesDispatchRpc,
 );

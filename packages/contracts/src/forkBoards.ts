@@ -45,6 +45,13 @@ export const BoardColumn = Schema.Struct({
 });
 export type BoardColumn = typeof BoardColumn.Type;
 
+/** A column to create: a new board's, or a template's. */
+export const ColumnSpec = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  color: Schema.NullOr(Schema.String),
+});
+export type ColumnSpec = typeof ColumnSpec.Type;
+
 export const Board = Schema.Struct({
   id: TrimmedNonEmptyString,
   key: BoardKey,
@@ -142,6 +149,8 @@ export const BoardsCommand = Schema.Union([
     name: TrimmedNonEmptyString,
     key: BoardKey,
     defaultProjectKey: Schema.optional(Schema.NullOr(Schema.String)),
+    /** Omitted: the default columns. */
+    columns: Schema.optional(Schema.Array(ColumnSpec)),
   }),
   command("board.update", {
     boardId: Id,

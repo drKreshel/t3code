@@ -47,6 +47,7 @@ import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/
 import * as ForkAutomationEngine from "./fork/automations/AutomationEngine.ts";
 import * as ForkAutomationsStore from "./fork/automations/AutomationsStore.ts";
 import * as ForkBoards from "./fork/boards/BoardsService.ts";
+import * as ForkBoardTemplates from "./fork/templates/BoardTemplates.ts";
 import * as ForkTicketWorkspaces from "./fork/workspaces/TicketWorkspaces.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -506,9 +507,11 @@ const AntigravityInstallationRefreshLive = Layer.effectDiscard(
   }),
 );
 
-// Fork: the automation engine sits on top so it can use orchestration, git, and boards.
-const RuntimeCoreDependenciesLive = ForkAutomationEngine.layer
+// Fork: the automation engine sits on top so it can use orchestration, git, and boards;
+// board templates sit above it, since creating a board from one creates automations.
+const RuntimeCoreDependenciesLive = ForkBoardTemplates.layer
   .pipe(
+    Layer.provideMerge(ForkAutomationEngine.layer),
     Layer.provideMerge(ForkTicketWorkspaces.layer),
     Layer.provideMerge(ReactorLayerLive),
     // Fork features, backed by their own fork.sqlite.

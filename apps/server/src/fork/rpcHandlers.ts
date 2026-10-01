@@ -11,7 +11,9 @@ import {
   FORK_AUTOMATIONS_WS_METHODS,
   type EnvironmentAuthorizationError,
   FORK_BOARDS_WS_METHODS,
+  FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
+  type TemplatesCommand,
   type WorkspacesCommand,
   WorkspacesCommandError,
 } from "@t3tools/contracts";
@@ -23,6 +25,7 @@ import * as Stream from "effect/Stream";
 import { AutomationEngine } from "./automations/AutomationEngine.ts";
 import { AutomationsStore } from "./automations/AutomationsStore.ts";
 import { type BoardEvent, BoardsService } from "./boards/BoardsService.ts";
+import { BoardTemplates } from "./templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "./workspaces/TicketWorkspaces.ts";
 
 interface RpcObservers {
@@ -74,6 +77,7 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
     const automationsStore = yield* Effect.serviceOption(AutomationsStore);
     const automationEngine = yield* Effect.serviceOption(AutomationEngine);
     const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
+    const templates = yield* Effect.serviceOption(BoardTemplates);
     return {
       [FORK_BOARDS_WS_METHODS.subscribe]: () =>
         observeRpcStream(FORK_BOARDS_WS_METHODS.subscribe, boards.stream, TRACE),
@@ -129,6 +133,24 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
             onSome: (service) => service.listRepos(input.projectKey),
           }),
           WORKSPACES_TRACE,
+        ),
+      [FORK_TEMPLATES_WS_METHODS.subscribe]: () =>
+        observeRpcStream(
+          FORK_TEMPLATES_WS_METHODS.subscribe,
+          Option.match(templates, {
+            onNone: () => Stream.fail(unavailable),
+            onSome: (service) => service.stream,
+          }),
+          TRACE,
+        ),
+      [FORK_TEMPLATES_WS_METHODS.dispatch]: (command: TemplatesCommand) =>
+        observeRpcEffect(
+          FORK_TEMPLATES_WS_METHODS.dispatch,
+          Option.match(templates, {
+            onNone: () => Effect.fail(unavailable),
+            onSome: (service) => service.dispatch(command, "user"),
+          }),
+          TRACE,
         ),
     };
   });

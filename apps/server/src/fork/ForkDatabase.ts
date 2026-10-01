@@ -191,6 +191,20 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
     version: 5,
     statements: [`ALTER TABLE fork_tickets DROP COLUMN status`],
   },
+  {
+    version: 6,
+    statements: [
+      `CREATE TABLE fork_board_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '',
+        columns_json TEXT NOT NULL,
+        automations_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {
