@@ -306,22 +306,33 @@ const make = Effect.gen(function* () {
         const existing = yield* findRow(ticketId);
         const { root } = yield* projectRoot(context.projectKey);
         const branch = ticketBranch(context.key);
-        if (
-          existing &&
+        const live =
+          existing !== undefined &&
           existing.removed_at === null &&
-          existing.project_key === context.projectKey &&
-          (yield* fs.exists(existing.path).pipe(Effect.orElseSucceed(() => false)))
-        ) {
+          (yield* fs.exists(existing.path).pipe(Effect.orElseSucceed(() => false)));
+        if (live && existing.project_key !== context.projectKey) {
+          // Its worktrees belong to the old project's repos; building over them would mix both.
+          return yield* fail(
+            "invalid",
+            "The ticket's workspace was made for another project. Remove the workspace to start one in the new project.",
+          );
+        }
+        if (live) {
           const workspace = toWorkspace(existing);
+          // The branch git has, which a later board key change does not rename.
           const single = workspace.repos.length === 1 && workspace.repos[0]!.repo === ".";
-          return { path: workspace.path, branch: single ? branch : null, created: false };
+          return {
+            path: workspace.path,
+            branch: single ? workspace.repos[0]!.branch : null,
+            created: false,
+          };
         }
 
         const project = yield* listReposAt(root);
         if (project.kind === "none") {
           return yield* fail(
-            "invalid",
-            "This project is not a git repo and holds none, so tickets cannot get worktrees. Use the project checkout instead.",
+            "no-workspace",
+            "This project is not a git repo and holds none, so tickets work in the project checkout.",
           );
         }
         const plan = planWorkspace(project, [
@@ -346,8 +357,8 @@ const make = Effect.gen(function* () {
           const planned = plan[0]!;
           if (planned.checkout === "local") {
             return yield* fail(
-              "invalid",
-              "A single-repo project with a local checkout needs no workspace. Use the project checkout instead.",
+              "no-workspace",
+              "This ticket uses a local checkout, so it works in the project checkout.",
             );
           }
           yield* fs
@@ -426,6 +437,22 @@ const make = Effect.gen(function* () {
               .pipe(Effect.mapError(gitError(`Could not read the status of ${repo.repo}`)));
             const problem = unsavedWork(status);
             if (problem) problems.push(`${repo.repo === "." ? "the repo" : repo.repo}: ${problem}`);
+          }
+          // In a folder of repos, anything made beside them (not a link, not a
+          // worktree) exists only here and would go with the folder.
+          if (!(workspace.repos.length === 1 && workspace.repos[0]!.repo === ".")) {
+            const repoNames = new Set(workspace.repos.map((repo) => repo.repo));
+            const entries = yield* fs
+              .readDirectory(workspace.path)
+              .pipe(Effect.orElseSucceed((): string[] => []));
+            for (const entry of entries) {
+              if (repoNames.has(entry) || UNLINKED_ENTRIES.has(entry)) continue;
+              const isLink = yield* fs.readLink(path.join(workspace.path, entry)).pipe(
+                Effect.as(true),
+                Effect.orElseSucceed(() => false),
+              );
+              if (!isLink) problems.push(`${entry}: only in the workspace folder`);
+            }
           }
           if (problems.length > 0) {
             return yield* fail(

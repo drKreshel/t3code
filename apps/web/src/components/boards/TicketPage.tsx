@@ -39,7 +39,7 @@ import { describeTicketEvent } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { columnDotClass, PRIORITIES, PRIORITY_LABEL } from "./boardsPresentation";
 import { useBoardsModel, type TicketView } from "./useBoardsModel";
-import { pickProjectKey, useProjectLookup, useStartTicketSession } from "./useTicketActions";
+import { usePickProjectKey, useProjectLookup, useStartTicketSession } from "./useTicketActions";
 
 /** A ticket's details, criteria, requirements, chats, comments, and timeline. */
 export function TicketPage({
@@ -76,7 +76,8 @@ export function TicketPage({
   }
   return (
     <BoardsPageFrame crumbs={[{ label: board.name, to: { boardKey } }, { label: view.label }]}>
-      <TicketBody view={view} viewById={model.viewById} />
+      {/* Keyed so drafts never carry over when the page shows another ticket. */}
+      <TicketBody key={view.ticket.id} view={view} viewById={model.viewById} />
     </BoardsPageFrame>
   );
 }
@@ -616,6 +617,7 @@ function TicketProperties({
 }) {
   const dispatch = useBoardsDispatch();
   const lookupProject = useProjectLookup();
+  const pickProjectKey = usePickProjectKey();
   const { ticket, board } = view;
   const columns = board.columns.toSorted((a, b) => a.position - b.position);
   const column = columns.find((candidate) => candidate.id === ticket.columnId);

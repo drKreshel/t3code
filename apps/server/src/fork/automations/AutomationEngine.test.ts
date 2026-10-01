@@ -526,6 +526,122 @@ describe("AutomationEngine", () => {
       expect(yield* sweep(boardId)).toBe(column("Backlog"));
     }).pipe(Effect.provide(TestLayer)),
   );
+  it.effect("runs a flagged ticket's hook once when a person moves it", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { column, ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Stuck");
+      yield* harness.boards.dispatch(
+        { type: "ticket.flag", ticketId, level: "warning", reason: "Which API?" },
+        "user",
+      );
+      yield* harness.boardDispatch({
+        type: "ticket.move",
+        ticketId,
+        columnId: column("In progress"),
+      });
+      expect((yield* harness.boards.snapshot).tickets[0]!.flag).toBeNull();
+      expect((yield* harness.store.snapshot).runs.map((run) => run.status)).toEqual(["running"]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("runs the hook of the column a ticket ended in after the live chat", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { boardId, column, ticket } = yield* setupBoard(harness);
+      for (const name of ["Review", "Done"]) {
+        yield* harness.engine.dispatch({
+          type: "automation.create",
+          title: name,
+          prompt: `${name} {{ticket.key}}`,
+          trigger: { type: "board", boardId, columnId: column(name) },
+          action,
+        });
+      }
+      const ticketId = yield* ticket("Fast");
+      for (const name of ["In progress", "Review", "Done"]) {
+        yield* harness.boardDispatch(
+          { type: "ticket.move", ticketId, columnId: column(name) },
+          "agent",
+        );
+      }
+      const [first] = yield* harness.threadIdsStarted;
+      yield* harness.endTurn(first!, "completed");
+      const turns = (yield* Ref.get(harness.commands)).flatMap((command) =>
+        command.type === "thread.turn.start" ? [command.message.text] : [],
+      );
+      expect(turns).toEqual(["Implement ATLAS-1: Fast", "Done ATLAS-1"]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("a deleted chat ends its run and lets the queued one start", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { column, ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Gone");
+      for (const name of ["In progress", "Todo", "In progress"]) {
+        yield* harness.boardDispatch(
+          { type: "ticket.move", ticketId, columnId: column(name) },
+          "agent",
+        );
+      }
+      const [first] = yield* harness.threadIdsStarted;
+      yield* harness.engine.handleDomainEvent({
+        type: "thread.deleted",
+        payload: { threadId: first },
+      } as unknown as OrchestrationEvent);
+      expect((yield* harness.threadIdsStarted).length).toBe(2);
+      const runs = (yield* harness.store.snapshot).runs;
+      expect(runs.find((run) => run.status === "failed")?.reason).toBe("The chat was deleted.");
+      expect((yield* harness.boards.snapshot).tickets[0]!.flag).toBeNull();
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("refuses to run a hook by hand while a chat works on the ticket", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { column, hookId, ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Busy");
+      yield* harness.boardDispatch({
+        type: "ticket.move",
+        ticketId,
+        columnId: column("In progress"),
+      });
+      const refused = yield* harness.engine
+        .dispatch({ type: "automation.runNow", automationId: hookId, ticketId })
+        .pipe(Effect.flip);
+      expect(refused.message).toMatch(/already working on this ticket/);
+      expect((yield* harness.threadIdsStarted).length).toBe(1);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("a one-off moved to a new time fires again", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const once = (at: string) => ({
+        type: "schedule" as const,
+        schedule: { kind: "once" as const, at },
+        timezone: "UTC",
+      });
+      const id = yield* harness.store.create({
+        title: "Remind me",
+        prompt: "Remind",
+        trigger: once("2030-01-01T09:00:00.000Z"),
+        action: { ...action, projectKey: PROJECT_KEY },
+        enabled: true,
+        maxRunsPerTicket: 5,
+      });
+      yield* harness.store.markFired(id, "2030-01-01T09:00:00.000Z");
+      expect((yield* harness.store.get(id)).nextRunAt).toBeNull();
+      yield* harness.store.update(id, { trigger: once("2030-02-01T09:00:00.000Z") });
+      expect((yield* harness.store.get(id)).nextRunAt).toBe("2030-02-01T09:00:00.000Z");
+      // Saving it unchanged does not bring a fired one-off back.
+      yield* harness.store.markFired(id, "2030-02-01T09:00:00.000Z");
+      yield* harness.store.update(id, { trigger: once("2030-02-01T09:00:00.000Z") });
+      expect((yield* harness.store.get(id)).nextRunAt).toBeNull();
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect("runs no hooks for a quiet move", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;

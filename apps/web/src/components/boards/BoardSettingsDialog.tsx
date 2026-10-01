@@ -1,4 +1,5 @@
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
+import { useNavigate } from "@tanstack/react-router";
 import type { Board, BoardColumn } from "@t3tools/contracts";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
@@ -66,6 +67,7 @@ export function BoardSettingsDialog({
 
 function BoardSettingsFields({ board }: { readonly board: Board }) {
   const dispatch = useBoardsDispatch();
+  const navigate = useNavigate();
   const [name, setName] = useState(board.name);
   const [key, setKey] = useState(board.key);
   const columns = board.columns.toSorted((a, b) => a.position - b.position);
@@ -84,7 +86,10 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
     // A refused key (taken) toasts; show the key that stuck.
     if ((await dispatch({ type: "board.update", boardId: board.id, key })) === undefined) {
       setKey(board.key);
+      return;
     }
+    // The board's URL carries its key.
+    void navigate({ to: "/boards/$boardKey", params: { boardKey: key }, replace: true });
   };
   const move = (column: BoardColumn, offset: -1 | 1) => {
     const index = columns.indexOf(column);

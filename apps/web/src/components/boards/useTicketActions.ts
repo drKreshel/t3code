@@ -6,13 +6,14 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/models";
-import type { ScopedProjectRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
 import { useCallback } from "react";
 
 import { openCommandPalette } from "../../commandPaletteBus";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useBoardsDispatch } from "../../state/boards";
+import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useWorkspacesDispatch } from "../../state/workspaces";
 import { toastManager } from "../ui/toast";
 import { useProjects } from "../../state/entities";
@@ -35,12 +36,39 @@ export function useProjectLookup(): (key: string | null) => EnvironmentProject |
   );
 }
 
-/** Opens the command palette's project picker and hands back the scoped key. */
-export function pickProjectKey(onPick: (projectKey: string) => void): void {
-  openCommandPalette({
-    open: "new-thread-in",
-    onPickProject: (projectRef) => onPick(scopedProjectKey(projectRef)),
+/**
+ * Boards live on the primary environment's server, and a ticket's chats read
+ * the ticket through that server's tools, so its projects must be there too.
+ */
+function onBoardsEnvironment(
+  projectRef: ScopedProjectRef,
+  primaryEnvironmentId: EnvironmentId | null,
+): boolean {
+  if (projectRef.environmentId === primaryEnvironmentId) return true;
+  toastManager.add({
+    type: "error",
+    title: "Pick a project on this server",
+    description:
+      "Tickets live on the server that holds the boards, so their chats need one of its projects.",
   });
+  return false;
+}
+
+/** Opens the command palette's project picker and hands back the scoped key. */
+export function usePickProjectKey(): (onPick: (projectKey: string) => void) => void {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  return useCallback(
+    (onPick) =>
+      openCommandPalette({
+        open: "new-thread-in",
+        onPickProject: (projectRef) => {
+          if (onBoardsEnvironment(projectRef, primaryEnvironmentId)) {
+            onPick(scopedProjectKey(projectRef));
+          }
+        },
+      }),
+    [primaryEnvironmentId],
+  );
 }
 
 /**
@@ -56,9 +84,11 @@ export function useStartTicketSession(): (
   const dispatch = useBoardsDispatch();
   const workspacesDispatch = useWorkspacesDispatch();
   const lookupProject = useProjectLookup();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   return useCallback(
     async (view, options) => {
       const start = async (projectRef: ScopedProjectRef, inTicketProject: boolean) => {
+        if (!onBoardsEnvironment(projectRef, primaryEnvironmentId)) return;
         // In the ticket's own project the chat runs in the ticket's workspace,
         // shared with its hook chats; a project picked by hand gets a plain chat.
         const workspace = inTicketProject
@@ -67,12 +97,15 @@ export function useStartTicketSession(): (
               { quiet: true },
             )
           : undefined;
-        if (workspace && !workspace.ok) {
+        // Only a ticket set to work in the project checkout starts there; any
+        // other failure stops, so ticket work never lands in the shared checkout.
+        if (workspace && !workspace.ok && workspace.code !== "no-workspace") {
           toastManager.add({
-            type: "info",
-            title: "Starting in the project checkout",
+            type: "error",
+            title: "Could not prepare the ticket's workspace",
             description: workspace.message,
           });
+          return;
         }
         const placed = workspace?.ok ? workspace.result : null;
         const result = await handleNewThread(
@@ -113,6 +146,6 @@ export function useStartTicketSession(): (
         onPickProject: (picked) => void start(picked, false),
       });
     },
-    [dispatch, handleNewThread, lookupProject, workspacesDispatch],
+    [dispatch, handleNewThread, lookupProject, primaryEnvironmentId, workspacesDispatch],
   );
 }

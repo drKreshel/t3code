@@ -126,7 +126,8 @@ export type WorkspacesCommandResult = typeof WorkspacesCommandResult.Type;
 export class WorkspacesCommandError extends Schema.TaggedError<WorkspacesCommandError>()(
   "WorkspacesCommandError",
   {
-    code: Schema.Literals(["not-found", "invalid", "unsaved", "git", "storage"]),
+    /** `no-workspace`: by design the ticket works in the project checkout (not git, or a local checkout). */
+    code: Schema.Literals(["not-found", "invalid", "no-workspace", "unsaved", "git", "storage"]),
     message: Schema.String,
   },
 ) {}

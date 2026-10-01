@@ -222,6 +222,15 @@ const make = Effect.gen(function* () {
       // occurrences between its last firing and the edit.
       const rescheduled =
         patch.trigger !== undefined || (patch.enabled === true && !current.enabled);
+      // A one-off moved to another time may fire again, even if it already did.
+      const movedOnce =
+        trigger.type === "schedule" &&
+        trigger.schedule.kind === "once" &&
+        !(
+          current.trigger.type === "schedule" &&
+          current.trigger.schedule.kind === "once" &&
+          current.trigger.schedule.at === trigger.schedule.at
+        );
       yield* write(sql`
         UPDATE fork_automations SET
           title = ${patch.title ?? current.title},
@@ -230,7 +239,13 @@ const make = Effect.gen(function* () {
           action_json = ${encodeAction(patch.action ?? current.action)},
           enabled = ${(patch.enabled ?? current.enabled) ? 1 : 0},
           max_runs_per_ticket = ${patch.maxRunsPerTicket ?? current.maxRunsPerTicket},
-          last_fired_at = ${rescheduled && trigger.type === "schedule" && trigger.schedule.kind === "cron" ? at : current.lastFiredAt},
+          last_fired_at = ${
+            movedOnce
+              ? null
+              : rescheduled && trigger.type === "schedule" && trigger.schedule.kind === "cron"
+                ? at
+                : current.lastFiredAt
+          },
           updated_at = ${at}
         WHERE id = ${id}
       `);

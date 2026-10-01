@@ -279,10 +279,19 @@ const make = (options: { readonly background: boolean }) =>
           }
           const workspace = yield* workspaces.value
             .dispatch({ type: "workspace.ensure", ticketId: ticket.id })
-            .pipe(Effect.mapError((error) => new RunStartError({ message: error.message })));
-          worktreePath = workspace.path;
-          branch = workspace.branch;
-          setUpWorkspace = workspace.created;
+            .pipe(
+              // A ticket set to work in the project checkout runs there.
+              Effect.catchIf(
+                (error) => error.code === "no-workspace",
+                () => Effect.succeed(null),
+              ),
+              Effect.mapError((error) => new RunStartError({ message: error.message })),
+            );
+          if (workspace !== null) {
+            worktreePath = workspace.path;
+            branch = workspace.branch;
+            setUpWorkspace = workspace.created;
+          }
         } else if (automation.action.checkout === "worktree") {
           const token = (yield* uuid).replaceAll("-", "");
           const created = yield* git
@@ -511,10 +520,25 @@ const make = (options: { readonly background: boolean }) =>
             reason: "The ticket left the column before its turn came.",
             finishedAt: yield* nowIso,
           });
+          // Only one run waits per ticket, so the column it moved on to has not run yet.
+          yield* fireHooksForTicket(ticketId);
           return;
         }
         // Through fireHook, so a queued run still respects the run limit.
         yield* fireHook(automation.value, ticketId, queued.id);
+      });
+
+    /** The run's chat was deleted: a person stopped it, so no flag; the next run may start. */
+    const settleDeleted = (threadKey: string) =>
+      Effect.gen(function* () {
+        const run = yield* store.runningRunForThread(threadKey);
+        if (Option.isNone(run)) return;
+        yield* store.updateRun(run.value.id, {
+          status: "failed",
+          reason: "The chat was deleted.",
+          finishedAt: yield* nowIso,
+        });
+        if (run.value.ticketId !== null) yield* startQueued(run.value.ticketId);
       });
 
     /** A chat's turn ended (or never started): settle its run. */
@@ -527,10 +551,11 @@ const make = (options: { readonly background: boolean }) =>
           outcome = { status: "failed", reason: failure };
         } else {
           const threadId = ThreadId.make(threadKey.slice(threadKey.indexOf(":") + 1));
-          const shell = yield* snapshots.getThreadShellById(threadId).pipe(
-            Effect.map(Option.getOrUndefined),
-            Effect.orElseSucceed(() => undefined),
-          );
+          const found = yield* snapshots.getThreadShellById(threadId).pipe(Effect.option);
+          // Unreadable: try again on the next event. Missing: deleted while the server was off.
+          if (Option.isNone(found)) return;
+          if (Option.isNone(found.value)) return yield* settleDeleted(threadKey);
+          const shell = found.value.value;
           const state = shell?.latestTurn?.state;
           if (state === undefined || state === "running") return;
           outcome =
@@ -627,6 +652,12 @@ const make = (options: { readonly background: boolean }) =>
         return logged(
           "turn end",
           serialized(settleThread(`${environmentId}:${event.payload.threadId}`, null)),
+        );
+      }
+      if (event.type === "thread.deleted") {
+        return logged(
+          "chat deletion",
+          serialized(settleDeleted(`${environmentId}:${event.payload.threadId}`)),
         );
       }
       if (
@@ -731,6 +762,15 @@ const make = (options: { readonly background: boolean }) =>
                 return yield* invalid("Pick the ticket to run this hook for.");
               }
               const ticketId = command.ticketId ?? null;
+              // One agent at a time per ticket: they share its workspace.
+              if (ticketId !== null) {
+                const runs = yield* store.runsForTicket(ticketId);
+                if (runs.some((run) => run.status === "running")) {
+                  return yield* invalid(
+                    "An automation is already working on this ticket. Run it again when that chat ends.",
+                  );
+                }
+              }
               const runId = yield* store.insertRun({
                 automationId: automation.id,
                 ticketId,

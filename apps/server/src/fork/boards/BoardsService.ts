@@ -572,11 +572,11 @@ const make = Effect.gen(function* () {
             );
             // Organizing only: no hooks, and a flag stays where it is.
             if (command.quiet) return { id: null, touched: [ticket.id] };
-            // A person moving a flagged ticket has dealt with it.
+            // A person moving a flagged ticket has dealt with it. Only `entered`
+            // is emitted: it resets the hooks for a person's move and runs them once.
             if (actor === "user" && ticket.flag_json !== null) {
               yield* setFlag(ticket.id, null);
               yield* recordEvent(ticket.id, "flag.resolved", {}, actor, at);
-              emit({ type: "ticket.flagResolved", ticketId: ticket.id, actor });
             }
             emit({ type: "ticket.entered", ticketId: ticket.id, columnId: to.id, actor });
           }

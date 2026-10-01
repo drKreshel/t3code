@@ -124,7 +124,7 @@ const makeHarness = Effect.gen(function* () {
       )).id!;
       return { boardId, ticketId };
     });
-  return { root, workspaces, ticketOn };
+  return { root, workspaces, boards, ticketOn };
 });
 
 const TestLayer = boardsLayerMemory.pipe(Layer.provideMerge(NodeServices.layer));
@@ -210,6 +210,68 @@ describe("TicketWorkspaces", () => {
       expect(run(NodePath.join(root, "single"), "branch", "--list", "ticket/rmv-1")).toContain(
         "ticket/rmv-1",
       );
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("keeps a workspace's branch and project, and says when none is needed", () =>
+    Effect.gen(function* () {
+      const { workspaces, boards, ticketOn } = yield* makeHarness;
+      const { boardId, ticketId } = yield* ticketOn("single", "KEY");
+      yield* workspaces.dispatch({ type: "workspace.ensure", ticketId });
+      // Git keeps the branch it made; a new board key does not rename it.
+      yield* boards.dispatch({ type: "board.update", boardId, key: "RENAM" }, "user");
+      const reused = yield* workspaces.dispatch({ type: "workspace.ensure", ticketId });
+      expect(reused).toMatchObject({ branch: "ticket/key-1", created: false });
+
+      yield* boards.dispatch(
+        { type: "ticket.update", ticketId, projectKey: `${ENVIRONMENT_ID}:multi` },
+        "user",
+      );
+      const otherProject = yield* workspaces
+        .dispatch({ type: "workspace.ensure", ticketId })
+        .pipe(Effect.flip);
+      expect(otherProject.message).toMatch(/made for another project/);
+
+      const local = yield* ticketOn("single", "LCL");
+      yield* workspaces.dispatch({
+        type: "rules.set",
+        scope: "board",
+        scopeId: local.boardId,
+        defaults: { checkout: "local" },
+        repos: [],
+      });
+      const none = yield* workspaces
+        .dispatch({ type: "workspace.ensure", ticketId: local.ticketId })
+        .pipe(Effect.flip);
+      expect(none.code).toBe("no-workspace");
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("refuses to remove files made beside the repos of a folder", () =>
+    Effect.gen(function* () {
+      const { workspaces, ticketOn } = yield* makeHarness;
+      const { boardId, ticketId } = yield* ticketOn("multi", "BSD");
+      yield* workspaces.dispatch({
+        type: "rules.set",
+        scope: "board",
+        scopeId: boardId,
+        defaults: {},
+        repos: [
+          { repo: "app", checkout: "worktree" },
+          { repo: "api", checkout: "local" },
+        ],
+      });
+      const { path } = yield* workspaces.dispatch({ type: "workspace.ensure", ticketId });
+      NodeFS.writeFileSync(NodePath.join(path!, "notes.md"), "plan\n");
+      const refused = yield* workspaces
+        .dispatch({ type: "workspace.remove", ticketId })
+        .pipe(Effect.flip);
+      expect(refused.code).toBe("unsaved");
+      expect(refused.message).toMatch(/notes\.md: only in the workspace folder/);
+      // Links (the shared AGENTS.md, the local api) and the clean worktree are fine.
+      NodeFS.rmSync(NodePath.join(path!, "notes.md"));
+      yield* workspaces.dispatch({ type: "workspace.remove", ticketId });
+      expect(NodeFS.existsSync(path!)).toBe(false);
     }).pipe(Effect.provide(TestLayer)),
   );
 });

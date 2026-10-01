@@ -54,7 +54,7 @@ import { BoardSettingsDialog } from "./BoardSettingsDialog";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { columnDotClass, PRIORITY_LABEL } from "./boardsPresentation";
 import { useBoardsModel, type TicketView } from "./useBoardsModel";
-import { pickProjectKey, useProjectLookup } from "./useTicketActions";
+import { usePickProjectKey, useProjectLookup } from "./useTicketActions";
 
 /** One board's columns of tickets, with drag between and within columns. */
 export function BoardPage({ boardKey }: { readonly boardKey: string }) {
@@ -90,6 +90,7 @@ function BoardView({
 }) {
   const dispatch = useBoardsDispatch();
   const lookupProject = useProjectLookup();
+  const pickProjectKey = usePickProjectKey();
   const defaultProject = lookupProject(board.defaultProjectKey);
   const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
