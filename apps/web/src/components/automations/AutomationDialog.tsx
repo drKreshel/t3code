@@ -81,9 +81,9 @@ const REPEAT_LABEL: Record<RepeatKind, string> = {
 const REPEATS = Object.keys(REPEAT_LABEL) as RepeatKind[];
 
 const CHECKOUT_LABEL: Record<AutomationCheckout, string> = {
-  ticket: "Ticket's workspace",
-  local: "Project checkout",
-  worktree: "New worktree per run",
+  ticket: "The ticket's own worktrees",
+  local: "The project folder (shared)",
+  worktree: "A fresh worktree each run",
 };
 
 /** Select values that are not ids. */

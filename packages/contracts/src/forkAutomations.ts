@@ -67,8 +67,8 @@ export const AutomationStep = Schema.Union([
   Schema.Struct({ type: Schema.Literal("setStatus"), status: TicketStatus }),
   /** Moves the ticket to the column with this name on its board. */
   Schema.Struct({ type: Schema.Literal("moveTo"), column: TrimmedNonEmptyString }),
+  /** Removes the ticket's worktrees (branches stay); refused while work is unsaved. */
   Schema.Struct({ type: Schema.Literal("removeWorkspace") }),
-  Schema.Struct({ type: Schema.Literal("resolveFlag") }),
   /** Moves tickets that sat in `from` longer than the given days into `to`, on every board. */
   Schema.Struct({
     type: Schema.Literal("moveStale"),

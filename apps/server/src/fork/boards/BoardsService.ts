@@ -576,7 +576,15 @@ const make = Effect.gen(function* () {
             WHERE id = ${ticket.id}
           `;
           if (from.id !== to.id) {
-            yield* recordEvent(ticket.id, "moved", { from: from.name, to: to.name }, actor, at);
+            yield* recordEvent(
+              ticket.id,
+              "moved",
+              { from: from.name, to: to.name, ...(command.quiet ? { quiet: true } : {}) },
+              actor,
+              at,
+            );
+            // Organizing only: no hooks, and a flag stays where it is.
+            if (command.quiet) return { id: null, touched: [ticket.id] };
             // A person moving a flagged ticket has dealt with it.
             if (actor === "user" && ticket.flag_json !== null) {
               yield* setFlag(ticket.id, null);

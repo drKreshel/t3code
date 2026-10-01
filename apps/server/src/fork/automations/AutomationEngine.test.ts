@@ -495,4 +495,19 @@ describe("AutomationEngine", () => {
       ).toMatch(/runs on a schedule/);
     }).pipe(Effect.provide(TestLayer)),
   );
+  it.effect("runs no hooks for a quiet move", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { column, ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Just tidying");
+      yield* harness.boardDispatch({
+        type: "ticket.move",
+        ticketId,
+        columnId: column("In progress"),
+        quiet: true,
+      });
+      expect(yield* harness.threadIdsStarted).toEqual([]);
+      expect((yield* harness.boards.snapshot).tickets[0]!.columnId).toBe(column("In progress"));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });

@@ -191,6 +191,8 @@ export const BoardsCommand = Schema.Union([
     columnId: Id,
     /** Omitted: the end of the column. */
     position: Schema.optional(Schema.Number),
+    /** Organizing only: the move runs no hooks and leaves a flag in place. */
+    quiet: Schema.optional(Schema.Boolean),
   }),
   command("ticket.setStatus", { ticketId: Id, status: TicketStatus }),
   /** Raises (or replaces) the ticket's flag. */

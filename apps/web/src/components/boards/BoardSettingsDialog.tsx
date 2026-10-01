@@ -188,7 +188,9 @@ function BoardWorkspaceSettings({ board }: { readonly board: Board }) {
         <Label>Ticket workspaces</Label>
         <p className="text-xs text-muted-foreground">
           Each ticket's chats run in its own folder, with a git worktree per repo on the branch
-          ticket/&lt;key&gt;. Empty fields inherit.
+          ticket/&lt;key&gt;. "Inherit" takes the setting from the level above: a ticket from its
+          board, a board from the project, and the project from the default (a worktree for a single
+          repo, nothing for a folder of repos).
         </p>
       </div>
       {projectKey === null ? (

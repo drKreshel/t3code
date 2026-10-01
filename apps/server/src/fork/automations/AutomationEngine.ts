@@ -224,11 +224,6 @@ const make = (options: { readonly background: boolean }) =>
                 .dispatch({ type: "workspace.remove", ticketId: ticket.id })
                 .pipe(Effect.mapError(asStepError));
               break;
-            case "resolveFlag":
-              yield* boards
-                .dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, actor)
-                .pipe(Effect.mapError(asStepError));
-              break;
           }
         }
       });

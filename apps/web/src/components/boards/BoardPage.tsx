@@ -31,7 +31,13 @@ import {
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 
 import { cn } from "../../lib/utils";
 import { useAutomations, useAutomationsDispatch } from "../../state/automations";
@@ -125,6 +131,21 @@ function BoardView({
   const [activeId, setActiveId] = useState<string | null>(null);
   const justDraggedRef = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  // Shift held at the drop makes it a quiet move: organizing, no hooks.
+  const shiftHeld = useRef(false);
+  useEffect(() => {
+    const track = (event: KeyboardEvent | PointerEvent) => {
+      shiftHeld.current = event.shiftKey;
+    };
+    window.addEventListener("keydown", track);
+    window.addEventListener("keyup", track);
+    window.addEventListener("pointermove", track);
+    return () => {
+      window.removeEventListener("keydown", track);
+      window.removeEventListener("keyup", track);
+      window.removeEventListener("pointermove", track);
+    };
+  }, []);
   const order =
     dragOrder ??
     new Map(
@@ -202,6 +223,7 @@ function BoardView({
         ticketId: activeKey,
         columnId,
         position: positionBetween(neighbour(-1), neighbour(1)),
+        ...(shiftHeld.current ? { quiet: true } : {}),
       });
     }
     setDragOrder(null);
@@ -496,7 +518,7 @@ function NewTicketInput({
       title: trimmed,
     });
   };
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
       void create();

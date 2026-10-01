@@ -20,11 +20,10 @@ export function toStepRows(steps: ReadonlyArray<AutomationStep>): StepRow[] {
 }
 
 const STEP_LABEL: Record<StepType, string> = {
-  setStatus: "Set status",
+  setStatus: "Mark ticket as",
   moveTo: "Move to column",
-  removeWorkspace: "Remove workspace",
-  resolveFlag: "Resolve flag",
-  moveStale: "Move stale tickets",
+  removeWorkspace: "Clean up worktrees",
+  moveStale: "Move old tickets",
 };
 
 const STATUS_LABEL: Record<TicketStatus, string> = {
@@ -35,7 +34,7 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
 
 /** Ticket steps act on the ticket a board hook fired for; schedules sweep boards. */
 const STEPS_FOR: Record<"board" | "schedule", ReadonlyArray<StepType>> = {
-  board: ["setStatus", "moveTo", "removeWorkspace", "resolveFlag"],
+  board: ["setStatus", "moveTo", "removeWorkspace"],
   schedule: ["moveStale"],
 };
 
@@ -46,7 +45,6 @@ function newStep(type: StepType, columnNames: ReadonlyArray<string>): Automation
     case "moveTo":
       return { type, column: columnNames[0] ?? "Done" };
     case "removeWorkspace":
-    case "resolveFlag":
       return { type };
     case "moveStale":
       return { type, from: "Done", to: "Settled", olderThanDays: 7 };
@@ -87,7 +85,12 @@ export function StepsEditor({
               </span>
               <Select
                 value={step.type}
-                onValueChange={(value) => replace(id, newStep(value as StepType, columnNames))}
+                onValueChange={(value) => {
+                  // The picker can report an empty value; only a known step replaces this one.
+                  if (typeof value === "string" && value in STEP_LABEL && value !== step.type) {
+                    replace(id, newStep(value as StepType, columnNames));
+                  }
+                }}
               >
                 <SelectTrigger size="sm" className="w-44" aria-label={`Step ${index + 1}`}>
                   <SelectValue>{STEP_LABEL[step.type]}</SelectValue>
@@ -230,9 +233,9 @@ function StepFields({
       );
     case "removeWorkspace":
       return (
-        <span className="text-xs text-muted-foreground">Refused while there is unsaved work.</span>
+        <span className="text-xs text-muted-foreground">
+          Only when everything is committed and pushed; branches are kept.
+        </span>
       );
-    case "resolveFlag":
-      return null;
   }
 }
