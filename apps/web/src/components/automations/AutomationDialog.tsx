@@ -27,6 +27,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
+import { TraitsPicker } from "../chat/TraitsPicker";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -144,7 +145,10 @@ function Field({
   );
 }
 
-/** The model a run starts with; null keeps the project's default model. */
+/**
+ * The model and its traits (effort, fast mode) a run starts with; null keeps
+ * the project's default model.
+ */
 function AutomationModelField({
   environmentId,
   value,
@@ -170,6 +174,7 @@ function AutomationModelField({
     selection?.instanceId,
     selection?.model,
   );
+  const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
   if (!selection) {
     return <p className="text-sm text-muted-foreground">No providers available</p>;
   }
@@ -187,6 +192,21 @@ function AutomationModelField({
           onChange(createModelSelection(instanceId, model))
         }
       />
+      {value !== null && activeEntry ? (
+        <TraitsPicker
+          provider={activeEntry.driverKind}
+          models={activeEntry.models}
+          model={value.model}
+          prompt=""
+          onPromptChange={() => {}}
+          modelOptions={value.options ?? []}
+          allowPromptInjectedEffort={false}
+          planModeEnabled={settings.planModeEnabled}
+          onModelOptionsChange={(options) =>
+            onChange(createModelSelection(value.instanceId, value.model, options))
+          }
+        />
+      ) : null}
       {value !== null ? (
         <Button type="button" size="xs" variant="ghost" onClick={() => onChange(null)}>
           Use project default
