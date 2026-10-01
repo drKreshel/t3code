@@ -7,7 +7,6 @@ import {
   BoardKey,
   BoardsCommandError,
   TicketPriority,
-  TicketStatus,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -64,11 +63,12 @@ export const TicketSummary = Schema.Struct({
   key: Schema.String,
   title: Schema.String,
   column: Schema.String,
-  status: TicketStatus,
   priority: TicketPriority,
   criteriaChecked: Schema.Int,
   criteriaTotal: Schema.Int,
-  blockedBy: Schema.Array(Schema.String),
+  requires: Schema.Array(Schema.String).annotate({
+    description: "Required tickets with the column each sits in, like 'API-1 (Done)'.",
+  }),
   flag: FlagSummary,
   linkedChats: Schema.Int,
 });
@@ -80,9 +80,6 @@ export const TicketDetailResult = Schema.Struct({
   title: Schema.String,
   description: Schema.String,
   column: Schema.String,
-  status: TicketStatus.annotate({
-    description: "open, done, or canceled. Columns carry no meaning; the status does.",
-  }),
   priority: TicketPriority,
   project: Schema.NullOr(Schema.String),
   flag: FlagSummary,
@@ -90,9 +87,11 @@ export const TicketDetailResult = Schema.Struct({
     Schema.Struct({ number: Schema.Int, text: Schema.String, checked: Schema.Boolean }),
   ),
   requires: Schema.Array(
-    Schema.Struct({ key: Schema.String, title: Schema.String, done: Schema.Boolean }),
-  ),
-  blockedBy: Schema.Array(Schema.String),
+    Schema.Struct({ key: Schema.String, title: Schema.String, column: Schema.String }),
+  ).annotate({
+    description:
+      "Tickets this one depends on, with the column each sits in. T3 enforces nothing: judge from the columns (and the hook's prompt) whether they are finished.",
+  }),
   latestHandoff: Schema.NullOr(Schema.String),
   comments: Schema.Array(
     Schema.Struct({
@@ -244,10 +243,9 @@ const CreateTicketTool = Tool.make("create_ticket", {
 
 const UpdateTicketTool = Tool.make("update_ticket", {
   description:
-    "Change a ticket's title, description, priority, or status (open, done, canceled; done satisfies tickets that require this one), add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
+    "Change a ticket's title, description, or priority, add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
-    status: Schema.optional(TicketStatus),
     title: Schema.optional(TrimmedNonEmptyString),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),

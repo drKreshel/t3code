@@ -89,14 +89,6 @@ export function renderPrompt(template: string, context: PromptContext): string {
   );
 }
 
-/** Required tickets that are not done yet (canceled does not count). */
-export function isBlocked(snapshot: BoardsSnapshot, ticket: Ticket): boolean {
-  return ticket.requires.some((id) => {
-    const required = snapshot.tickets.find((candidate) => candidate.id === id);
-    return required !== undefined && required.status !== "done";
-  });
-}
-
 /**
  * Whether a board trigger applies to a ticket where it sits now. A board
  * trigger names its column; an any-board trigger (`boardId` null) matches

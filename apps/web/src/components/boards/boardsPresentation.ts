@@ -1,37 +1,65 @@
-import type { TicketPriority, TicketStatus } from "@t3tools/contracts";
+import type { TicketPriority } from "@t3tools/contracts";
 
 /** Column colors a board can pick; a column without one gets the neutral dot. */
-export const COLUMN_COLORS = ["gray", "blue", "violet", "amber", "green", "red"] as const;
+export const COLUMN_COLORS = [
+  "gray",
+  "slate",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "lime",
+  "green",
+  "teal",
+  "cyan",
+  "blue",
+  "violet",
+  "purple",
+  "pink",
+  "brown",
+] as const;
 export type ColumnColor = (typeof COLUMN_COLORS)[number];
 
 const COLUMN_DOT_CLASS: Record<ColumnColor, string> = {
   gray: "bg-muted-foreground/40",
+  slate: "bg-slate-500 dark:bg-slate-400",
+  red: "bg-destructive",
+  orange: "bg-orange-500 dark:bg-orange-400",
+  amber: "bg-warning",
+  yellow: "bg-yellow-400 dark:bg-yellow-300",
+  lime: "bg-lime-500 dark:bg-lime-400",
+  green: "bg-success",
+  teal: "bg-teal-500 dark:bg-teal-400",
+  cyan: "bg-cyan-500 dark:bg-cyan-400",
   blue: "bg-info",
   violet: "bg-indigo-500 dark:bg-indigo-300/90",
-  amber: "bg-warning",
-  green: "bg-success",
-  red: "bg-destructive",
+  purple: "bg-purple-500 dark:bg-purple-400",
+  pink: "bg-pink-500 dark:bg-pink-400",
+  brown: "bg-amber-800 dark:bg-amber-700",
 };
 
 export const COLUMN_COLOR_LABEL: Record<ColumnColor, string> = {
   gray: "Gray",
+  slate: "Slate",
+  red: "Red",
+  orange: "Orange",
+  amber: "Amber",
+  yellow: "Yellow",
+  lime: "Lime",
+  green: "Green",
+  teal: "Teal",
+  cyan: "Cyan",
   blue: "Blue",
   violet: "Violet",
-  amber: "Amber",
-  green: "Green",
-  red: "Red",
+  purple: "Purple",
+  pink: "Pink",
+  brown: "Brown",
 };
 
 /** The dot class for a column's stored color token. */
 export function columnDotClass(color: string | null): string {
   return (color && COLUMN_DOT_CLASS[color as ColumnColor]) || "bg-muted-foreground/70";
 }
-
-export const STATUS_LABEL: Record<TicketStatus, string> = {
-  open: "Open",
-  done: "Done",
-  canceled: "Canceled",
-};
 
 export const PRIORITY_LABEL: Record<TicketPriority, string> = {
   none: "No priority",

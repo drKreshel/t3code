@@ -16,14 +16,6 @@ export const FORK_BOARDS_WS_METHODS = {
 } as const;
 
 /**
- * Where a ticket stands, independent of which column it sits in. Columns carry
- * no meaning of their own; people and automations set the status. Requires is
- * satisfied only by `done`.
- */
-export const TicketStatus = Schema.Literals(["open", "done", "canceled"]);
-export type TicketStatus = typeof TicketStatus.Type;
-
-/**
  * A ticket waiting on a person. `warning` (yellow): an agent asked for help or
  * a hook hit its run limit. `error` (red): a run failed. While flagged, the
  * ticket's hooks wait; resolving the flag lets them run again.
@@ -86,9 +78,11 @@ export const Ticket = Schema.Struct({
   /** Overrides the board's default project for new chats. */
   projectKey: Schema.NullOr(Schema.String),
   position: Schema.Number,
-  status: TicketStatus,
   flag: Schema.NullOr(TicketFlag),
-  /** Ticket ids that must be done before this one can start. */
+  /**
+   * Tickets this one depends on. A link only: T3 attaches no rule to it; people,
+   * agents, and hook prompts read the required tickets' columns and decide.
+   */
   requires: Schema.Array(TrimmedNonEmptyString),
   criteria: Schema.Array(TicketCriterion),
   /** Scoped thread keys (`environmentId:threadId`) linked to this ticket. */
@@ -194,7 +188,6 @@ export const BoardsCommand = Schema.Union([
     /** Organizing only: the move runs no hooks and leaves a flag in place. */
     quiet: Schema.optional(Schema.Boolean),
   }),
-  command("ticket.setStatus", { ticketId: Id, status: TicketStatus }),
   /** Raises (or replaces) the ticket's flag. */
   command("ticket.flag", {
     ticketId: Id,

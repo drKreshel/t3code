@@ -27,7 +27,7 @@ import {
   PlayIcon,
   ZapIcon,
   FolderIcon,
-  LockIcon,
+  LinkIcon,
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -52,7 +52,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/men
 import { positionBetween, ticketsByColumn } from "./boards.logic";
 import { BoardSettingsDialog } from "./BoardSettingsDialog";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
-import { columnDotClass, PRIORITY_LABEL, STATUS_LABEL } from "./boardsPresentation";
+import { columnDotClass, PRIORITY_LABEL } from "./boardsPresentation";
 import { useBoardsModel, type TicketView } from "./useBoardsModel";
 import { pickProjectKey, useProjectLookup } from "./useTicketActions";
 
@@ -617,26 +617,19 @@ function TicketCard({
         ) : null}
       </div>
       <p className="line-clamp-3 text-foreground">{ticket.title}</p>
-      {view.attention ||
-      ticket.status !== "open" ||
-      view.blockers.length > 0 ||
-      ticket.criteria.length > 0 ||
-      project ? (
+      {view.attention || view.requirements.length > 0 || ticket.criteria.length > 0 || project ? (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {view.attention ? (
             <Badge variant={view.attention.level === "error" ? "error" : "warning"} size="sm">
               {view.attention.level === "error" ? "Error" : "Needs you"}
             </Badge>
           ) : null}
-          {ticket.status !== "open" ? (
-            <Badge variant={ticket.status === "done" ? "success" : "outline"} size="sm">
-              {STATUS_LABEL[ticket.status]}
-            </Badge>
-          ) : null}
-          {view.blockers.length > 0 ? (
+          {view.requirements.length > 0 ? (
             <Badge variant="outline" size="sm">
-              <LockIcon />
-              {view.blockerLabels.join(", ")}
+              <LinkIcon />
+              {view.requirements
+                .map((requirement) => `${requirement.label} · ${requirement.columnName}`)
+                .join(", ")}
             </Badge>
           ) : null}
           {ticket.criteria.length > 0 ? (

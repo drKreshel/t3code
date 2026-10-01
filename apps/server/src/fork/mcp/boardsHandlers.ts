@@ -41,11 +41,17 @@ const unwrap = <A>(lookup: Lookup<A>): Effect.Effect<A, BoardsCommandError> =>
 
 const ticketPath = (board: Board, ticket: Ticket) => `/boards/${board.key}/${ticket.number}`;
 
-/** Required tickets that are not in a done column. */
-function blockersOf(snapshot: BoardsSnapshot, ticket: Ticket): Ticket[] {
+/** The name of the column a ticket sits in. */
+function columnNameOf(snapshot: BoardsSnapshot, ticket: Ticket): string {
+  const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
+  return board?.columns.find((column) => column.id === ticket.columnId)?.name ?? "";
+}
+
+/** Required tickets that still exist. */
+function requiredTickets(snapshot: BoardsSnapshot, ticket: Ticket): Ticket[] {
   return ticket.requires.flatMap((id) => {
     const required = snapshot.tickets.find((candidate) => candidate.id === id);
-    return required && required.status !== "done" ? [required] : [];
+    return required ? [required] : [];
   });
 }
 
@@ -155,11 +161,12 @@ const make = Effect.gen(function* () {
       key: labelOf(snapshot, ticket),
       title: ticket.title,
       column: column?.name ?? "",
-      status: ticket.status,
       priority: ticket.priority,
       criteriaChecked: ticket.criteria.filter((criterion) => criterion.checked).length,
       criteriaTotal: ticket.criteria.length,
-      blockedBy: blockersOf(snapshot, ticket).map((blocker) => labelOf(snapshot, blocker)),
+      requires: requiredTickets(snapshot, ticket).map(
+        (required) => `${labelOf(snapshot, required)} (${columnNameOf(snapshot, required)})`,
+      ),
       flag: ticket.flag ? { level: ticket.flag.level, reason: ticket.flag.reason } : null,
       linkedChats: ticket.threadKeys.length,
     };
@@ -233,7 +240,6 @@ const make = Effect.gen(function* () {
           title: ticket.title,
           description: ticket.description,
           column: column?.name ?? "",
-          status: ticket.status,
           priority: ticket.priority,
           project: yield* projectTitle(ticket.projectKey ?? board.defaultProjectKey),
           flag: ticket.flag ? { level: ticket.flag.level, reason: ticket.flag.reason } : null,
@@ -244,19 +250,11 @@ const make = Effect.gen(function* () {
               text: criterion.text,
               checked: criterion.checked,
             })),
-          requires: ticket.requires.flatMap((id) => {
-            const required = snapshot.tickets.find((candidate) => candidate.id === id);
-            return required
-              ? [
-                  {
-                    key: labelOf(snapshot, required),
-                    title: required.title,
-                    done: required.status === "done",
-                  },
-                ]
-              : [];
-          }),
-          blockedBy: blockersOf(snapshot, ticket).map((blocker) => labelOf(snapshot, blocker)),
+          requires: requiredTickets(snapshot, ticket).map((required) => ({
+            key: labelOf(snapshot, required),
+            title: required.title,
+            column: columnNameOf(snapshot, required),
+          })),
           latestHandoff: comments.toReversed().find((comment) => comment.isHandoff)?.body ?? null,
           comments: comments.map((comment) => ({
             author: comment.author === "user" ? "user" : "agent",
@@ -349,9 +347,6 @@ const make = Effect.gen(function* () {
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.priority !== undefined ? { priority: input.priority } : {}),
           });
-        }
-        if (input.status !== undefined) {
-          yield* dispatch({ type: "ticket.setStatus", ticketId: ticket.id, status: input.status });
         }
         // Resolve every criterion before writing, so a bad reference changes nothing.
         const check = yield* Effect.forEach(input.checkCriteria ?? [], (ref) =>

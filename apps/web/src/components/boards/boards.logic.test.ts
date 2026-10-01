@@ -8,8 +8,8 @@ import {
   recentBoardsByActivity,
   suggestBoardKey,
   ticketAttention,
-  ticketBlockers,
   ticketsByColumn,
+  ticketRequirements,
   ticketsNewlyFlagged,
 } from "./boards.logic";
 
@@ -39,7 +39,6 @@ const ticket = (id: string, overrides: Partial<Ticket> = {}): Ticket => ({
   priority: "none",
   projectKey: null,
   position: 1,
-  status: "open",
   flag: null,
   requires: [],
   criteria: [],
@@ -52,19 +51,24 @@ const ticket = (id: string, overrides: Partial<Ticket> = {}): Ticket => ({
 
 const snapshot = (tickets: Ticket[]): BoardsSnapshot => ({ boards: [board], tickets });
 
-describe("ticketBlockers", () => {
-  it("lists required tickets that are not done", () => {
+describe("ticketRequirements", () => {
+  it("lists every required ticket with the column it sits in", () => {
     const index = indexBoards(
       snapshot([
-        ticket("done-one", { status: "done" }),
-        // Sitting in the Done column means nothing; the status decides.
-        ticket("canceled-one", { columnId: "done", status: "canceled" }),
-        ticket("open-one"),
-        ticket("t", { requires: ["done-one", "open-one"] }),
+        ticket("done-one", { columnId: "done", number: 1 }),
+        ticket("open-one", { number: 2 }),
+        ticket("t", { requires: ["done-one", "open-one", "deleted"] }),
       ]),
     );
-    expect(ticketBlockers(index.ticketById.get("t")!, index).map((t) => t.id)).toEqual([
-      "open-one",
+    expect(
+      ticketRequirements(index.ticketById.get("t")!, index).map((r) => [
+        r.label,
+        r.columnName,
+        r.columnColor,
+      ]),
+    ).toEqual([
+      ["WEB-1", "Done", "green"],
+      ["WEB-2", "Todo", null],
     ]);
   });
 });

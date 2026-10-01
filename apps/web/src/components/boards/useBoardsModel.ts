@@ -8,11 +8,11 @@ import { useThreadShells } from "../../state/entities";
 import {
   indexBoards,
   ticketAttention,
-  ticketBlockers,
   ticketKey,
-  ticketLabel,
+  ticketRequirements,
   type BoardsIndex,
   type TicketAttention,
+  type TicketRequirement,
 } from "./boards.logic";
 
 /** A ticket with everything the boards screens show about it. */
@@ -20,9 +20,8 @@ export interface TicketView {
   readonly ticket: Ticket;
   readonly board: Board;
   readonly label: string;
-  readonly blockers: ReadonlyArray<Ticket>;
-  /** Keys of the blockers, like `WEB-3`. */
-  readonly blockerLabels: ReadonlyArray<string>;
+  /** Tickets this one requires, with the column each sits in. */
+  readonly requirements: ReadonlyArray<TicketRequirement>;
   readonly attention: TicketAttention | null;
   /** Linked chats this client knows about; chats of disconnected environments are missing. */
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
@@ -67,13 +66,11 @@ export function useBoardsModel(): BoardsModel {
         const shell = shellByKey.get(key);
         return shell && shell.archivedAt === null ? [shell] : [];
       });
-      const blockers = ticketBlockers(ticket, index);
       viewById.set(ticket.id, {
         ticket,
         board,
         label: ticketKey(board, ticket),
-        blockers,
-        blockerLabels: blockers.map((blocker) => ticketLabel(blocker, index)),
+        requirements: ticketRequirements(ticket, index),
         attention:
           board.archivedAt === null
             ? ticketAttention(

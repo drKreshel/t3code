@@ -8,7 +8,6 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { TicketStatus } from "./forkBoards.ts";
 import { ModelSelection, ProviderInteractionMode, RuntimeMode } from "./orchestration.ts";
 
 export const FORK_AUTOMATIONS_WS_METHODS = {
@@ -64,7 +63,6 @@ export type AutomationCheckout = typeof AutomationCheckout.Type;
  * sweeps every board, for schedules.
  */
 export const AutomationStep = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("setStatus"), status: TicketStatus }),
   /** Moves the ticket to the column with this name on its board. */
   Schema.Struct({ type: Schema.Literal("moveTo"), column: TrimmedNonEmptyString }),
   /** Removes the ticket's worktrees (branches stay); refused while work is unsaved. */

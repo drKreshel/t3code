@@ -185,6 +185,12 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       `ALTER TABLE fork_tickets DROP COLUMN attention_reason`,
     ],
   },
+  {
+    // Tickets lose their status: columns are the only states, and Requires is
+    // a plain link.
+    version: 5,
+    statements: [`ALTER TABLE fork_tickets DROP COLUMN status`],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

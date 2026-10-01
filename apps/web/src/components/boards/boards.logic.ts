@@ -19,11 +19,29 @@ export function indexBoards(snapshot: BoardsSnapshot): BoardsIndex {
   };
 }
 
-/** Required tickets that are not done yet (canceled does not count); any means blocked. */
-export function ticketBlockers(ticket: Ticket, index: BoardsIndex): Ticket[] {
+/** A required ticket and the column it sits in; T3 judges nothing from it. */
+export interface TicketRequirement {
+  readonly ticket: Ticket;
+  readonly label: string;
+  readonly columnName: string;
+  readonly columnColor: string | null;
+}
+
+/** The tickets this one requires (that still exist), with where each sits. */
+export function ticketRequirements(ticket: Ticket, index: BoardsIndex): TicketRequirement[] {
   return ticket.requires.flatMap((id) => {
     const required = index.ticketById.get(id);
-    return required && required.status !== "done" ? [required] : [];
+    if (!required) return [];
+    const board = index.boardById.get(required.boardId);
+    const column = board?.columns.find((candidate) => candidate.id === required.columnId);
+    return [
+      {
+        ticket: required,
+        label: board ? ticketKey(board, required) : `#${required.number}`,
+        columnName: column?.name ?? "",
+        columnColor: column?.color ?? null,
+      },
+    ];
   });
 }
 

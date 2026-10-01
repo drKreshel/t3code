@@ -8,7 +8,6 @@
  *   goes to Needs you with the reason;
  * - one live automation chat per ticket; a trigger meanwhile is queued (one
  *   per ticket) and starts when the live chat finishes;
- * - blocked tickets never trigger; they fire when unblocked;
  * - a paused board's hooks do not fire; unpausing runs them for tickets
  *   sitting in hooked columns;
  * - a schedule missed while the server was off runs once if within an hour,
@@ -56,7 +55,6 @@ import {
   boardTriggerMatches,
   boardTriggerProblem,
   decideSchedule,
-  isBlocked,
   nextScheduledAt,
   renderPrompt,
   scheduleProblem,
@@ -194,14 +192,6 @@ const make = (options: { readonly background: boolean }) =>
             return yield* new RunStartError({ message: "This step needs a ticket to act on." });
           }
           switch (step.type) {
-            case "setStatus":
-              yield* boards
-                .dispatch(
-                  { type: "ticket.setStatus", ticketId: ticket.id, status: step.status },
-                  actor,
-                )
-                .pipe(Effect.mapError(asStepError));
-              break;
             case "moveTo": {
               const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
               const column = board?.columns.find(
@@ -449,7 +439,6 @@ const make = (options: { readonly background: boolean }) =>
         if (!boardTriggerMatches(automation.trigger, snapshot, ticket)) return;
         // The ticket's own board decides pausing, including for any-board hooks.
         if (yield* store.boardPaused(ticket.boardId)) return;
-        if (isBlocked(snapshot, ticket)) return;
         // A flagged ticket waits for a person; resolving the flag runs this again.
         if (ticket.flag !== null) return;
 
@@ -514,8 +503,7 @@ const make = (options: { readonly background: boolean }) =>
           Option.isSome(automation) &&
           automation.value.enabled &&
           ticket !== undefined &&
-          boardTriggerMatches(automation.value.trigger, snapshot, ticket) &&
-          !isBlocked(snapshot, ticket);
+          boardTriggerMatches(automation.value.trigger, snapshot, ticket);
         if (!stillApplies || Option.isNone(automation)) {
           yield* store.updateRun(queued.id, {
             status: "skipped",
@@ -617,10 +605,6 @@ const make = (options: { readonly background: boolean }) =>
         "board event",
         serialized(
           Effect.gen(function* () {
-            if (event.type === "ticket.unblocked") {
-              yield* fireHooksForTicket(event.ticketId);
-              return;
-            }
             if (event.type === "ticket.flagResolved") {
               // Resolving gives the hooks a fresh count, then runs what was held.
               yield* store.resetTicket(event.ticketId, yield* nowIso);

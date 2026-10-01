@@ -4,13 +4,12 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { TicketComment, TicketEvent, TicketPriority, TicketStatus } from "@t3tools/contracts";
+import type { TicketComment, TicketEvent, TicketPriority } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   FolderIcon,
-  LockIcon,
   MessageSquarePlusIcon,
   PlusIcon,
   RotateCcwIcon,
@@ -38,7 +37,7 @@ import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { TicketWorkspaceSection } from "./WorkspaceSettings";
 import { describeTicketEvent } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
-import { columnDotClass, PRIORITIES, PRIORITY_LABEL, STATUS_LABEL } from "./boardsPresentation";
+import { columnDotClass, PRIORITIES, PRIORITY_LABEL } from "./boardsPresentation";
 import { useBoardsModel, type TicketView } from "./useBoardsModel";
 import { pickProjectKey, useProjectLookup, useStartTicketSession } from "./useTicketActions";
 
@@ -99,12 +98,6 @@ function TicketBody({
         <div className="flex min-w-0 flex-col gap-6">
           <TicketHeading view={view} readOnly={readOnly} />
           {view.attention ? <TicketAttentionBanner view={view} readOnly={readOnly} /> : null}
-          {view.blockers.length > 0 ? (
-            <p className="flex items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-              <LockIcon className="size-3.5 shrink-0" />
-              Waiting on {view.blockerLabels.join(", ")}.
-            </p>
-          ) : null}
           {handoff ? (
             <section className="flex flex-col gap-1.5 rounded-lg border border-border/60 px-3 py-2">
               <h2 className="text-xs font-medium text-muted-foreground">Latest handoff</h2>
@@ -649,30 +642,6 @@ function TicketProperties({
 
   return (
     <aside className="flex flex-col gap-5 lg:sticky lg:top-6 lg:self-start">
-      <PropertyRow label="Status">
-        <Select
-          value={ticket.status}
-          disabled={readOnly}
-          onValueChange={(value) =>
-            void dispatch({
-              type: "ticket.setStatus",
-              ticketId: ticket.id,
-              status: value as TicketStatus,
-            })
-          }
-        >
-          <SelectTrigger size="sm" aria-label="Status">
-            <SelectValue>{STATUS_LABEL[ticket.status]}</SelectValue>
-          </SelectTrigger>
-          <SelectPopup alignItemWithTrigger={false}>
-            {TICKET_STATUSES.map((status) => (
-              <SelectItem key={status} value={status}>
-                {STATUS_LABEL[status]}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      </PropertyRow>
       <PropertyRow label="Column">
         <Select
           value={ticket.columnId}
@@ -771,11 +740,11 @@ function TicketProperties({
                 <span
                   className={cn(
                     "size-2 shrink-0 rounded-full",
-                    requiredView.ticket.status === "done"
-                      ? "bg-success"
-                      : requiredView.ticket.status === "canceled"
-                        ? "bg-muted-foreground/30"
-                        : "bg-muted-foreground/70",
+                    columnDotClass(
+                      requiredView.board.columns.find(
+                        (column) => column.id === requiredView.ticket.columnId,
+                      )?.color ?? null,
+                    ),
                   )}
                 />
                 <Link
@@ -790,6 +759,12 @@ function TicketProperties({
                     {requiredView.label}
                   </span>{" "}
                   {requiredView.ticket.title}
+                  <span className="text-xs text-muted-foreground">
+                    {" · "}
+                    {requiredView.board.columns.find(
+                      (column) => column.id === requiredView.ticket.columnId,
+                    )?.name ?? ""}
+                  </span>
                 </Link>
                 {!readOnly ? (
                   <span className="ml-auto opacity-0 group-hover/requires:opacity-100 focus-within:opacity-100">
@@ -944,8 +919,6 @@ function TicketRunsSection({
     </section>
   );
 }
-
-const TICKET_STATUSES: ReadonlyArray<TicketStatus> = ["open", "done", "canceled"];
 
 /**
  * What the ticket waits on, with the way out: Resolve clears a stored flag and

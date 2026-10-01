@@ -135,7 +135,7 @@ describe("boards toolkit handlers", () => {
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 
-  it.effect("flags a ticket in place, and closes it with a status", () =>
+  it.effect("flags a ticket in place and reports requirements by column", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;
       yield* call("create_board", { name: "Api", key: "API" });
@@ -156,14 +156,13 @@ describe("boards toolkit handlers", () => {
         {
           key: "API-2",
           flag: { level: "warning", reason: "Which auth scheme?" },
-          blockedBy: ["API-1"],
+          requires: ["API-1 (Backlog)"],
         },
       ]);
 
-      yield* call("update_ticket", { ticket: "API-1", status: "done" });
-      const unblocked = yield* call("get_ticket", { ticket: "API-2" });
-      expect(unblocked.blockedBy).toEqual([]);
-      expect(unblocked.requires).toEqual([{ key: "API-1", title: "Schema", done: true }]);
+      yield* call("move_ticket", { ticket: "API-1", column: "Done" });
+      const detail = yield* call("get_ticket", { ticket: "API-2" });
+      expect(detail.requires).toEqual([{ key: "API-1", title: "Schema", column: "Done" }]);
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 

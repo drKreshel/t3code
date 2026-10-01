@@ -3,7 +3,6 @@ import { assert, it } from "@effect/vitest";
 import type { BoardsCommand, BoardsSnapshot } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Stream from "effect/Stream";
 
 import { BoardsService, layerMemory } from "./BoardsService.ts";
 
@@ -25,16 +24,6 @@ const createdId = (command: BoardsCommand) =>
 const columnNamed = (state: BoardsSnapshot, boardId: string, name: string) =>
   state.boards.find((board) => board.id === boardId)!.columns.find((c) => c.name === name)!.id;
 
-/** The first ticket detail the stream sends: its current comments and events. */
-const ticketDetail = (ticketId: string) =>
-  Effect.gen(function* () {
-    const boards = yield* BoardsService;
-    const details = yield* boards
-      .ticketDetailStream(ticketId)
-      .pipe(Stream.take(1), Stream.runCollect);
-    return [...details][0]!;
-  });
-
 it.layer(TestLayer)("BoardsService", (it) => {
   it.effect("creates boards with plain default columns and unique keys", () =>
     Effect.gen(function* () {
@@ -49,7 +38,7 @@ it.layer(TestLayer)("BoardsService", (it) => {
     }),
   );
 
-  it.effect("numbers tickets per board and starts them open in the first column", () =>
+  it.effect("numbers tickets per board and starts them in the first column", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Api", key: "API" });
       const first = yield* createdId({ type: "ticket.create", boardId, title: "One" });
@@ -59,11 +48,10 @@ it.layer(TestLayer)("BoardsService", (it) => {
       assert.equal(byId.get(first)!.number, 1);
       assert.equal(byId.get(second)!.number, 2);
       assert.equal(byId.get(first)!.columnId, columnNamed(state, boardId, "Backlog"));
-      assert.equal(byId.get(first)!.status, "open");
     }),
   );
 
-  it.effect("moves tickets freely and unblocks dependents when a requirement is done", () =>
+  it.effect("keeps requirements as links and moves tickets freely", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Ops", key: "OPS" });
       const active = columnNamed(yield* snapshot, boardId, "In progress");
@@ -74,17 +62,10 @@ it.layer(TestLayer)("BoardsService", (it) => {
         title: "Dependent",
         requires: [base],
       });
-      // Columns mean nothing: a blocked ticket may go anywhere.
       yield* dispatch({ type: "ticket.move", ticketId: dependent, columnId: active });
-      assert.equal(
-        (yield* snapshot).tickets.find((ticket) => ticket.id === dependent)!.columnId,
-        active,
-      );
-      // Canceled does not satisfy a requirement; done does.
-      yield* dispatch({ type: "ticket.setStatus", ticketId: base, status: "canceled" });
-      assert.notOk((yield* ticketDetail(dependent)).events.some((e) => e.kind === "unblocked"));
-      yield* dispatch({ type: "ticket.setStatus", ticketId: base, status: "done" });
-      assert.ok((yield* ticketDetail(dependent)).events.some((e) => e.kind === "unblocked"));
+      const moved = (yield* snapshot).tickets.find((ticket) => ticket.id === dependent)!;
+      assert.equal(moved.columnId, active);
+      assert.deepEqual(moved.requires, [base]);
     }),
   );
 

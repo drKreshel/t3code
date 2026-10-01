@@ -1,4 +1,4 @@
-import type { AutomationStep, TicketStatus } from "@t3tools/contracts";
+import type { AutomationStep } from "@t3tools/contracts";
 import { PlusIcon, XIcon } from "lucide-react";
 
 import { Button } from "../ui/button";
@@ -20,28 +20,19 @@ export function toStepRows(steps: ReadonlyArray<AutomationStep>): StepRow[] {
 }
 
 const STEP_LABEL: Record<StepType, string> = {
-  setStatus: "Mark ticket as",
   moveTo: "Move to column",
   removeWorkspace: "Clean up worktrees",
   moveStale: "Move old tickets",
 };
 
-const STATUS_LABEL: Record<TicketStatus, string> = {
-  open: "Open (reopen)",
-  done: "Done",
-  canceled: "Canceled",
-};
-
 /** Ticket steps act on the ticket a board hook fired for; schedules sweep boards. */
 const STEPS_FOR: Record<"board" | "schedule", ReadonlyArray<StepType>> = {
-  board: ["setStatus", "moveTo", "removeWorkspace"],
+  board: ["moveTo", "removeWorkspace"],
   schedule: ["moveStale"],
 };
 
 function newStep(type: StepType, columnNames: ReadonlyArray<string>): AutomationStep {
   switch (type) {
-    case "setStatus":
-      return { type, status: "done" };
     case "moveTo":
       return { type, column: columnNames[0] ?? "Done" };
     case "removeWorkspace":
@@ -172,24 +163,6 @@ function StepFields({
   readonly onChange: (step: AutomationStep) => void;
 }) {
   switch (step.type) {
-    case "setStatus":
-      return (
-        <Select
-          value={step.status}
-          onValueChange={(value) => onChange({ ...step, status: value as TicketStatus })}
-        >
-          <SelectTrigger size="sm" className="w-36" aria-label="Status">
-            <SelectValue>{STATUS_LABEL[step.status]}</SelectValue>
-          </SelectTrigger>
-          <SelectPopup alignItemWithTrigger={false}>
-            {(Object.keys(STATUS_LABEL) as TicketStatus[]).map((status) => (
-              <SelectItem key={status} value={status}>
-                {STATUS_LABEL[status]}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      );
     case "moveTo":
       return (
         <ColumnSelect

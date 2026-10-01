@@ -17,7 +17,6 @@ import {
   type TicketFlag,
   TicketFlag as TicketFlagSchema,
   type TicketPriority,
-  type TicketStatus,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -49,7 +48,6 @@ export type BoardEvent =
       readonly columnId: string;
       readonly actor: BoardsActor;
     }
-  | { readonly type: "ticket.unblocked"; readonly ticketId: string }
   /** A flag was resolved (or cleared by a person moving the ticket): held hooks may run. */
   | {
       readonly type: "ticket.flagResolved";
@@ -137,7 +135,6 @@ interface TicketRow {
   readonly priority: TicketPriority;
   readonly project_key: string | null;
   readonly position: number;
-  readonly status: TicketStatus;
   readonly flag_json: string | null;
   readonly created_at: string;
   readonly updated_at: string;
@@ -215,7 +212,6 @@ const make = Effect.gen(function* () {
         priority: row.priority,
         projectKey: row.project_key,
         position: row.position,
-        status: row.status,
         flag: row.flag_json === null ? null : decodeFlag(row.flag_json),
         requires: (requiresByTicket.get(row.id) ?? []).map((entry) => entry.requires_ticket_id),
         criteria: (criteriaByTicket.get(row.id) ?? []).map((criterion) => ({
@@ -298,15 +294,6 @@ const make = Effect.gen(function* () {
     sql<{ readonly key: string }>`SELECT key FROM fork_boards WHERE id = ${ticket.board_id}`.pipe(
       Effect.map((rows) => `${rows[0]?.key ?? "?"}-${ticket.number}`),
     );
-
-  /** Required tickets that are not done yet (canceled does not count). */
-  const blockersOf = (ticketId: string) =>
-    sql<{ readonly id: string; readonly board_id: string; readonly number: number }>`
-      SELECT t.id, t.board_id, t.number
-      FROM fork_ticket_requires r
-      JOIN fork_tickets t ON t.id = r.requires_ticket_id
-      WHERE r.ticket_id = ${ticketId} AND t.status != 'done'
-    `;
 
   const setFlag = (ticketId: string, flag: TicketFlag | null) =>
     sql`UPDATE fork_tickets SET flag_json = ${flag === null ? null : encodeFlag(flag)}
@@ -594,44 +581,6 @@ const make = Effect.gen(function* () {
             emit({ type: "ticket.entered", ticketId: ticket.id, columnId: to.id, actor });
           }
           return { id: null, touched: [ticket.id] };
-        }
-        case "ticket.setStatus": {
-          const ticket = yield* findTicket(command.ticketId);
-          if (ticket.status === command.status) return { id: null, touched: [] };
-          yield* sql`
-            UPDATE fork_tickets SET status = ${command.status}, updated_at = ${at}
-            WHERE id = ${ticket.id}
-          `;
-          yield* recordEvent(
-            ticket.id,
-            "status",
-            { from: ticket.status, to: command.status },
-            actor,
-            at,
-          );
-          const touched = [ticket.id];
-          // Finishing (or reopening) a ticket can unblock (or block) the
-          // tickets that require it; their timelines say so.
-          const wasDone = ticket.status === "done";
-          const isDone = command.status === "done";
-          if (wasDone !== isDone) {
-            const dependents = yield* sql<{ readonly ticket_id: string }>`
-              SELECT ticket_id FROM fork_ticket_requires WHERE requires_ticket_id = ${ticket.id}
-            `;
-            const label = yield* ticketLabel(ticket);
-            for (const dependent of dependents) {
-              const remaining = yield* blockersOf(dependent.ticket_id);
-              if (isDone && remaining.length === 0) {
-                yield* recordEvent(dependent.ticket_id, "unblocked", { by: label }, actor, at);
-                emit({ type: "ticket.unblocked", ticketId: dependent.ticket_id });
-                touched.push(dependent.ticket_id);
-              } else if (wasDone && remaining.length === 1) {
-                yield* recordEvent(dependent.ticket_id, "blocked", { by: label }, actor, at);
-                touched.push(dependent.ticket_id);
-              }
-            }
-          }
-          return { id: null, touched };
         }
         case "ticket.flag": {
           const ticket = yield* findTicket(command.ticketId);

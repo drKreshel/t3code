@@ -259,20 +259,17 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("waits for a blocked ticket and fires once it is unblocked", () =>
+  it.effect("fires hooks for tickets that require others: Requires is only a link", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
       const { column, ticket } = yield* setupBoard(harness);
       const schema = yield* ticket("Schema");
       const endpoint = yield* ticket("Endpoint", [schema]);
-      // A blocked ticket moves freely; its hook waits until it is unblocked.
       yield* harness.boardDispatch({
         type: "ticket.move",
         ticketId: endpoint,
         columnId: column("In progress"),
       });
-      expect((yield* harness.threadIdsStarted).length).toBe(0);
-      yield* harness.boardDispatch({ type: "ticket.setStatus", ticketId: schema, status: "done" });
       expect((yield* harness.threadIdsStarted).length).toBe(1);
     }).pipe(Effect.provide(TestLayer)),
   );
@@ -404,29 +401,21 @@ describe("AutomationEngine", () => {
       expect(error.message).toMatch(/Name the column/);
     }).pipe(Effect.provide(TestLayer)),
   );
-  it.effect("runs built-in steps without a chat: close on entering Done", () =>
+  it.effect("runs built-in steps without a chat", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
       const { boardId, column, ticket } = yield* setupBoard(harness);
       yield* harness.engine.dispatch({
         type: "automation.create",
-        title: "Close when done",
+        title: "Bounce to Done",
         prompt: "",
-        trigger: { type: "board", boardId, columnId: column("Done") },
-        action: { ...action, steps: [{ type: "setStatus", status: "done" }] },
+        trigger: { type: "board", boardId, columnId: column("Review") },
+        action: { ...action, steps: [{ type: "moveTo", column: "Done" }] },
       });
-      const schema = yield* ticket("Schema");
-      const endpoint = yield* ticket("Endpoint", [schema]);
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId: schema,
-        columnId: column("Done"),
-      });
-      const tickets = new Map((yield* harness.boards.snapshot).tickets.map((t) => [t.id, t]));
-      expect(tickets.get(schema)!.status).toBe("done");
-      // No chat started, and the dependent is no longer blocked.
+      const ticketId = yield* ticket("Quick");
+      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Review") });
+      expect((yield* harness.boards.snapshot).tickets[0]!.columnId).toBe(column("Done"));
       expect(yield* harness.threadIdsStarted).toEqual([]);
-      expect(tickets.get(endpoint)!.requires).toEqual([schema]);
       const runs = (yield* harness.store.snapshot).runs;
       expect(runs.map((run) => run.status)).toContain("succeeded");
     }).pipe(Effect.provide(TestLayer)),
