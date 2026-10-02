@@ -235,6 +235,42 @@ describe("buildSidebarFolderTree", () => {
     expect(tree.roots[0]!.subtreeThreads).toHaveLength(2);
   });
 
+  it("groups settled threads last in each folder and keeps traversal in visual order", () => {
+    const layout = layoutWith(
+      [
+        ["a", null],
+        ["a1", "a"],
+      ],
+      { a: ["s1", "t1", "s2", "t2"], a1: ["s3", "t3"] },
+    );
+    const tree = build(layout, ["s1", "t1", "s2", "t2", "s3", "t3"]);
+    expect(tree.roots[0]!.rows.map((row) => row.key)).toEqual(["t1", "t2", "s1", "s2"]);
+    expect(tree.roots[0]!.children[0]!.rows.map((row) => row.key)).toEqual(["t3", "s3"]);
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual([
+      "t3",
+      "s3",
+      "t1",
+      "t2",
+      "s1",
+      "s2",
+    ]);
+    expect(layout.threadKeysByFolderId.a).toEqual(["s1", "t1", "s2", "t2"]);
+  });
+
+  it("returns an unsettled thread to its saved position among the other active threads", () => {
+    const layout = layoutWith([["a", null]], { a: ["t1", "s1", "t2"] });
+    const threadByKey = threads(["t1", "s1", "t2"]);
+    threadByKey.set("s1", { key: "s1", settled: false });
+    const tree = buildSidebarFolderTree({
+      layout,
+      threadByKey,
+      sectionOf: (thread) => (thread.settled ? "settled" : "active"),
+      hideEmptyFolders: false,
+    });
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s1", "t2"]);
+    expect(tree.settledKeys.size).toBe(0);
+  });
+
   it("hides every nested thread under a collapsed folder, at any depth", () => {
     const layout = layoutWith(
       [

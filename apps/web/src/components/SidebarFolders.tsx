@@ -30,6 +30,7 @@ import {
   SquarePenIcon,
 } from "lucide-react";
 import {
+  Fragment,
   useCallback,
   useMemo,
   useRef,
@@ -764,6 +765,7 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
   const openMenu = (position: { x: number; y: number }) =>
     void showFolderMenu(folder.id, position, actions);
   const hasContent = node.children.length > 0 || node.rows.length > 0;
+  const firstSettledIndex = node.rows.findIndex((row) => row.section === "settled");
   const Icon = node.collapsed ? FolderIcon : FolderOpenIcon;
   return (
     <li
@@ -905,13 +907,21 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
               chatActions={props.chatActions}
             />
           ))}
-          {node.rows.map((row) => (
-            <FolderThreadRow
-              key={row.key}
-              row={row}
-              disabled={props.renamingThreadKey === row.key}
-              renderThreadRow={props.renderThreadRow}
-            />
+          {node.rows.map((row, index) => (
+            <Fragment key={row.key}>
+              {index === firstSettledIndex ? (
+                <li className="mt-1 flex h-7 list-none items-center gap-2 px-2 text-xs font-medium text-sidebar-muted-foreground/60">
+                  <span>Settled</span>
+                  <span aria-hidden className="h-px min-w-2 flex-1 bg-sidebar-border/60" />
+                  <span className="tabular-nums">{node.rows.length - firstSettledIndex}</span>
+                </li>
+              ) : null}
+              <FolderThreadRow
+                row={row}
+                disabled={props.renamingThreadKey === row.key}
+                renderThreadRow={props.renderThreadRow}
+              />
+            </Fragment>
           ))}
         </ul>
       ) : null}

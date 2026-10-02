@@ -401,7 +401,7 @@ export interface SidebarFolderTreeNode<TThread> {
   readonly collapsed: boolean;
   /** Subfolders to render; empty while collapsed. */
   readonly children: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
-  /** This folder's threads to render; empty while collapsed. */
+  /** This folder's threads in visual order, with settled rows last; empty while collapsed. */
   readonly rows: ReadonlyArray<SidebarFolderThreadRow<TThread>>;
   /** Visible threads in this folder and below, for the header rollup. */
   readonly subtreeThreads: readonly TThread[];
@@ -453,16 +453,20 @@ export function buildSidebarFolderTree<TThread>(input: {
   const snoozedKeys = new Set<string>();
   let visibleThreadCount = 0;
 
-  const rowsOf = (folderId: string): SidebarFolderThreadRow<TThread>[] =>
-    (layout.threadKeysByFolderId[folderId] ?? []).flatMap((key) => {
+  const rowsOf = (folderId: string): SidebarFolderThreadRow<TThread>[] => {
+    const rows: SidebarFolderThreadRow<TThread>[] = [];
+    const settledRows: SidebarFolderThreadRow<TThread>[] = [];
+    for (const key of layout.threadKeysByFolderId[folderId] ?? []) {
       const thread = threadByKey.get(key);
-      if (thread === undefined) return [];
+      if (thread === undefined) continue;
       const section = input.sectionOf(thread);
       if (section === "settled") settledKeys.add(key);
       else if (section === "snoozed") snoozedKeys.add(key);
       visibleThreadCount += 1;
-      return [{ thread, key, section }];
-    });
+      (section === "settled" ? settledRows : rows).push({ thread, key, section });
+    }
+    return [...rows, ...settledRows];
+  };
 
   const build = (
     folder: SidebarFolder,
