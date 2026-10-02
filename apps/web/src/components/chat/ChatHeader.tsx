@@ -1,5 +1,6 @@
 import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { ThreadTicketChip } from "../boards/ThreadTicketChip";
+import { ThreadBoardBreadcrumb } from "../boards/ThreadBoardBreadcrumb";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
@@ -271,6 +272,10 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
+        <ThreadBoardBreadcrumb
+          environmentId={activeThreadEnvironmentId}
+          threadId={activeThreadId}
+        />
         <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
           {renamingTitle !== null ? (
             <input

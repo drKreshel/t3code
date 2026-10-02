@@ -134,6 +134,7 @@ interface TicketRow {
   readonly column_id: string;
   readonly priority: TicketPriority;
   readonly project_key: string | null;
+  readonly folder: string | null;
   readonly position: number;
   readonly flag_json: string | null;
   readonly created_at: string;
@@ -211,6 +212,7 @@ const make = Effect.gen(function* () {
         columnId: row.column_id,
         priority: row.priority,
         projectKey: row.project_key,
+        folder: row.folder,
         position: row.position,
         flag: row.flag_json === null ? null : decodeFlag(row.flag_json),
         requires: (requiresByTicket.get(row.id) ?? []).map((entry) => entry.requires_ticket_id),
@@ -491,9 +493,15 @@ const make = Effect.gen(function* () {
           const position = yield* nextPosition("tickets", column.id);
           yield* sql`
             INSERT INTO fork_tickets (id, board_id, number, title, description, column_id, priority,
-              project_key, position, created_at, updated_at)
+              project_key, folder, position, created_at, updated_at)
             VALUES (${id}, ${board.id}, ${number}, ${command.title}, ${command.description ?? ""},
               ${column.id}, ${command.priority ?? "none"}, ${command.projectKey ?? null},
+              ${
+                command.folder
+                  ?.split("/")
+                  .map((name) => name.trim())
+                  .join("/") ?? null
+              },
               ${position}, ${at}, ${at})
           `;
           for (const [index, text] of (command.criteria ?? []).entries()) {
@@ -515,12 +523,20 @@ const make = Effect.gen(function* () {
         }
         case "ticket.update": {
           const ticket = yield* findTicket(command.ticketId);
+          const folder =
+            command.folder === undefined
+              ? ticket.folder
+              : (command.folder
+                  ?.split("/")
+                  .map((name) => name.trim())
+                  .join("/") ?? null);
           yield* sql`
             UPDATE fork_tickets SET
               title = ${command.title ?? ticket.title},
               description = ${command.description ?? ticket.description},
               priority = ${command.priority ?? ticket.priority},
               project_key = ${command.projectKey === undefined ? ticket.project_key : command.projectKey},
+              folder = ${folder},
               updated_at = ${at}
             WHERE id = ${ticket.id}
           `;
@@ -535,6 +551,7 @@ const make = Effect.gen(function* () {
             command.projectKey !== undefined && command.projectKey !== ticket.project_key
               ? "project"
               : null,
+            command.folder !== undefined && folder !== ticket.folder ? "folder" : null,
           ].filter((field) => field !== null);
           if (changed.length > 0) {
             yield* recordEvent(

@@ -4056,6 +4056,26 @@ export default function Sidebar() {
     [attemptPin, attemptSettle, attemptUnsettle, attemptUnsnooze],
   );
   const folderChatActions = useSidebarFolderChatActions({
+    setThreadsSettled: (threadKeys, settled) => {
+      const coSettlingKeys = new Set(threadKeys);
+      for (const threadKey of threadKeys) {
+        const thread = threadByKeyRef.current.get(threadKey);
+        if (
+          !thread ||
+          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement !==
+            true
+        )
+          continue;
+        const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+        if (settled && thread.settledOverride !== "settled")
+          attemptSettle(threadRef, { coSettlingKeys });
+        else if (
+          !settled &&
+          (thread.settledOverride === "settled" || settledThreadKeysRef.current.has(threadKey))
+        )
+          attemptUnsettle(threadRef);
+      }
+    },
     projects: projectGroups,
     handleNewThread: newThreadContext.handleNewThread,
     beforeNavigate: () => {

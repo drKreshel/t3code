@@ -58,6 +58,7 @@ import {
   flattenSidebarFolders,
   folderDndId,
   folderIdByThreadKey,
+  folderSubtreeThreadKeys,
   folderThreadDndId,
   parseSidebarFolderDndId,
   planSidebarFolderDrop,
@@ -466,6 +467,7 @@ export function applySidebarFolderMenuSelection(
 // New chats
 
 export interface SidebarFolderChatActions {
+  readonly setThreadsSettled: (threadKeys: readonly string[], settled: boolean) => void;
   /** Sidebar projects, for resolving a folder's default project key. */
   readonly projects: readonly SidebarProjectSnapshot[];
   /** Starts a chat in a project and files it into the folder. */
@@ -481,6 +483,7 @@ export interface SidebarFolderChatActions {
  * the server thread.
  */
 export function useSidebarFolderChatActions(input: {
+  setThreadsSettled: (threadKeys: readonly string[], settled: boolean) => void;
   projects: readonly SidebarProjectSnapshot[];
   handleNewThread: (
     projectRef: ScopedProjectRef,
@@ -529,7 +532,13 @@ export function useSidebarFolderChatActions(input: {
     [startChat],
   );
   const { projects } = input;
-  return useMemo(() => ({ projects, startChat, pickProject }), [pickProject, projects, startChat]);
+  const setThreadsSettled = useCallback((threadKeys: readonly string[], settled: boolean) => {
+    inputRef.current.setThreadsSettled(threadKeys, settled);
+  }, []);
+  return useMemo(
+    () => ({ projects, startChat, pickProject, setThreadsSettled }),
+    [pickProject, projects, startChat, setThreadsSettled],
+  );
 }
 
 async function showFolderMenu(
@@ -540,6 +549,7 @@ async function showFolderMenu(
   const api = readLocalApi();
   if (!api) return;
   const layout = useSidebarFolderStore.getState();
+  const threadKeys = folderSubtreeThreadKeys(layout, folderId);
   const ownDefaultKey =
     layout.folders.find((candidate) => candidate.id === folderId)?.defaultProjectKey ?? null;
   const ownDefault =
@@ -571,6 +581,13 @@ async function showFolderMenu(
                   : "Clear default project",
               },
             ]),
+        {
+          id: "settle-folder",
+          label: "Settle folder",
+          disabled: threadKeys.length === 0,
+          separatorBefore: true,
+        },
+        { id: "unsettle-folder", label: "Un-settle folder", disabled: threadKeys.length === 0 },
         { id: "new-subfolder", label: "New subfolder", icon: "folder", separatorBefore: true },
         { id: "rename", label: "Rename folder", icon: "pencil" },
         {
@@ -588,6 +605,12 @@ async function showFolderMenu(
   const store = useSidebarFolderStore.getState();
   const ui = useSidebarFolderUiStore.getState();
   switch (clicked.value) {
+    case "settle-folder":
+      actions.setThreadsSettled(threadKeys, true);
+      return;
+    case "unsettle-folder":
+      actions.setThreadsSettled(threadKeys, false);
+      return;
     case "new-chat":
       actions.pickProject(folderId, "chat");
       return;

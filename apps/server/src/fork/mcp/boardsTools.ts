@@ -7,6 +7,7 @@ import {
   BoardKey,
   BoardsCommandError,
   TicketPriority,
+  TicketFolderPath,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -84,6 +85,7 @@ export const TicketDetailResult = Schema.Struct({
   column: Schema.String,
   priority: TicketPriority,
   project: Schema.NullOr(Schema.String),
+  folder: Schema.NullOr(Schema.String),
   flag: FlagSummary,
   criteria: Schema.Array(
     Schema.Struct({ number: Schema.Int, text: Schema.String, checked: Schema.Boolean }),
@@ -173,7 +175,7 @@ const ListTicketsTool = Tool.make("list_tickets", {
 
 const GetTicketTool = Tool.make("get_ticket", {
   description:
-    "Read a ticket: description, acceptance criteria (numbered), requirements, comments, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
+    "Read a ticket: description, folder, acceptance criteria (numbered), requirements, comments, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
   parameters: Schema.Struct({ ticket: OptionalTicketRef }),
   success: TicketDetailResult,
   failure,
@@ -224,6 +226,12 @@ const CreateTicketTool = Tool.make("create_ticket", {
     description: Schema.optional(Schema.String.annotate({ description: "Markdown." })),
     column: Schema.optional(ColumnRef),
     priority: Schema.optional(TicketPriority),
+    folder: Schema.optional(
+      Schema.NullOr(TicketFolderPath).annotate({
+        description:
+          'Sidebar folder path for this ticket\'s chats, e.g. "SalonesDeFiestas/salones-infantiles". Missing folders are created in each client.',
+      }),
+    ),
     criteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     requires: Schema.optional(
       Schema.Array(TicketRef).annotate({
@@ -251,12 +259,18 @@ const CreateTicketTool = Tool.make("create_ticket", {
 
 const UpdateTicketTool = Tool.make("update_ticket", {
   description:
-    "Change a ticket's title, description, or priority, add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
+    "Change a ticket's title, description, priority, or folder, add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     title: Schema.optional(TrimmedNonEmptyString),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),
+    folder: Schema.optional(
+      Schema.NullOr(TicketFolderPath).annotate({
+        description:
+          "Sidebar folder path for linked chats. Use / for nested folders, or null to stop automatic filing.",
+      }),
+    ),
     addCriteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     checkCriteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     uncheckCriteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),

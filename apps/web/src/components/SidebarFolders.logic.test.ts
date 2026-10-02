@@ -8,6 +8,7 @@ import {
   EMPTY_SIDEBAR_FOLDER_LAYOUT,
   filedSidebarThreadKeys,
   flattenSidebarFolders,
+  folderSubtreeThreadKeys,
   moveSidebarFolder,
   moveThreadToSidebarFolder,
   planSidebarFolderDrop,
@@ -32,6 +33,35 @@ function layoutWith(
 
 const order = (layout: SidebarFolderLayout) =>
   layout.folders.map((folder) => `${folder.id}<${folder.parentId ?? "root"}`);
+
+describe("folder settlement scope", () => {
+  it("includes nested chats across environments, excludes siblings, and deduplicates keys", () => {
+    const layout = layoutWith(
+      [
+        ["feature", null],
+        ["implementation", "feature"],
+        ["review", "implementation"],
+        ["other", null],
+      ],
+      {
+        feature: ["local:one"],
+        implementation: ["remote:two"],
+        review: ["local:one", "local:three"],
+        other: ["local:other"],
+      },
+    );
+    expect(folderSubtreeThreadKeys(layout, "feature")).toEqual([
+      "local:one",
+      "remote:two",
+      "local:three",
+    ]);
+    expect(folderSubtreeThreadKeys(layout, "implementation")).toEqual([
+      "remote:two",
+      "local:one",
+      "local:three",
+    ]);
+  });
+});
 
 describe("moveSidebarFolder", () => {
   const layout = layoutWith([

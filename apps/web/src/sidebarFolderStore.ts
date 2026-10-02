@@ -1,6 +1,11 @@
+import type { Ticket } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import {
+  syncTicketFolders,
+  type TicketFolderRoutingState,
+} from "./components/boards/ticketFolders.logic";
 import {
   createSidebarFolder,
   deleteSidebarFolder,
@@ -27,7 +32,8 @@ const SIDEBAR_FOLDER_STORAGE_KEY = "t3code:sidebar-folders:v1";
  * Sidebar folders are a client-local layout, like the project scope: they
  * live in this browser or desktop app and never reach a server.
  */
-interface SidebarFolderStoreState extends SidebarFolderLayout {
+interface SidebarFolderStoreState extends SidebarFolderLayout, TicketFolderRoutingState {
+  syncTicketFolders: (tickets: readonly Ticket[]) => void;
   createFolder: (input: { name: string; parentId: string | null }) => string;
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
@@ -38,12 +44,15 @@ interface SidebarFolderStoreState extends SidebarFolderLayout {
   moveThread: (threadKey: string, target: SidebarThreadFolderTarget | null) => void;
 }
 
-function layoutOf(state: SidebarFolderLayout): SidebarFolderLayout {
+function layoutOf(
+  state: SidebarFolderLayout & TicketFolderRoutingState,
+): SidebarFolderLayout & TicketFolderRoutingState {
   return {
     folders: state.folders,
     threadKeysByFolderId: state.threadKeysByFolderId,
     collapsedFolderIds: state.collapsedFolderIds,
     expandedSettledFolderIds: state.expandedSettledFolderIds ?? [],
+    ticketFolderRoutes: state.ticketFolderRoutes ?? {},
   };
 }
 
@@ -51,6 +60,8 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
   persist(
     (set) => ({
       ...EMPTY_SIDEBAR_FOLDER_LAYOUT,
+      ticketFolderRoutes: {},
+      syncTicketFolders: (tickets) => set((state) => syncTicketFolders(state, tickets, randomUUID)),
       createFolder: ({ name, parentId }) => {
         const folder: SidebarFolder = { id: randomUUID(), name, parentId };
         set((state) => createSidebarFolder(layoutOf(state), folder));

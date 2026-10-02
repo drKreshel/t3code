@@ -3,6 +3,8 @@ import { assert, it } from "@effect/vitest";
 import type { BoardsCommand, BoardsSnapshot } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 
 import { BoardsService, layerMemory } from "./BoardsService.ts";
 
@@ -25,6 +27,44 @@ const columnNamed = (state: BoardsSnapshot, boardId: string, name: string) =>
   state.boards.find((board) => board.id === boardId)!.columns.find((c) => c.name === name)!.id;
 
 it.layer(TestLayer)("BoardsService", (it) => {
+  it.effect(
+    "persists a ticket folder, preserves it on other edits, and records reassignment and clearing",
+    () =>
+      Effect.gen(function* () {
+        const boardId = yield* createdId({ type: "board.create", name: "Salones", key: "SALON" });
+        const ticketId = yield* createdId({
+          type: "ticket.create",
+          boardId,
+          title: "Kids venues",
+          folder: "SalonesDeFiestas / salones-infantiles",
+        });
+        const read = snapshot.pipe(
+          Effect.map((state) => state.tickets.find((ticket) => ticket.id === ticketId)!),
+        );
+        assert.equal((yield* read).folder, "SalonesDeFiestas/salones-infantiles");
+        yield* dispatch({
+          type: "ticket.update",
+          ticketId,
+          folder: "SalonesDeFiestas / salones-infantiles",
+        });
+        yield* dispatch({ type: "ticket.update", ticketId, title: "Finish kids venues" });
+        assert.equal((yield* read).folder, "SalonesDeFiestas/salones-infantiles");
+        yield* dispatch({ type: "ticket.update", ticketId, folder: "SalonesDeFiestas / venues" });
+        assert.equal((yield* read).folder, "SalonesDeFiestas/venues");
+        yield* dispatch({ type: "ticket.update", ticketId, folder: null });
+        assert.equal((yield* read).folder, null);
+        const boards = yield* BoardsService;
+        const detail = Option.getOrThrow(
+          yield* Stream.runHead(boards.ticketDetailStream(ticketId)),
+        );
+        assert.deepEqual(
+          detail.events
+            .filter((event) => event.kind === "updated")
+            .map((event) => event.payload.fields),
+          [["title"], ["folder"], ["folder"]],
+        );
+      }),
+  );
   it.effect("creates boards with plain default columns and unique keys", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Web", key: "WEB" });

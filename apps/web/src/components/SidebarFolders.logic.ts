@@ -51,6 +51,12 @@ export function folderSubtreeIds(layout: SidebarFolderLayout, folderId: string):
   return subtree;
 }
 
+/** Includes descendant folders, so folder actions cover the whole feature. */
+export function folderSubtreeThreadKeys(layout: SidebarFolderLayout, folderId: string): string[] {
+  const subtree = folderSubtreeIds(layout, folderId);
+  return [...new Set([...subtree].flatMap((id) => layout.threadKeysByFolderId[id] ?? []))];
+}
+
 /** "Parent / Child" labels in tree order, for menus that list every folder. */
 export function flattenSidebarFolders(
   layout: SidebarFolderLayout,

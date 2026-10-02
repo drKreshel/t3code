@@ -77,6 +77,23 @@ const makeHarness = Effect.gen(function* () {
 const BoardsTestLayer = layerMemory.pipe(Layer.provide(NodeServices.layer));
 
 describe("boards toolkit handlers", () => {
+  it.effect("lets a skill assign, change, and clear a ticket folder through board tools", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", { name: "SalonesDeFiestas", key: "SALON" });
+      yield* call("create_ticket", {
+        board: "SALON",
+        title: "Kids venues",
+        folder: "SalonesDeFiestas/salones-infantiles",
+        linkThisChat: true,
+      });
+      expect((yield* call("get_ticket", {})).folder).toBe("SalonesDeFiestas/salones-infantiles");
+      yield* call("update_ticket", { folder: "SalonesDeFiestas/venues" });
+      expect((yield* call("get_ticket", {})).folder).toBe("SalonesDeFiestas/venues");
+      yield* call("update_ticket", { folder: null });
+      expect((yield* call("get_ticket", {})).folder).toBeNull();
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
   it.effect("creates a board and a linked ticket the chat can then read without a key", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

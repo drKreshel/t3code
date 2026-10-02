@@ -149,6 +149,22 @@ rules to connected environments that support shared settings. Offline environmen
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
 
+## Organize ticket sessions
+
+On web and desktop, set a ticket's **Folder** to group its sessions in the sidebar.
+Use a path such as `SalonesDeFiestas/salones-infantiles` to nest a feature folder
+under a project folder. Missing folders are created automatically, and new manual
+and automation sessions join the same folder. You can ask an agent or a skill to
+set the folder when creating or updating a ticket.
+
+Changing the ticket's folder moves its linked sessions to the new location.
+Clearing it stops automatic filing and keeps existing sessions where they are.
+You can also move individual sessions afterward.
+
+Choose **Settle folder** from a folder's menu to settle its chats, including those
+in subfolders. **Un-settle folder** brings them back. Folder organization stays in
+place.
+
 ## Link a pull request
 
 The server finds the PR for each unsettled thread's saved branch, even when your

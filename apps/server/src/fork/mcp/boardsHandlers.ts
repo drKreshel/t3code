@@ -246,6 +246,7 @@ const make = Effect.gen(function* () {
           column: column?.name ?? "",
           priority: ticket.priority,
           project: yield* projectTitle(ticket.projectKey ?? board.defaultProjectKey),
+          folder: ticket.folder ?? null,
           flag: ticket.flag ? { level: ticket.flag.level, reason: ticket.flag.reason } : null,
           criteria: ticket.criteria
             .toSorted((a, b) => a.position - b.position)
@@ -345,6 +346,7 @@ const make = Effect.gen(function* () {
           ...(column ? { columnId: column.id } : {}),
           ...(input.priority !== undefined ? { priority: input.priority } : {}),
           ...(projectKey !== undefined ? { projectKey } : {}),
+          ...(input.folder !== undefined ? { folder: input.folder } : {}),
           ...(input.criteria ? { criteria: input.criteria } : {}),
           ...(requires.length > 0 ? { requires } : {}),
         });
@@ -366,7 +368,8 @@ const make = Effect.gen(function* () {
         if (
           input.title !== undefined ||
           input.description !== undefined ||
-          input.priority !== undefined
+          input.priority !== undefined ||
+          input.folder !== undefined
         ) {
           yield* dispatch({
             type: "ticket.update",
@@ -374,6 +377,7 @@ const make = Effect.gen(function* () {
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.priority !== undefined ? { priority: input.priority } : {}),
+            ...(input.folder !== undefined ? { folder: input.folder } : {}),
           });
         }
         // Resolve every criterion before writing, so a bad reference changes nothing.

@@ -4,7 +4,13 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import type { TicketComment, TicketEvent, TicketPriority } from "@t3tools/contracts";
+import {
+  TicketFolderPath,
+  type TicketComment,
+  type TicketEvent,
+  type TicketPriority,
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { Link } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -17,15 +23,18 @@ import {
   UnlinkIcon,
   XIcon,
 } from "lucide-react";
-import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { useAutomations, useAutomationsDispatch } from "../../state/automations";
 import { useBoardsDispatch, useTicketDetail } from "../../state/boards";
+import { useSidebarFolderStore } from "../../sidebarFolderStore";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import ChatMarkdown from "../ChatMarkdown";
 import { resolveThreadStatusPill } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
+import { toastManager } from "../ui/toast";
+import { flattenSidebarFolders } from "../SidebarFolders.logic";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
@@ -606,6 +615,67 @@ function PropertyRow({
   );
 }
 
+const isTicketFolderPath = Schema.is(TicketFolderPath);
+
+function TicketFolderProperty({
+  view,
+  readOnly,
+}: {
+  readonly view: TicketView;
+  readonly readOnly: boolean;
+}) {
+  const dispatch = useBoardsDispatch();
+  const folders = useSidebarFolderStore((state) => state.folders);
+  const listId = useId();
+  const paths = flattenSidebarFolders({
+    folders,
+    threadKeysByFolderId: {},
+    collapsedFolderIds: [],
+  });
+  const folder = view.ticket.folder ?? "";
+  return (
+    <PropertyRow label="Folder">
+      <Input
+        key={`${view.ticket.id}:${folder}`}
+        nativeInput
+        size="sm"
+        aria-label="Ticket folder"
+        placeholder="No folder"
+        defaultValue={folder}
+        list={listId}
+        disabled={readOnly}
+        onBlur={(event) => {
+          const path = event.currentTarget.value
+            .split("/")
+            .map((name) => name.trim())
+            .join("/");
+          if (path === folder) return;
+          if (path && !isTicketFolderPath(path)) {
+            toastManager.add({ type: "error", title: "Enter a folder name between each /" });
+            return;
+          }
+          void dispatch({ type: "ticket.update", ticketId: view.ticket.id, folder: path || null });
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") event.currentTarget.value = folder;
+          if (event.key === "Enter" || event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+      />
+      <datalist id={listId}>
+        {paths.map(({ folder: option, path }) => (
+          <option key={option.id} value={path} />
+        ))}
+      </datalist>
+      <p className="text-xs text-muted-foreground">
+        Use / for subfolders. Ticket chats are filed here.
+      </p>
+    </PropertyRow>
+  );
+}
+
 function TicketProperties({
   view,
   viewById,
@@ -731,6 +801,7 @@ function TicketProperties({
           </MenuPopup>
         </Menu>
       </PropertyRow>
+      <TicketFolderProperty view={view} readOnly={readOnly} />
       <PropertyRow label="Requires">
         {required.length > 0 ? (
           <ul className="flex flex-col gap-1">
