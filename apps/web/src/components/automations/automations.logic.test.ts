@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
+import { AutomationsCommandError } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 
 import {
+  automationFailureMessage,
   DEFAULT_SCHEDULE_FORM,
   describeSchedule,
   formToSchedule,
@@ -31,6 +34,24 @@ describe("formToSchedule", () => {
       false,
     );
     expect(formToSchedule({ ...DEFAULT_SCHEDULE_FORM, repeat: "once", onceAt: "" }).ok).toBe(false);
+  });
+});
+
+describe("automationFailureMessage", () => {
+  it("shows an incompatible server's string RPC defect instead of a generic error", () => {
+    const message = 'Expected schedule or board at ["trigger"]';
+    expect(automationFailureMessage(Cause.die(message))).toBe(message);
+  });
+
+  it("preserves declared command errors and native exceptions", () => {
+    expect(
+      automationFailureMessage(
+        Cause.fail(new AutomationsCommandError({ code: "invalid", message: "Choose a project." })),
+      ),
+    ).toBe("Choose a project.");
+    expect(automationFailureMessage(Cause.die(new Error("Connection closed.")))).toBe(
+      "Connection closed.",
+    );
   });
 });
 

@@ -8,7 +8,6 @@ import {
   createEnvironmentRpcCommand,
   createEnvironmentRpcSubscriptionAtomFamily,
   isAtomCommandInterrupted,
-  squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type AutomationsCommand,
@@ -21,6 +20,7 @@ import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback } from "react";
 
 import { toastManager } from "../components/ui/toast";
+import { automationFailureMessage } from "../components/automations/automations.logic";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { usePrimaryEnvironmentId } from "./environments";
 import { useAtomCommand } from "./use-atom-command";
@@ -86,14 +86,10 @@ export function useAutomationsDispatch(): (
       const result = await dispatch({ environmentId, input: command });
       if (result._tag === "Success") return result.value.id;
       if (!isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
         toastManager.add({
           type: "error",
           title: "Automation change failed",
-          description:
-            typeof error === "object" && error !== null && "message" in error
-              ? String((error as { readonly message: unknown }).message)
-              : "An error occurred.",
+          description: automationFailureMessage(result.cause),
         });
       }
       return undefined;

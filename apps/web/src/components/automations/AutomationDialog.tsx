@@ -284,6 +284,7 @@ function AutomationForm({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (submitting) return;
+    setError(null);
     let trigger: AutomationTrigger;
     if (kind === "schedule") {
       const compiled = formToSchedule(schedule);
@@ -354,7 +355,10 @@ function AutomationForm({
               id="automation-title"
               autoFocus
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => {
+                setTitle(event.target.value);
+                setError(null);
+              }}
               placeholder={isWorkflow ? "Feature workflow" : "Weekly dependency audit"}
             />
           </Field>
@@ -397,7 +401,10 @@ function AutomationForm({
                 id="automation-prompt"
                 rows={5}
                 value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
+                onChange={(event) => {
+                  setPrompt(event.target.value);
+                  setError(null);
+                }}
                 placeholder={
                   isWorkflow
                     ? "Test {{ticket.key}} and check off its acceptance criteria…"

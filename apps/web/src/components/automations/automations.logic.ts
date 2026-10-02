@@ -1,5 +1,16 @@
 import { anyBoardColumnName } from "@t3tools/contracts";
 import type { Automation, AutomationSchedule, AutomationTrigger, Board } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+
+/** RPC defects can arrive as strings rather than declared command errors. */
+export function automationFailureMessage(cause: Cause.Cause<unknown>): string {
+  return (
+    Cause.prettyErrors(cause)
+      .map((error) => error.message)
+      .filter((message) => message.trim())
+      .join("\n") || "An error occurred."
+  );
+}
 
 export type RepeatKind = "once" | "hourly" | "daily" | "weekdays" | "weekly" | "monthly" | "custom";
 
