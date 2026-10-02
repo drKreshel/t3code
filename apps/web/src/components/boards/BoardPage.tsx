@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { Link } from "@tanstack/react-router";
 import type { Automation, Board, BoardColumn } from "@t3tools/contracts";
 import {
@@ -566,17 +567,7 @@ function SortableTicket({
       {...attributes}
       {...listeners}
     >
-      <Link
-        to="/boards/$boardKey/$ticketNumber"
-        params={{ boardKey: view.board.key, ticketNumber: String(view.ticket.number) }}
-        onClick={(event) => {
-          if (justDraggedRef.current) event.preventDefault();
-        }}
-        draggable={false}
-        className="block rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <TicketCard view={view} />
-      </Link>
+      <TicketCard view={view} justDraggedRef={justDraggedRef} />
     </li>
   );
 }
@@ -584,9 +575,11 @@ function SortableTicket({
 function TicketCard({
   view,
   overlay = false,
+  justDraggedRef,
 }: {
   readonly view: TicketView;
   readonly overlay?: boolean;
+  readonly justDraggedRef?: { readonly current: boolean };
 }) {
   const lookupProject = useProjectLookup();
   const { ticket } = view;
@@ -595,13 +588,32 @@ function TicketCard({
   const status = resolveProjectStatusIndicator(
     view.threads.map((thread) => resolveThreadStatusPill({ thread })),
   );
+  const runningSessions = view.threads.filter(
+    (thread) =>
+      threadRuntimeIsActive(thread.runtime) ||
+      thread.hasPendingApprovals ||
+      thread.hasPendingUserInput ||
+      thread.pendingBackgroundTasks.length > 0,
+  );
   return (
     <article
       className={cn(
-        "flex flex-col gap-1.5 rounded-md border border-border/60 bg-card px-3 py-2 text-sm shadow-xs/5 hover:border-border",
+        "relative flex flex-col gap-1.5 rounded-md border border-border/60 bg-card px-3 py-2 text-sm shadow-xs/5 hover:border-border",
         overlay && "rotate-1 shadow-lg",
       )}
     >
+      {!overlay ? (
+        <Link
+          to="/boards/$boardKey/$ticketNumber"
+          params={{ boardKey: view.board.key, ticketNumber: String(ticket.number) }}
+          aria-label={`Open ticket ${view.label}: ${ticket.title}`}
+          draggable={false}
+          className="absolute inset-0 rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => {
+            if (justDraggedRef?.current) event.preventDefault();
+          }}
+        />
+      ) : null}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-mono">{view.label}</span>
         {status ? (
@@ -652,6 +664,46 @@ function TicketCard({
         >
           {view.attention.reason}
         </p>
+      ) : null}
+      {runningSessions.length > 0 ? (
+        <ul
+          aria-label="Running sessions"
+          className="pointer-events-none relative z-10 mt-1 flex min-w-0 flex-col border-t border-border/60 pt-1"
+        >
+          {runningSessions.map((thread) => {
+            const sessionStatus = resolveThreadStatusPill({ thread });
+            return (
+              <li key={`${thread.environmentId}:${thread.id}`} className="min-w-0">
+                <Link
+                  to="/$environmentId/$threadId"
+                  params={{ environmentId: thread.environmentId, threadId: thread.id }}
+                  title={thread.title}
+                  draggable={false}
+                  tabIndex={overlay ? -1 : undefined}
+                  className="pointer-events-auto flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-1 text-xs hover:bg-accent/50 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    if (justDraggedRef?.current) event.preventDefault();
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-1.5 shrink-0 rounded-full",
+                      sessionStatus?.dotClass ?? "bg-muted-foreground/30",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                  {sessionStatus ? (
+                    <span className={cn("shrink-0", sessionStatus.colorClass)}>
+                      {sessionStatus.label}
+                    </span>
+                  ) : null}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </article>
   );
