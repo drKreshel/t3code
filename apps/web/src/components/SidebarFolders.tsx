@@ -30,7 +30,6 @@ import {
   SquarePenIcon,
 } from "lucide-react";
 import {
-  Fragment,
   useCallback,
   useMemo,
   useRef,
@@ -74,6 +73,7 @@ import {
   type SidebarFolderTreeNode,
 } from "./SidebarFolders.logic";
 import { Button } from "./ui/button";
+import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 // ---------------------------------------------------------------------------
@@ -83,9 +83,10 @@ export function useSidebarFolderLayout(): SidebarFolderLayout {
   const folders = useSidebarFolderStore((state) => state.folders);
   const threadKeysByFolderId = useSidebarFolderStore((state) => state.threadKeysByFolderId);
   const collapsedFolderIds = useSidebarFolderStore((state) => state.collapsedFolderIds);
+  const expandedSettledFolderIds = useSidebarFolderStore((state) => state.expandedSettledFolderIds);
   return useMemo(
-    () => ({ folders, threadKeysByFolderId, collapsedFolderIds }),
-    [collapsedFolderIds, folders, threadKeysByFolderId],
+    () => ({ folders, threadKeysByFolderId, collapsedFolderIds, expandedSettledFolderIds }),
+    [collapsedFolderIds, expandedSettledFolderIds, folders, threadKeysByFolderId],
   );
 }
 
@@ -110,12 +111,21 @@ export function useSidebarFolderTree(input: {
   capabilitiesOf: (thread: EnvironmentThreadShell) => ThreadCapabilities | undefined;
   /** Precise clock from the main list's partition, so both agree on snoozes. */
   now: string;
+  routeThreadKey: string | null;
 }): SidebarFolderTree<EnvironmentThreadShell> & {
   readonly sectionByKey: ReadonlyMap<string, SidebarFolderThreadSection>;
   /** Every visible filed thread, rendered or not, for search. */
   readonly visibleThreads: readonly EnvironmentThreadShell[];
 } {
-  const { layout, threads, filedThreadKeys, scopedProjectKeys, capabilitiesOf, now } = input;
+  const {
+    layout,
+    threads,
+    filedThreadKeys,
+    scopedProjectKeys,
+    capabilitiesOf,
+    now,
+    routeThreadKey,
+  } = input;
   return useMemo(() => {
     const threadByKey = new Map<string, EnvironmentThreadShell>();
     for (const thread of threads) {
@@ -147,9 +157,10 @@ export function useSidebarFolderTree(input: {
         return section;
       },
       hideEmptyFolders: scopedProjectKeys !== null,
+      routeThreadKey,
     });
     return { ...tree, sectionByKey, visibleThreads: [...threadByKey.values()] };
-  }, [capabilitiesOf, filedThreadKeys, layout, now, scopedProjectKeys, threads]);
+  }, [capabilitiesOf, filedThreadKeys, layout, now, routeThreadKey, scopedProjectKeys, threads]);
 }
 
 // ---------------------------------------------------------------------------
@@ -723,6 +734,7 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
   const draggable = useDraggable({ id, disabled: isRenaming });
   const droppable = useDroppable({ id });
   const toggleFolderCollapsed = useSidebarFolderStore((state) => state.toggleFolderCollapsed);
+  const toggleSettledExpanded = useSidebarFolderStore((state) => state.toggleFolderSettledExpanded);
   const lastVisitedAtById = useUiStateStore((state) =>
     node.collapsed ? state.threadLastVisitedAtById : null,
   );
@@ -764,8 +776,18 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
   };
   const openMenu = (position: { x: number; y: number }) =>
     void showFolderMenu(folder.id, position, actions);
-  const hasContent = node.children.length > 0 || node.rows.length > 0;
+  const hasContent =
+    !node.collapsed && (node.children.length > 0 || node.rows.length > 0 || node.settledCount > 0);
   const firstSettledIndex = node.rows.findIndex((row) => row.section === "settled");
+  const settledStart = firstSettledIndex === -1 ? node.rows.length : firstSettledIndex;
+  const renderRow = (row: (typeof node.rows)[number]) => (
+    <FolderThreadRow
+      key={row.key}
+      row={row}
+      disabled={props.renamingThreadKey === row.key}
+      renderThreadRow={props.renderThreadRow}
+    />
+  );
   const Icon = node.collapsed ? FolderIcon : FolderOpenIcon;
   return (
     <li
@@ -907,22 +929,20 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
               chatActions={props.chatActions}
             />
           ))}
-          {node.rows.map((row, index) => (
-            <Fragment key={row.key}>
-              {index === firstSettledIndex ? (
-                <li className="mt-1 flex h-7 list-none items-center gap-2 px-2 text-xs font-medium text-sidebar-muted-foreground/60">
-                  <span>Settled</span>
-                  <span aria-hidden className="h-px min-w-2 flex-1 bg-sidebar-border/60" />
-                  <span className="tabular-nums">{node.rows.length - firstSettledIndex}</span>
-                </li>
-              ) : null}
-              <FolderThreadRow
-                row={row}
-                disabled={props.renamingThreadKey === row.key}
-                renderThreadRow={props.renderThreadRow}
-              />
-            </Fragment>
-          ))}
+          {node.rows.slice(0, settledStart).map(renderRow)}
+          {node.settledCount > 0 ? (
+            <li className="mt-1 list-none" data-thread-selection-safe>
+              <CollapsibleSectionHeader
+                expanded={node.settledExpanded}
+                onClick={() => toggleSettledExpanded(folder.id)}
+                aria-label={`Settled chats in ${folder.name}`}
+                accessory={<span className="tabular-nums">{node.settledCount}</span>}
+              >
+                Settled
+              </CollapsibleSectionHeader>
+            </li>
+          ) : null}
+          {node.rows.slice(settledStart).map(renderRow)}
         </ul>
       ) : null}
     </li>

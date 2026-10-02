@@ -16,12 +16,15 @@ export interface SidebarFolderLayout {
   /** Ordered thread keys per folder. A thread lives in at most one folder. */
   readonly threadKeysByFolderId: Readonly<Record<string, readonly string[]>>;
   readonly collapsedFolderIds: readonly string[];
+  /** Absent in older saved layouts; settled shelves start collapsed. */
+  readonly expandedSettledFolderIds?: readonly string[] | undefined;
 }
 
 export const EMPTY_SIDEBAR_FOLDER_LAYOUT: SidebarFolderLayout = {
   folders: [],
   threadKeysByFolderId: {},
   collapsedFolderIds: [],
+  expandedSettledFolderIds: [],
 };
 
 export function folderIdByThreadKey(layout: SidebarFolderLayout): Map<string, string> {
@@ -138,11 +141,15 @@ export function deleteSidebarFolder(
 ): SidebarFolderLayout {
   const removed = folderSubtreeIds(layout, folderId);
   return {
+    ...layout,
     folders: layout.folders.filter((folder) => !removed.has(folder.id)),
     threadKeysByFolderId: Object.fromEntries(
       Object.entries(layout.threadKeysByFolderId).filter(([id]) => !removed.has(id)),
     ),
     collapsedFolderIds: layout.collapsedFolderIds.filter((id) => !removed.has(id)),
+    expandedSettledFolderIds: (layout.expandedSettledFolderIds ?? []).filter(
+      (id) => !removed.has(id),
+    ),
   };
 }
 
@@ -155,6 +162,19 @@ export function toggleSidebarFolderCollapsed(
     collapsedFolderIds: layout.collapsedFolderIds.includes(folderId)
       ? layout.collapsedFolderIds.filter((id) => id !== folderId)
       : [...layout.collapsedFolderIds, folderId],
+  };
+}
+
+export function toggleSidebarFolderSettledExpanded(
+  layout: SidebarFolderLayout,
+  folderId: string,
+): SidebarFolderLayout {
+  const expanded = layout.expandedSettledFolderIds ?? [];
+  return {
+    ...layout,
+    expandedSettledFolderIds: expanded.includes(folderId)
+      ? expanded.filter((id) => id !== folderId)
+      : [...expanded, folderId],
   };
 }
 
@@ -403,6 +423,8 @@ export interface SidebarFolderTreeNode<TThread> {
   readonly children: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
   /** This folder's threads in visual order, with settled rows last; empty while collapsed. */
   readonly rows: ReadonlyArray<SidebarFolderThreadRow<TThread>>;
+  readonly settledCount: number;
+  readonly settledExpanded: boolean;
   /** Visible threads in this folder and below, for the header rollup. */
   readonly subtreeThreads: readonly TThread[];
 }
@@ -445,9 +467,12 @@ export function buildSidebarFolderTree<TThread>(input: {
   readonly sectionOf: (thread: TThread) => SidebarFolderThreadSection;
   /** While a project scope is active, folders with no matching threads hide. */
   readonly hideEmptyFolders: boolean;
+  /** The open thread remains visible under a collapsed shelf, like the main list. */
+  readonly routeThreadKey?: string | null;
 }): SidebarFolderTree<TThread> {
   const { layout, threadByKey } = input;
   const collapsed = new Set(layout.collapsedFolderIds);
+  const expandedSettled = new Set(layout.expandedSettledFolderIds);
   const renderedThreads: TThread[] = [];
   const settledKeys = new Set<string>();
   const snoozedKeys = new Set<string>();
@@ -485,18 +510,26 @@ export function buildSidebarFolderTree<TThread>(input: {
     ];
     if (input.hideEmptyFolders && subtreeThreads.length === 0) return null;
     const isCollapsed = collapsed.has(folder.id);
+    const settledExpanded = expandedSettled.has(folder.id);
+    const rows = isCollapsed
+      ? []
+      : ownRows.filter(
+          (row) => row.section !== "settled" || settledExpanded || row.key === input.routeThreadKey,
+        );
     return {
       node: {
         folder,
         depth,
         collapsed: isCollapsed,
         children: isCollapsed ? [] : built.map(({ node }) => node),
-        rows: isCollapsed ? [] : ownRows,
+        rows,
+        settledCount: ownRows.filter((row) => row.section === "settled").length,
+        settledExpanded,
         subtreeThreads,
       },
       rendered: isCollapsed
         ? []
-        : [...built.flatMap(({ rendered }) => rendered), ...ownRows.map((row) => row.thread)],
+        : [...built.flatMap(({ rendered }) => rendered), ...rows.map((row) => row.thread)],
     };
   };
   const roots = layout.folders

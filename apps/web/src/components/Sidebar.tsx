@@ -2823,6 +2823,7 @@ export default function Sidebar() {
     scopedProjectKeys,
     capabilitiesOf: folderCapabilitiesOf,
     now: snoozeNow,
+    routeThreadKey,
   });
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);

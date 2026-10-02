@@ -16,6 +16,7 @@ import {
   setSidebarFolderDefaultProject,
   sidebarSectionForListItemId,
   toggleSidebarFolderCollapsed,
+  toggleSidebarFolderSettledExpanded,
   type SidebarFolderLayout,
 } from "./SidebarFolders.logic";
 
@@ -229,7 +230,7 @@ describe("buildSidebarFolderTree", () => {
       ],
       { a: ["t1"], a1: ["s2"] },
     );
-    const tree = build(layout, ["t1", "s2"]);
+    const tree = build(toggleSidebarFolderSettledExpanded(layout, "a1"), ["t1", "s2"]);
     expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["s2", "t1"]);
     expect(tree.settledKeys).toEqual(new Set(["s2"]));
     expect(tree.roots[0]!.subtreeThreads).toHaveLength(2);
@@ -243,7 +244,10 @@ describe("buildSidebarFolderTree", () => {
       ],
       { a: ["s1", "t1", "s2", "t2"], a1: ["s3", "t3"] },
     );
-    const tree = build(layout, ["s1", "t1", "s2", "t2", "s3", "t3"]);
+    const tree = build(
+      toggleSidebarFolderSettledExpanded(toggleSidebarFolderSettledExpanded(layout, "a"), "a1"),
+      ["s1", "t1", "s2", "t2", "s3", "t3"],
+    );
     expect(tree.roots[0]!.rows.map((row) => row.key)).toEqual(["t1", "t2", "s1", "s2"]);
     expect(tree.roots[0]!.children[0]!.rows.map((row) => row.key)).toEqual(["t3", "s3"]);
     expect(tree.renderedThreads.map((thread) => thread.key)).toEqual([
@@ -255,6 +259,58 @@ describe("buildSidebarFolderTree", () => {
       "s2",
     ]);
     expect(layout.threadKeysByFolderId.a).toEqual(["s1", "t1", "s2", "t2"]);
+  });
+
+  it("starts settled shelves collapsed while retaining their counts and lifecycle keys", () => {
+    const layout = layoutWith([["a", null]], { a: ["s1", "t1", "s2"] });
+    // Layouts saved before settled shelves existed also start collapsed.
+    const { expandedSettledFolderIds: _expanded, ...legacyLayout } = layout;
+    const tree = build(legacyLayout, ["s1", "t1", "s2"]);
+    expect(tree.roots[0]).toMatchObject({ settledCount: 2, settledExpanded: false });
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1"]);
+    expect(tree.settledKeys).toEqual(new Set(["s1", "s2"]));
+    expect(tree.roots[0]!.subtreeThreads).toHaveLength(3);
+    expect(tree.visibleThreadCount).toBe(3);
+  });
+
+  it("expands and collapses each folder's settled shelf independently", () => {
+    const layout = layoutWith(
+      [
+        ["a", null],
+        ["b", null],
+      ],
+      { a: ["t1", "s1"], b: ["s2"] },
+    );
+    const expanded = toggleSidebarFolderSettledExpanded(layout, "a");
+    const tree = build(expanded, ["t1", "s1", "s2"]);
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s1"]);
+    expect(tree.roots[1]).toMatchObject({ rows: [], settledCount: 1, settledExpanded: false });
+    const collapsed = build(toggleSidebarFolderSettledExpanded(expanded, "a"), ["t1", "s1", "s2"]);
+    expect(collapsed.renderedThreads.map((thread) => thread.key)).toEqual(["t1"]);
+  });
+
+  it("keeps the open settled thread visible under its collapsed shelf", () => {
+    const layout = layoutWith([["a", null]], { a: ["s1", "t1", "s2"] });
+    const tree = buildSidebarFolderTree<Thread>({
+      layout,
+      threadByKey: threads(["s1", "t1", "s2"]),
+      sectionOf: (thread) => (thread.settled ? "settled" : "active"),
+      hideEmptyFolders: false,
+      routeThreadKey: "s2",
+    });
+    expect(tree.roots[0]).toMatchObject({ settledCount: 2, settledExpanded: false });
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s2"]);
+  });
+
+  it("remembers shelf expansion across folder collapse and removes it when the folder is deleted", () => {
+    const layout = layoutWith([["a", null]], { a: ["s1"] });
+    const expanded = toggleSidebarFolderSettledExpanded(layout, "a");
+    const collapsed = toggleSidebarFolderCollapsed(expanded, "a");
+    expect(build(collapsed, ["s1"]).renderedThreads).toEqual([]);
+    expect(
+      build(toggleSidebarFolderCollapsed(collapsed, "a"), ["s1"]).renderedThreads,
+    ).toHaveLength(1);
+    expect(deleteSidebarFolder(expanded, "a").expandedSettledFolderIds).toEqual([]);
   });
 
   it("returns an unsettled thread to its saved position among the other active threads", () => {
