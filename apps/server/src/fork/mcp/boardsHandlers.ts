@@ -13,7 +13,8 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
-import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
 import { BoardTemplates } from "../templates/BoardTemplates.ts";
@@ -67,7 +68,8 @@ const make = Effect.gen(function* () {
     yield* Effect.serviceOption(BoardsService),
     () => unavailableBoards,
   );
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const threads = yield* Orchestrator.OrchestratorV2;
+  const projects = yield* ProjectStore.ProjectStoreV2;
   const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
   const templates = yield* Effect.serviceOption(BoardTemplates);
   const workspaceOf = (ticketId: string): Effect.Effect<TicketWorkspace | null> =>
@@ -90,17 +92,17 @@ const make = Effect.gen(function* () {
   /** `environmentId:projectId` of the calling chat's project. */
   const callerProjectKey = Effect.gen(function* () {
     const { scope } = yield* caller;
-    const thread = yield* snapshots
-      .getThreadShellById(scope.threadId)
+    const thread = yield* threads
+      .getThreadShell(scope.threadId)
       .pipe(Effect.mapError(storage("Could not read this chat.")));
-    if (Option.isNone(thread)) return yield* notFound("This chat was not found.");
-    return `${scope.environmentId}:${thread.value.projectId}`;
+    if (thread === null) return yield* notFound("This chat was not found.");
+    return `${scope.environmentId}:${thread.projectId}`;
   });
 
   const projectTitle = (projectKey: string | null) => {
     if (projectKey === null) return Effect.succeed(null);
     const projectId = projectKey.slice(projectKey.indexOf(":") + 1);
-    return snapshots.getProjectShellById(ProjectId.make(projectId)).pipe(
+    return projects.getShell(ProjectId.make(projectId)).pipe(
       Effect.map((project) => (Option.isSome(project) ? project.value.title : projectKey)),
       Effect.orElseSucceed(() => projectKey),
     );
@@ -228,9 +230,9 @@ const make = Effect.gen(function* () {
           const sameEnvironment = key.slice(0, separator) === scope.environmentId;
           if (!sameEnvironment)
             return Effect.succeed({ title: "Chat on another environment", threadKey: key });
-          return snapshots.getThreadShellById(ThreadId.make(key.slice(separator + 1))).pipe(
+          return threads.getThreadShell(ThreadId.make(key.slice(separator + 1))).pipe(
             Effect.map((thread) => ({
-              title: Option.isSome(thread) ? thread.value.title : "Chat not started yet",
+              title: thread !== null ? thread.title : "Chat not started yet",
               threadKey: key,
             })),
             Effect.orElseSucceed(() => ({ title: "Chat", threadKey: key })),

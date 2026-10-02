@@ -79,8 +79,8 @@ export function useBoardsModel(): BoardsModel {
                   hasPendingApprovals: thread.hasPendingApprovals,
                   hasPendingUserInput: thread.hasPendingUserInput,
                   sessionError:
-                    thread.session?.status === "error"
-                      ? (thread.session.lastError ?? "The chat stopped with an error")
+                    thread.runtime?.status === "failed"
+                      ? (thread.runtime.lastError ?? "The chat stopped with an error")
                       : null,
                 })),
               )

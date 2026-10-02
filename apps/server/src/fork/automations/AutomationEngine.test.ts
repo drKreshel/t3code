@@ -5,10 +5,10 @@ import {
   type BoardsSnapshot,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
-  type OrchestrationCommand,
-  type OrchestrationEvent,
+  type OrchestrationV2ServerCommand,
+  type OrchestrationV2DomainEvent,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -22,8 +22,8 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
-import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { AutomationEngine, layerManual } from "./AutomationEngine.ts";
@@ -41,14 +41,24 @@ const action: AutomationAction = {
   checkout: "local",
 };
 
-type TurnState = "running" | "completed" | "error" | "interrupted";
+type TurnState =
+  | "preparing"
+  | "queued"
+  | "starting"
+  | "running"
+  | "waiting"
+  | "completed"
+  | "error"
+  | "interrupted"
+  | "cancelled"
+  | "rolled_back";
 
 /**
  * Engine over in-memory boards and automations, with orchestration faked:
  * dispatched commands are recorded, and each chat's turn state is set by the test.
  */
 const makeHarness = Effect.gen(function* () {
-  const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+  const commands = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
   const turnStates = yield* Ref.make<ReadonlyMap<string, TurnState>>(new Map());
   const project = {
     id: PROJECT_ID,
@@ -57,30 +67,29 @@ const makeHarness = Effect.gen(function* () {
   } as OrchestrationProjectShell;
 
   const fakes = Layer.mergeAll(
-    Layer.mock(OrchestrationEngineService)({
+    Layer.mock(OrchestratorV2)({
       dispatch: (command) =>
-        Ref.update(commands, (list) => [...list, command]).pipe(Effect.as({ sequence: 1 })),
-      subscribeDomainEvents: Effect.succeed(Stream.empty),
+        Ref.update(commands, (list) => [...list, command]).pipe(
+          Effect.as({ sequence: 1, storedEvents: [] }),
+        ),
       streamDomainEvents: Stream.empty,
-      readEvents: () => Stream.empty,
-      latestSequence: Effect.succeed(0),
-    }),
-    Layer.mock(ProjectionSnapshotQuery)({
-      getProjectShellById: (projectId) =>
-        Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
-      getThreadShellById: (threadId) =>
+      getThreadShell: (threadId) =>
         Ref.get(turnStates).pipe(
           Effect.map((states) => {
             const state = states.get(threadId);
             return state === undefined
-              ? Option.none()
-              : Option.some({
+              ? null
+              : ({
                   id: threadId,
-                  latestTurn: { state },
-                  session: null,
-                } as unknown as OrchestrationThreadShell);
+                  status: state === "error" ? "failed" : state,
+                  lastError: null,
+                } as OrchestrationV2ThreadShell);
           }),
         ),
+    }),
+    Layer.mock(ProjectStoreV2)({
+      getShell: (projectId) =>
+        Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
     }),
     Layer.mock(ServerSettings.ServerSettingsService)({
       getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
@@ -113,9 +122,10 @@ const makeHarness = Effect.gen(function* () {
     Effect.gen(function* () {
       yield* Ref.update(turnStates, (states) => new Map(states).set(threadId, state));
       yield* engine.handleDomainEvent({
-        type: "thread.session-set",
-        payload: { threadId, session: { status: state === "error" ? "error" : "ready" } },
-      } as unknown as OrchestrationEvent);
+        type: "run.updated",
+        threadId,
+        payload: { status: state === "error" ? "failed" : state },
+      } as unknown as OrchestrationV2DomainEvent);
     });
 
   /** Dispatches a board command as `actor` and feeds the events it causes to the engine. */
@@ -183,10 +193,10 @@ describe("AutomationEngine", () => {
         const commands = yield* Ref.get(harness.commands);
         expect(commands.map((command) => command.type)).toEqual([
           "thread.create",
-          "thread.turn.start",
+          "message.dispatch",
         ]);
         const turn = commands[1]!;
-        expect(turn.type === "thread.turn.start" && turn.message.text).toBe(
+        expect(turn.type === "message.dispatch" && turn.text).toBe(
           "Implement ATLAS-1: Meter notes",
         );
         const [threadId] = yield* harness.threadIdsStarted;
@@ -195,6 +205,28 @@ describe("AutomationEngine", () => {
         const runs = (yield* harness.store.snapshot).runs;
         expect(runs.map((run) => run.status)).toEqual(["running"]);
       }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("keeps a v2 run active through preparation, startup, and waiting", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { column, ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Long setup");
+      yield* harness.boardDispatch({
+        type: "ticket.move",
+        ticketId,
+        columnId: column("In progress"),
+      });
+      const [threadId] = yield* harness.threadIdsStarted;
+      for (const state of ["preparing", "queued", "starting", "running", "waiting"] as const) {
+        yield* harness.endTurn(threadId!, state);
+        yield* harness.engine.tick;
+        expect((yield* harness.store.snapshot).runs[0]!.status).toBe("running");
+        expect((yield* harness.boards.snapshot).tickets[0]!.flag).toBeNull();
+      }
+      yield* harness.endTurn(threadId!, "completed");
+      expect((yield* harness.store.snapshot).runs[0]!.status).toBe("succeeded");
+    }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect("queues a second trigger behind the live chat and starts it when that chat ends", () =>
@@ -382,8 +414,8 @@ describe("AutomationEngine", () => {
       expect(yield* harness.threadIdsStarted).toEqual([]);
       yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: review });
       const commands = yield* Ref.get(harness.commands);
-      const turn = commands.find((command) => command.type === "thread.turn.start");
-      expect(turn?.type === "thread.turn.start" && turn.message.text).toBe("Test BETA-1");
+      const turn = commands.find((command) => command.type === "message.dispatch");
+      expect(turn?.type === "message.dispatch" && turn.text).toBe("Test BETA-1");
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -568,7 +600,7 @@ describe("AutomationEngine", () => {
       const [first] = yield* harness.threadIdsStarted;
       yield* harness.endTurn(first!, "completed");
       const turns = (yield* Ref.get(harness.commands)).flatMap((command) =>
-        command.type === "thread.turn.start" ? [command.message.text] : [],
+        command.type === "message.dispatch" ? [command.text] : [],
       );
       expect(turns).toEqual(["Implement ATLAS-1: Fast", "Done ATLAS-1"]);
     }).pipe(Effect.provide(TestLayer)),
@@ -588,8 +620,8 @@ describe("AutomationEngine", () => {
       const [first] = yield* harness.threadIdsStarted;
       yield* harness.engine.handleDomainEvent({
         type: "thread.deleted",
-        payload: { threadId: first },
-      } as unknown as OrchestrationEvent);
+        threadId: first,
+      } as unknown as OrchestrationV2DomainEvent);
       expect((yield* harness.threadIdsStarted).length).toBe(2);
       const runs = (yield* harness.store.snapshot).runs;
       expect(runs.find((run) => run.status === "failed")?.reason).toBe("The chat was deleted.");

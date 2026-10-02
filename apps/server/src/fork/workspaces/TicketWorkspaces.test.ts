@@ -17,7 +17,7 @@ import * as NodePath from "node:path";
 import * as ServerConfig from "../../config.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { layerMemory, TicketWorkspaces } from "./TicketWorkspaces.ts";
 
@@ -91,8 +91,8 @@ const makeHarness = Effect.gen(function* () {
   ]);
   const dependencies = Layer.mergeAll(
     fakeGit,
-    Layer.mock(ProjectionSnapshotQuery)({
-      getProjectShellById: (id) =>
+    Layer.mock(ProjectStoreV2)({
+      getShell: (id) =>
         Effect.succeed(
           projects.has(id)
             ? Option.some({

@@ -25,7 +25,7 @@ import {
   DEFAULT_MODEL,
   MessageId,
   type ModelSelection,
-  type OrchestrationEvent,
+  type OrchestrationV2DomainEvent,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -46,8 +46,8 @@ import * as Stream from "effect/Stream";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
-import * as OrchestrationEngine from "../../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { forkParked } from "../../serverActivation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { type BoardEvent, BoardsService } from "../boards/BoardsService.ts";
@@ -73,7 +73,7 @@ export class AutomationEngine extends Context.Service<
     ) => Effect.Effect<AutomationsCommandResult, AutomationsCommandError>;
     /** What the background loops call per event; tests call them directly. */
     readonly handleBoardEvent: (event: BoardEvent) => Effect.Effect<void>;
-    readonly handleDomainEvent: (event: OrchestrationEvent) => Effect.Effect<void>;
+    readonly handleDomainEvent: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
     readonly tick: Effect.Effect<void>;
   }
 >()("t3/fork/automations/AutomationEngine") {}
@@ -87,8 +87,8 @@ const make = (options: { readonly background: boolean }) =>
   Effect.gen(function* () {
     const store = yield* AutomationsStore;
     const boards = yield* BoardsService;
-    const orchestration = yield* OrchestrationEngine.OrchestrationEngineService;
-    const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+    const orchestration = yield* Orchestrator.OrchestratorV2;
+    const projects = yield* ProjectStore.ProjectStoreV2;
     const settingsService = yield* ServerSettings.ServerSettingsService;
     const git = yield* GitWorkflowService.GitWorkflowService;
     const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
@@ -132,7 +132,7 @@ const make = (options: { readonly background: boolean }) =>
     const defaultModel = (projectId: ProjectId) =>
       Effect.gen(function* () {
         const settings = yield* settingsService.getSettings;
-        const project = yield* snapshots.getProjectShellById(projectId).pipe(
+        const project = yield* projects.getShell(projectId).pipe(
           Effect.map(Option.getOrUndefined),
           Effect.orElseSucceed(() => undefined),
         );
@@ -254,7 +254,7 @@ const make = (options: { readonly background: boolean }) =>
           return yield* new RunStartError({ message: "The project is on another environment." });
         }
         const projectId = ProjectId.make(projectKey.slice(separator + 1));
-        const project = yield* snapshots.getProjectShellById(projectId).pipe(
+        const project = yield* projects.getShell(projectId).pipe(
           Effect.map(Option.getOrUndefined),
           Effect.orElseSucceed(() => undefined),
         );
@@ -361,7 +361,8 @@ const make = (options: { readonly background: boolean }) =>
             interactionMode: automation.action.interactionMode,
             branch,
             worktreePath,
-            createdAt,
+            createdBy: "system",
+            creationSource: "server",
           })
           .pipe(Effect.mapError(dispatchFailed));
         const threadKey = `${environmentId}:${threadId}`;
@@ -379,18 +380,15 @@ const make = (options: { readonly background: boolean }) =>
         }
         yield* orchestration
           .dispatch({
-            type: "thread.turn.start",
+            type: "message.dispatch",
             commandId: CommandId.make(`server:automation-turn:${yield* uuid}`),
             threadId,
-            message: {
-              messageId: MessageId.make(yield* uuid),
-              role: "user",
-              text,
-              attachments: [],
-            },
-            runtimeMode: automation.action.runtimeMode,
-            interactionMode: automation.action.interactionMode,
-            createdAt: yield* nowIso,
+            messageId: MessageId.make(yield* uuid),
+            text,
+            attachments: [],
+            createdBy: "system",
+            creationSource: "server",
+            dispatchMode: { type: "start_immediately" },
           })
           .pipe(Effect.mapError(dispatchFailed));
       }).pipe(
@@ -551,13 +549,20 @@ const make = (options: { readonly background: boolean }) =>
           outcome = { status: "failed", reason: failure };
         } else {
           const threadId = ThreadId.make(threadKey.slice(threadKey.indexOf(":") + 1));
-          const found = yield* snapshots.getThreadShellById(threadId).pipe(Effect.option);
+          const found = yield* orchestration.getThreadShell(threadId).pipe(Effect.option);
           // Unreadable: try again on the next event. Missing: deleted while the server was off.
           if (Option.isNone(found)) return;
-          if (Option.isNone(found.value)) return yield* settleDeleted(threadKey);
-          const shell = found.value.value;
-          const state = shell?.latestTurn?.state;
-          if (state === undefined || state === "running") return;
+          if (found.value === null) return yield* settleDeleted(threadKey);
+          const shell = found.value;
+          const state = shell.status;
+          if (
+            state !== "completed" &&
+            state !== "failed" &&
+            state !== "interrupted" &&
+            state !== "cancelled" &&
+            state !== "rolled_back"
+          )
+            return;
           outcome =
             state === "completed"
               ? { status: "succeeded", reason: null }
@@ -565,7 +570,7 @@ const make = (options: { readonly background: boolean }) =>
                 ? { status: "failed", reason: "The chat was stopped." }
                 : {
                     status: "failed",
-                    reason: shell?.session?.lastError ?? "The chat's turn failed.",
+                    reason: shell.lastError ?? "The chat's turn failed.",
                   };
         }
         const automation = yield* store.get(run.value.automationId).pipe(Effect.option);
@@ -645,34 +650,27 @@ const make = (options: { readonly background: boolean }) =>
         ),
       );
 
-    const handleDomainEvent = (event: OrchestrationEvent) => {
-      if (event.type === "thread.session-set") {
-        const status = event.payload.session.status;
-        if (status === "running" || status === "starting") return Effect.void;
-        return logged(
-          "turn end",
-          serialized(settleThread(`${environmentId}:${event.payload.threadId}`, null)),
-        );
-      }
+    const handleDomainEvent = (event: OrchestrationV2DomainEvent) => {
       if (event.type === "thread.deleted") {
         return logged(
           "chat deletion",
-          serialized(settleDeleted(`${environmentId}:${event.payload.threadId}`)),
+          serialized(settleDeleted(`${environmentId}:${event.threadId}`)),
         );
       }
-      if (
-        event.type === "thread.activity-appended" &&
-        event.payload.activity.kind === "provider.turn.start.failed"
-      ) {
-        return logged(
-          "turn start failure",
-          serialized(
-            settleThread(
-              `${environmentId}:${event.payload.threadId}`,
-              "The agent could not start the turn.",
-            ),
-          ),
-        );
+      if (event.type === "run.updated") {
+        const status = event.payload.status;
+        if (
+          status === "completed" ||
+          status === "failed" ||
+          status === "interrupted" ||
+          status === "cancelled" ||
+          status === "rolled_back"
+        ) {
+          return logged(
+            "turn end",
+            serialized(settleThread(`${environmentId}:${event.threadId}`, null)),
+          );
+        }
       }
       return Effect.void;
     };
@@ -681,7 +679,7 @@ const make = (options: { readonly background: boolean }) =>
 
     if (options.background) {
       const boardEvents = Stream.fromSubscription(yield* boards.subscribeEvents);
-      const domainEvents = yield* orchestration.subscribeDomainEvents;
+      const domainEvents = orchestration.streamDomainEvents;
       yield* forkParked(
         Effect.gen(function* () {
           yield* logged("reconcile", serialized(reconcile));

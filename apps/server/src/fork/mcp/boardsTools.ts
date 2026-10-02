@@ -14,11 +14,13 @@ import * as Tool from "effect/unstable/ai/Tool";
 import * as Toolkit from "effect/unstable/ai/Toolkit";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
-import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
-  ProjectionSnapshotQuery.ProjectionSnapshotQuery,
+  Orchestrator.OrchestratorV2,
+  ProjectStore.ProjectStoreV2,
 ];
 
 const failure = BoardsCommandError;

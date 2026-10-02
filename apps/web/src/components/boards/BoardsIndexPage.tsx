@@ -1,3 +1,4 @@
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { Link } from "@tanstack/react-router";
 import type { Board } from "@t3tools/contracts";
 import { ArchiveRestoreIcon, SquareKanbanIcon, PlusIcon } from "lucide-react";
@@ -135,7 +136,7 @@ function BoardRow({
   );
   const needsYou = boardViews.filter((view) => view.attention !== null).length;
   const working = boardViews.filter((view) =>
-    view.threads.some((thread) => thread.session?.status === "running"),
+    view.threads.some((thread) => threadRuntimeIsActive(thread.runtime)),
   ).length;
   const lastActivity = boardViews.reduce(
     (latest, view) => (view.ticket.updatedAt > latest ? view.ticket.updatedAt : latest),

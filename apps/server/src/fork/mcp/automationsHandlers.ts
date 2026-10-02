@@ -13,7 +13,8 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
-import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
+import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { AutomationEngine } from "../automations/AutomationEngine.ts";
 import { anyBoardColumnName, serverTimezone } from "../automations/automationLogic.ts";
 import { AutomationsStore } from "../automations/AutomationsStore.ts";
@@ -91,7 +92,8 @@ const make = Effect.gen(function* () {
     yield* Effect.serviceOption(BoardsService),
     () => unavailableBoards,
   );
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const threads = yield* Orchestrator.OrchestratorV2;
+  const projects = yield* ProjectStore.ProjectStoreV2;
 
   const requireEngine = Option.match(engine, {
     onNone: () => Effect.fail(unavailable),
@@ -109,21 +111,19 @@ const make = Effect.gen(function* () {
 
   const callerProjectKey = Effect.gen(function* () {
     const scope = yield* McpInvocationContext.McpInvocationContext;
-    const thread = yield* snapshots
-      .getThreadShellById(scope.threadId)
+    const thread = yield* threads
+      .getThreadShell(scope.threadId)
       .pipe(Effect.mapError(() => unavailable));
-    if (Option.isNone(thread)) return yield* notFound("This chat was not found.");
-    return `${scope.environmentId}:${thread.value.projectId}`;
+    if (thread === null) return yield* notFound("This chat was not found.");
+    return `${scope.environmentId}:${thread.projectId}`;
   });
 
   const projectTitle = (projectKey: string | null) => {
     if (projectKey === null) return Effect.succeed(null);
-    return snapshots
-      .getProjectShellById(ProjectId.make(projectKey.slice(projectKey.indexOf(":") + 1)))
-      .pipe(
-        Effect.map((project) => (Option.isSome(project) ? project.value.title : projectKey)),
-        Effect.orElseSucceed(() => projectKey),
-      );
+    return projects.getShell(ProjectId.make(projectKey.slice(projectKey.indexOf(":") + 1))).pipe(
+      Effect.map((project) => (Option.isSome(project) ? project.value.title : projectKey)),
+      Effect.orElseSucceed(() => projectKey),
+    );
   };
 
   return AutomationsToolkit.of({

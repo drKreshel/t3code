@@ -41,7 +41,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ServerConfig } from "../../config.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
-import * as ProjectionSnapshotQuery from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import * as ProjectSetupScriptRunner from "../../project/ProjectSetupScriptRunner.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import * as ForkDatabase from "../ForkDatabase.ts";
@@ -111,7 +111,7 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const git = yield* GitWorkflowService.GitWorkflowService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const projects = yield* ProjectStore.ProjectStoreV2;
   const boards = yield* BoardsService;
   const { worktreesDir } = yield* ServerConfig;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
@@ -148,8 +148,8 @@ const make = Effect.gen(function* () {
       if (projectKey.slice(0, separator) !== environmentId) {
         return yield* fail("invalid", "The project is on another environment.");
       }
-      const project = yield* snapshots
-        .getProjectShellById(ProjectId.make(projectKey.slice(separator + 1)))
+      const project = yield* projects
+        .getShell(ProjectId.make(projectKey.slice(separator + 1)))
         .pipe(Effect.mapError(() => fail("storage", "Could not read the project.")));
       if (Option.isNone(project)) return yield* fail("not-found", "The project no longer exists.");
       return { id: project.value.id, root: project.value.workspaceRoot };

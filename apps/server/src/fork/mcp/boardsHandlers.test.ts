@@ -6,7 +6,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type OrchestrationProjectShell,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,7 +15,8 @@ import * as Stream from "effect/Stream";
 import type { Tool } from "effect/unstable/ai";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
 import { BoardsService, layerMemory } from "../boards/BoardsService.ts";
 import { BoardsToolkitHandlersLive } from "./boardsHandlers.ts";
 import { BoardsToolkit } from "./boardsTools.ts";
@@ -39,14 +40,17 @@ const thread = {
   id: THREAD_ID,
   projectId: PROJECT_ID,
   title: "Plan atlas",
-} as OrchestrationThreadShell;
+} as OrchestrationV2ThreadShell;
 
-const snapshotQuery = Layer.mock(ProjectionSnapshotQuery)({
-  getThreadShellById: (threadId) =>
-    Effect.succeed(threadId === THREAD_ID ? Option.some(thread) : Option.none()),
-  getProjectShellById: (projectId) =>
-    Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
-});
+const snapshotQuery = Layer.mergeAll(
+  Layer.mock(OrchestratorV2)({
+    getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? thread : null),
+  }),
+  Layer.mock(ProjectStoreV2)({
+    getShell: (projectId) =>
+      Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
+  }),
+);
 
 /** Calls tools as the chat THREAD_ID; the test provides the in-memory boards database. */
 const makeHarness = Effect.gen(function* () {
