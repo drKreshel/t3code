@@ -2,7 +2,7 @@
 # Build and install the stable (daily-driver) T3 Code app from this fork.
 #
 # Three instances live side by side:
-#   stable  /Applications/T3 Code (Alpha).app  data ~/.t3/userdata   profile ~/Library/Application Support/t3code
+#   stable  /Applications/T3 Code (Alpha).app  data ~/.t3/userdata   profile ~/Library/Application Support/t3code-v2
 #   dev     `vp run dev:desktop` in the dev checkout, data ~/.t3/dev, profile .../t3code-dev
 #   build   a script-owned git worktree (T3_STABLE_DIR) that only this script touches
 #
@@ -23,7 +23,8 @@ APP_PATH="/Applications/$APP_NAME"
 APP_ID="com.t3tools.t3code"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 DATA_DIR="$HOME/.t3/userdata"
-PROFILE_DIR="$HOME/Library/Application Support/t3code"
+PROFILE_DIR="$HOME/Library/Application Support/t3code-v2"
+LEGACY_PROFILE_DIR="$HOME/Library/Application Support/t3code"
 BACKUP_ROOT="$HOME/.t3/backups"
 PREVIOUS_APP_DIR="$BACKUP_ROOT/previous-app"
 INSTALLED_STAMP="$BACKUP_ROOT/INSTALLED"
@@ -92,16 +93,24 @@ cmd_backup() {
   local dir
   dir="$BACKUP_ROOT/$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$dir"
-  if [ -f "$DATA_DIR/state.sqlite" ]; then
-    # VACUUM INTO is a consistent snapshot even while a server has the file open.
-    sqlite3 -readonly "$DATA_DIR/state.sqlite" "VACUUM INTO '$dir/state.sqlite'"
-  fi
+  local file
+  for file in state.sqlite statev2.sqlite; do
+    if [ -f "$DATA_DIR/$file" ]; then
+      # VACUUM INTO is a consistent snapshot even while a server has the file open.
+      sqlite3 -readonly "$DATA_DIR/$file" "VACUUM INTO '$dir/$file'" || return 1
+    fi
+  done
   for file in settings.json client-settings.json keybindings.json; do
-    [ -f "$DATA_DIR/$file" ] && cp "$DATA_DIR/$file" "$dir/"
+    if [ -f "$DATA_DIR/$file" ]; then
+      cp "$DATA_DIR/$file" "$dir/" || return 1
+    fi
   done
   # Folders live in the app profile's localStorage; copy it only while the app is quit.
   if [ -d "$PROFILE_DIR/Local Storage" ] && ! stable_app_running; then
-    cp -R "$PROFILE_DIR/Local Storage" "$dir/Local Storage"
+    cp -R "$PROFILE_DIR/Local Storage" "$dir/Local Storage" || return 1
+  fi
+  if [ -d "$LEGACY_PROFILE_DIR/Local Storage" ] && ! stable_app_running; then
+    cp -R "$LEGACY_PROFILE_DIR/Local Storage" "$dir/Legacy Local Storage" || return 1
   fi
   log "Backed up to $dir"
   # Keep the newest timestamped backups; named backups are left alone.
@@ -114,7 +123,7 @@ cmd_install() {
   zip="$(latest_zip)"
   [ -n "$zip" ] || die "No build found. Run: $0 build"
   require_app_quit
-  cmd_backup
+  cmd_backup || die "Backup failed; nothing was installed."
   if [ -d "$APP_PATH" ]; then
     log "Keeping the current app for rollback"
     rm -rf "$PREVIOUS_APP_DIR"
