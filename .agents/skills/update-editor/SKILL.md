@@ -9,14 +9,15 @@ Kreshel runs this fork as their daily editor while changing it. Keep the working
 
 ## Instances
 
-| Instance            | Where                                                                                | Data                             | Browser profile                        |
-| ------------------- | ------------------------------------------------------------------------------------ | -------------------------------- | -------------------------------------- |
-| Stable (daily work) | `/Applications/T3 Code (Alpha).app`, built from `main`                               | `~/.t3/userdata` (real chats)    | `~/Library/Application Support/t3code` |
-| Dev (changes)       | `vp run dev:desktop` in `/Users/kreshel/Code/projects/t3-code-clone`                 | `~/.t3/dev` (copy of real chats) | `.../t3code-dev`                       |
-| Build worktree      | `/Users/kreshel/Code/projects/t3-code-stable`, owned by `scripts/fork/stable-app.sh` | —                                | —                                      |
+| Instance            | Where                                                                                | Data                             | Browser profile                           |
+| ------------------- | ------------------------------------------------------------------------------------ | -------------------------------- | ----------------------------------------- |
+| Stable (daily work) | `/Applications/T3 Code (Alpha).app`, built from `main`                               | `~/.t3/userdata` (real chats)    | `~/Library/Application Support/t3code-v2` |
+| Dev (changes)       | `vp run dev:desktop` in `/Users/kreshel/Code/projects/t3-code-clone`                 | `~/.t3/dev` (copy of real chats) | `.../t3code-dev`                          |
+| Build worktree      | `/Users/kreshel/Code/projects/t3-code-stable`, owned by `scripts/fork/stable-app.sh` | —                                | —                                         |
 
 - This conversation may be running inside the stable app. Never quit, kill, or restart it, never start a server against `~/.t3/userdata`, and never edit the build worktree by hand.
 - Folders are client-local (localStorage per profile), so dev and stable have separate folders by design.
+- The pre-v2 stable profile is `~/Library/Application Support/t3code`. Switching profiles needs an explicit folder migration; the chat database migration does not carry localStorage with it.
 
 ## Develop
 
@@ -43,6 +44,8 @@ Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sq
 
 When asked to update, pull upstream, or ship: do every step below without stopping unless something is unsafe.
 
+Preserve folder and board data using the [update-t3 preservation guidance](../update-t3/SKILL.md). Record their existing state before updating. Verify that backups cover the active Electron profile and the current server/fork persistence, including board data. Prepare any required migration before installing, then compare folders and boards after reopening. Keep their names, structure, ordering, chat assignments, tickets, links, and hooks unchanged unless the user requested a change. An empty sidebar or board after an update is a migration failure to recover, not a successful update. If restart ends this turn, report verification as pending until it is actually checked.
+
 1. In the dev checkout, check `git status` and running dev processes. Carry uncommitted work along (stash it or commit it on its branch) rather than discarding it. Switch to `main`.
 2. `git fetch upstream` and summarize `git log --oneline main..upstream/main`. If there is nothing new and `main` is already installed (`scripts/fork/stable-app.sh status`), say so and stop.
 3. `git merge upstream/main`. Resolve conflicts keeping both upstream's change and the fork feature's intent; if a conflict cannot be resolved safely, stop and show it.
@@ -61,4 +64,4 @@ When asked to update, pull upstream, or ship: do every step below without stoppi
 - `install` alone refuses while the app runs; Kreshel can use it from Terminal after ⌘Q.
 - `rollback` swaps back to the previous app. `backup` and `status` do what they say.
 
-Chats (`~/.t3/userdata`) and folders (the `t3code` profile) stay in place across installs, and every install backs them up to `~/.t3/backups/` first. A newer build may migrate the database on first launch; the backup is the way back.
+Chats and boards (`~/.t3/userdata`) and folders (the active `t3code-v2` profile) must remain available across installs. Backups go to `~/.t3/backups/`; confirm coverage before relying on them. A newer build may change the database or Electron profile on first launch, so prepare preservation of both server and client state before restarting. Keep the old data and profile available for recovery.
