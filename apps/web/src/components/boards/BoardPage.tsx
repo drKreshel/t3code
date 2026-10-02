@@ -595,6 +595,15 @@ function TicketCard({
       thread.hasPendingUserInput ||
       thread.pendingBackgroundTasks.length > 0,
   );
+  const lastSession =
+    runningSessions.length === 0
+      ? view.threads.reduce(
+          (latest, thread) => (!latest || thread.updatedAt > latest.updatedAt ? thread : latest),
+          view.threads[0],
+        )
+      : undefined;
+  const visibleSessions =
+    runningSessions.length > 0 ? runningSessions : lastSession ? [lastSession] : [];
   return (
     <article
       className={cn(
@@ -665,12 +674,12 @@ function TicketCard({
           {view.attention.reason}
         </p>
       ) : null}
-      {runningSessions.length > 0 ? (
+      {visibleSessions.length > 0 ? (
         <ul
-          aria-label="Running sessions"
+          aria-label={runningSessions.length > 0 ? "Running sessions" : "Last session"}
           className="pointer-events-none relative z-10 mt-1 flex min-w-0 flex-col border-t border-border/60 pt-1"
         >
-          {runningSessions.map((thread) => {
+          {visibleSessions.map((thread) => {
             const sessionStatus = resolveThreadStatusPill({ thread });
             return (
               <li key={`${thread.environmentId}:${thread.id}`} className="min-w-0">
@@ -694,11 +703,11 @@ function TicketCard({
                     )}
                   />
                   <span className="min-w-0 flex-1 truncate">{thread.title}</span>
-                  {sessionStatus ? (
-                    <span className={cn("shrink-0", sessionStatus.colorClass)}>
-                      {sessionStatus.label}
-                    </span>
-                  ) : null}
+                  <span
+                    className={cn("shrink-0", sessionStatus?.colorClass ?? "text-muted-foreground")}
+                  >
+                    {sessionStatus?.label ?? "Last session"}
+                  </span>
                 </Link>
               </li>
             );
