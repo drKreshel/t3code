@@ -165,6 +165,27 @@ Choose **Settle folder** from a folder's menu to settle its chats, including tho
 in subfolders. **Un-settle folder** brings them back. Folder organization stays in
 place.
 
+## Run ticket workflows
+
+On web and desktop, select a **Workflow** on a ticket, then choose **Start**.
+Simple fix, Feature workflow, and Review only presets support different kinds of
+work on the same board. Use **Manage presets** to create or edit reusable
+instructions, including model choices, delegation, review, and delivery steps.
+
+Each ticket keeps an editable copy. **Edit ticket instructions** changes that
+ticket; **Apply latest preset** replaces its copy with the current preset.
+Moving a ticket between columns records progress without starting or resuming
+execution.
+
+**Pause** stops the current workflow turn. **Resume** continues in the same chat,
+using the latest ticket handoff. Decisions, findings, checks, and handoffs belong
+on the ticket; linked chats contain the detailed conversations. A completed chat
+turn can still leave work or a decision outstanding on the ticket.
+
+Agents can create and select presets through the workflow tools. Creating a
+ticket or selecting a preset does not start work; ask the agent to start it when
+ready. Scheduled automations remain available for recurring work and cleanup.
+
 ## Link a pull request
 
 The server finds the PR for each unsettled thread's saved branch, even when your

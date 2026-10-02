@@ -21,7 +21,7 @@ import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
 import { type AutomationSummary, AutomationsToolkit } from "./automationsTools.ts";
-import { findBoard, findColumn, findTicket, type Lookup } from "./boardsToolLogic.ts";
+import { findTicket, type Lookup } from "./boardsToolLogic.ts";
 
 const invalid = (message: string) => new AutomationsCommandError({ code: "invalid", message });
 const notFound = (message: string) => new AutomationsCommandError({ code: "not-found", message });
@@ -58,6 +58,7 @@ function describeTrigger(automation: Automation, boards: BoardsSnapshot | null):
       ? `cron ${trigger.schedule.cron} (${trigger.timezone})`
       : `once at ${trigger.schedule.at}`;
   }
+  if (trigger.type === "workflow") return "ticket workflow preset (explicit Start / Resume)";
   if (trigger.boardId === null) {
     return `ticket enters a column named "${anyBoardColumnName(trigger) ?? "?"}" on any board`;
   }
@@ -127,31 +128,126 @@ const make = Effect.gen(function* () {
   };
 
   return AutomationsToolkit.of({
+    list_workflows: () =>
+      Effect.gen(function* () {
+        const snapshot = yield* automationsSnapshot;
+        return {
+          workflows: snapshot.automations
+            .filter((preset) => preset.trigger.type === "workflow" && preset.enabled)
+            .map((preset) => ({
+              id: preset.id,
+              title: preset.title,
+              instructions: preset.prompt,
+              action: preset.action,
+            })),
+        };
+      }),
+    create_workflow: (input) =>
+      Effect.gen(function* () {
+        const result = yield* (yield* requireEngine).dispatch({
+          type: "automation.create",
+          title: input.title,
+          prompt: input.instructions,
+          trigger: { type: "workflow" },
+          action: {
+            projectKey: null,
+            modelSelection: input.modelSelection ?? null,
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            checkout: input.checkout ?? "ticket",
+          },
+        });
+        return { id: result.id ?? "", title: input.title };
+      }),
+    update_workflow: (input) =>
+      Effect.gen(function* () {
+        const preset = yield* findAutomation(yield* automationsSnapshot, input.workflow);
+        if (preset.trigger.type !== "workflow") return yield* invalid("Choose a workflow preset.");
+        yield* (yield* requireEngine).dispatch({
+          type: "automation.update",
+          automationId: preset.id,
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.instructions !== undefined ? { prompt: input.instructions } : {}),
+          ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+          action: {
+            ...preset.action,
+            ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+            ...(input.checkout !== undefined ? { checkout: input.checkout } : {}),
+          },
+        });
+        return { id: preset.id, title: input.title ?? preset.title };
+      }),
+    start_workflow: (input) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const snapshot = yield* boardsSnapshot;
+        const ticket =
+          input.ticket !== undefined
+            ? yield* unwrap(findTicket(snapshot, input.ticket))
+            : snapshot.tickets.find((candidate) =>
+                candidate.threadKeys.includes(`${scope.environmentId}:${scope.threadId}`),
+              );
+        if (!ticket) return yield* notFound("Pass a ticket key or link this chat to a ticket.");
+        const result = yield* (yield* requireEngine).dispatch({
+          type: "ticket.startWorkflow",
+          ticketId: ticket.id,
+        });
+        const started = (yield* boardsSnapshot).tickets.find(
+          (candidate) => candidate.id === ticket.id,
+        );
+        const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
+        return {
+          ticket: `${board?.key}-${ticket.number}`,
+          threadKey: started?.workflowThreadKey ?? null,
+          runId: result.id ?? "",
+        };
+      }),
+    pause_workflow: (input) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const snapshot = yield* boardsSnapshot;
+        const ticket =
+          input.ticket !== undefined
+            ? yield* unwrap(findTicket(snapshot, input.ticket))
+            : snapshot.tickets.find((candidate) =>
+                candidate.threadKeys.includes(`${scope.environmentId}:${scope.threadId}`),
+              );
+        if (!ticket) return yield* notFound("Pass a ticket key or link this chat to a ticket.");
+        yield* (yield* requireEngine).dispatch({
+          type: "ticket.pauseWorkflow",
+          ticketId: ticket.id,
+        });
+        return {
+          ticket: `${snapshot.boards.find((candidate) => candidate.id === ticket.boardId)?.key}-${ticket.number}`,
+        };
+      }),
     list_automations: () =>
       Effect.gen(function* () {
         const snapshot = yield* automationsSnapshot;
         const boardState = yield* boardsSnapshot.pipe(Effect.orElseSucceed(() => null));
-        const automations = yield* Effect.forEach(snapshot.automations, (automation) =>
-          Effect.gen(function* () {
-            // Runs are newest first.
-            const last = snapshot.runs.find((run) => run.automationId === automation.id);
-            return {
-              id: automation.id,
-              title: automation.title,
-              enabled: automation.enabled,
-              trigger: describeTrigger(automation, boardState),
-              prompt: automation.prompt,
-              project: yield* projectTitle(automation.action.projectKey),
-              nextRunAt: automation.nextRunAt,
-              lastRun: last
-                ? {
-                    status: last.status,
-                    reason: last.reason,
-                    at: last.finishedAt ?? last.startedAt ?? last.createdAt,
-                  }
-                : null,
-            } satisfies AutomationSummary;
-          }),
+        const automations = yield* Effect.forEach(
+          snapshot.automations.filter((automation) => automation.trigger.type === "schedule"),
+          (automation) =>
+            Effect.gen(function* () {
+              // Runs are newest first.
+              const last = snapshot.runs.find((run) => run.automationId === automation.id);
+              return {
+                id: automation.id,
+                title: automation.title,
+                enabled: automation.enabled,
+                trigger: describeTrigger(automation, boardState),
+                prompt: automation.prompt,
+                project: yield* projectTitle(automation.action.projectKey),
+                nextRunAt: automation.nextRunAt,
+                lastRun: last
+                  ? {
+                      status: last.status,
+                      reason: last.reason,
+                      at: last.finishedAt ?? last.startedAt ?? last.createdAt,
+                    }
+                  : null,
+              } satisfies AutomationSummary;
+            }),
         );
         return { automations };
       }),
@@ -159,36 +255,15 @@ const make = Effect.gen(function* () {
     create_automation: (input) =>
       Effect.gen(function* () {
         const schedule = yield* scheduleOf(input);
-        const hasBoard = input.board !== undefined || input.column !== undefined;
-        if ((schedule === undefined) === !hasBoard) {
-          return yield* invalid("Give either a schedule (cron or at) or a board and column.");
-        }
-        let trigger;
-        if (schedule !== undefined) {
-          trigger = {
-            type: "schedule" as const,
-            schedule,
-            timezone: input.timezone ?? serverTimezone(),
-          };
-        } else {
-          if (input.board === undefined || input.column === undefined) {
-            return yield* invalid("A board hook needs both board and column.");
-          }
-          if (input.board === "*") {
-            // Every board: the column is matched by name on whichever board.
-            trigger = {
-              type: "board" as const,
-              boardId: null,
-              columnId: null,
-              columnName: input.column,
-            };
-          } else {
-            const state = yield* boardsSnapshot;
-            const board = yield* unwrap(findBoard(state, input.board));
-            const column = yield* unwrap(findColumn(board, input.column));
-            trigger = { type: "board" as const, boardId: board.id, columnId: column.id };
-          }
-        }
+        if (schedule === undefined)
+          return yield* invalid(
+            "Give cron or at for a scheduled automation. Use create_workflow for ticket instructions.",
+          );
+        const trigger = {
+          type: "schedule" as const,
+          schedule,
+          timezone: input.timezone ?? serverTimezone(),
+        };
         const projectKey = input.useThisChatsProject === true ? yield* callerProjectKey : null;
         const result = yield* (yield* requireEngine).dispatch({
           type: "automation.create",
@@ -203,9 +278,6 @@ const make = Effect.gen(function* () {
             checkout: input.checkout ?? "local",
           },
           ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-          ...(input.maxRunsPerTicket !== undefined && input.maxRunsPerTicket > 0
-            ? { maxRunsPerTicket: input.maxRunsPerTicket }
-            : {}),
         });
         return { id: result.id ?? "", title: input.title };
       }),

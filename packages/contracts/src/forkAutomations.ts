@@ -1,7 +1,6 @@
 /**
- * Automations (fork feature): a trigger (a schedule, or a ticket entering a
- * board column) starts a chat with a prompt. Stored next to boards in the
- * environment's `fork.sqlite`.
+ * Scheduled automations and explicitly started ticket workflow presets.
+ * Stored next to boards in the environment's `fork.sqlite`.
  */
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
@@ -28,6 +27,8 @@ export const AutomationSchedule = Schema.Union([
 export type AutomationSchedule = typeof AutomationSchedule.Type;
 
 export const AutomationTrigger = Schema.Union([
+  /** An instruction preset, started explicitly for a ticket. */
+  Schema.Struct({ type: Schema.Literal("workflow") }),
   Schema.Struct({
     type: Schema.Literal("schedule"),
     schedule: AutomationSchedule,
@@ -35,7 +36,7 @@ export const AutomationTrigger = Schema.Union([
     timezone: TrimmedNonEmptyString,
   }),
   /**
-   * A ticket entering a column (by any move, or created in it). With a board,
+   * Legacy hook shape, retained for migration and saved templates. With a board,
    * `columnId` names the column. With `boardId` null the hook applies to every
    * board, matching columns by name (case-insensitive).
    */
@@ -52,16 +53,15 @@ export type AutomationTrigger = typeof AutomationTrigger.Type;
 
 /**
  * Where the chat runs: the project's checkout, a fresh worktree per run, or
- * the ticket's workspace (board hooks only; shared by every chat on the ticket).
+ * the ticket's workspace (workflows; shared by every chat on the ticket).
  */
 export const AutomationCheckout = Schema.Literals(["local", "worktree", "ticket"]);
 export type AutomationCheckout = typeof AutomationCheckout.Type;
 
-/** How the started chat runs. Nulls fall back to defaults at run time. */
 /**
  * A built-in action: applied instantly by the server, no chat, no tokens.
- * Ticket steps act on the ticket that triggered a board hook; `moveStale`
- * sweeps every board, for schedules.
+ * Ticket steps are retained for old templates; `moveStale` sweeps boards on
+ * a schedule. Workflows express their actions in instructions.
  */
 export const AutomationStep = Schema.Union([
   /** Moves the ticket to the column with this name on its board. */
@@ -82,10 +82,11 @@ export const AutomationStep = Schema.Union([
 ]);
 export type AutomationStep = typeof AutomationStep.Type;
 
+/** Initial session options. Nulls fall back to defaults at run time. */
 export const AutomationAction = Schema.Struct({
   /**
    * Scoped project key (`environmentId:projectId`). Required for schedules;
-   * board hooks fall back to the ticket's project, then the board's default.
+   * workflows fall back to the ticket's project, then the board's default.
    */
   projectKey: Schema.NullOr(Schema.String),
   /** Null: the project's (or server's) default model. */
@@ -101,6 +102,15 @@ export const AutomationAction = Schema.Struct({
 });
 export type AutomationAction = typeof AutomationAction.Type;
 
+/** Copied onto a ticket; subsequent preset edits do not change ongoing work. */
+export const TicketWorkflow = Schema.Struct({
+  presetId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  prompt: TrimmedNonEmptyString,
+  action: AutomationAction,
+});
+export type TicketWorkflow = typeof TicketWorkflow.Type;
+
 export const Automation = Schema.Struct({
   id: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
@@ -112,7 +122,7 @@ export const Automation = Schema.Struct({
   trigger: AutomationTrigger,
   action: AutomationAction,
   enabled: Schema.Boolean,
-  /** Board hooks: runs per ticket before the ticket goes to Needs you. */
+  /** Legacy hook run limit, retained for historical records. */
   maxRunsPerTicket: PositiveInt,
   /** Schedules: when it fires next, if enabled. */
   nextRunAt: Schema.NullOr(IsoDateTime),
@@ -146,14 +156,14 @@ export const AutomationRun = Schema.Struct({
 });
 export type AutomationRun = typeof AutomationRun.Type;
 
-/** Per-board hook state. */
+/** Legacy per-board hook state, retained for decoding older clients. */
 export const BoardHookState = Schema.Struct({
   boardId: TrimmedNonEmptyString,
   paused: Schema.Boolean,
 });
 export type BoardHookState = typeof BoardHookState.Type;
 
-/** Every automation, recent runs, and paused boards; streamed whole. */
+/** Every preset and schedule, recent runs, and legacy hook state; streamed whole. */
 export const AutomationsSnapshot = Schema.Struct({
   automations: Schema.Array(Automation),
   runs: Schema.Array(AutomationRun),
@@ -169,6 +179,8 @@ const command = <Type extends string, Fields extends Schema.Struct.Fields>(
 const Id = TrimmedNonEmptyString;
 
 export const AutomationsCommand = Schema.Union([
+  command("ticket.startWorkflow", { ticketId: Id }),
+  command("ticket.pauseWorkflow", { ticketId: Id }),
   command("automation.create", {
     title: TrimmedNonEmptyString,
     prompt: Schema.String,
@@ -187,10 +199,11 @@ export const AutomationsCommand = Schema.Union([
     maxRunsPerTicket: Schema.optional(PositiveInt),
   }),
   command("automation.delete", { automationId: Id }),
-  /** Runs a schedule now; a board hook needs the ticket to run for. */
+  /** Runs a schedule now. Workflows start through their ticket. */
   command("automation.runNow", { automationId: Id, ticketId: Schema.optional(Id) }),
-  /** Resets a ticket's hook run counts and runs the hook for its current column. */
+  /** @deprecated Rejected; use ticket.startWorkflow. */
   command("ticket.resumeHooks", { ticketId: Id }),
+  /** @deprecated Rejected; use ticket.pauseWorkflow. */
   command("board.pauseHooks", { boardId: Id, paused: Schema.Boolean }),
 ]);
 export type AutomationsCommand = typeof AutomationsCommand.Type;

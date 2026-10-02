@@ -1,20 +1,8 @@
 /**
- * Runs automations: fires schedules, reacts to tickets entering hooked
- * columns, starts the chats, and follows each chat to the end of its turn.
- *
- * Safeguards (nothing is dropped silently):
- * - a hook runs at most `maxRunsPerTicket` times per ticket since its counter
- *   was reset (by Resume hooks or a person moving the ticket); then the ticket
- *   goes to Needs you with the reason;
- * - one live automation chat per ticket; a trigger meanwhile is queued (one
- *   per ticket) and starts when the live chat finishes;
- * - a paused board's hooks do not fire; unpausing runs them for tickets
- *   sitting in hooked columns;
- * - a schedule missed while the server was off runs once if within an hour,
- *   otherwise it is recorded as missed.
- *
- * All handling goes through one lock, so two events for the same ticket
- * cannot both decide it has no live run.
+ * Scheduled automations and explicitly started ticket workflows share a runner.
+ * A workflow owns one durable chat; Resume dispatches its next turn there.
+ * Starts and lifecycle events are serialized so concurrent requests cannot
+ * create duplicate execution on a ticket.
  */
 import {
   AutomationsCommandError,
@@ -52,8 +40,6 @@ import { forkParked } from "../../serverActivation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { type BoardEvent, BoardsService } from "../boards/BoardsService.ts";
 import {
-  boardTriggerMatches,
-  boardTriggerProblem,
   decideSchedule,
   nextScheduledAt,
   renderPrompt,
@@ -61,6 +47,7 @@ import {
   stepsProblem,
 } from "./automationLogic.ts";
 import { AutomationsStore, type StoredAutomation } from "./AutomationsStore.ts";
+import { workflowPrompt } from "./workflowLogic.ts";
 import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
 
 const SCHEDULER_TICK = "20 seconds";
@@ -111,10 +98,7 @@ const make = (options: { readonly background: boolean }) =>
       return `${board?.key ?? "?"}-${ticket.number}`;
     };
 
-    /**
-     * Flags a ticket for a person: red for a failed run, yellow for a stop
-     * (run limit). Its hooks then wait until the flag is resolved.
-     */
+    /** Flags a ticket for a person after a failed or paused turn. */
     const escalate = (
       ticketId: string,
       reason: string,
@@ -150,10 +134,6 @@ const make = (options: { readonly background: boolean }) =>
         ),
       );
 
-    /**
-     * Starts the chat for a run that already has a row, and marks it running.
-     * The chat is linked to the ticket for board runs.
-     */
     /** Applies built-in steps in order; the first failure stops the rest. */
     const runSteps = (
       automation: StoredAutomation,
@@ -219,7 +199,12 @@ const make = (options: { readonly background: boolean }) =>
         }
       });
 
-    const startRun = (automation: StoredAutomation, runId: string, ticketId: string | null) =>
+    const startRun = (
+      automation: StoredAutomation,
+      runId: string,
+      ticketId: string | null,
+      resumeThreadId?: ThreadId,
+    ) =>
       Effect.gen(function* () {
         const snapshot = yield* boardsSnapshot;
         const ticket =
@@ -266,10 +251,10 @@ const make = (options: { readonly background: boolean }) =>
         let worktreePath: string | null = null;
         // A new ticket workspace runs the project's setup script once the chat exists.
         let setUpWorkspace = false;
-        if (automation.action.checkout === "ticket") {
+        if (resumeThreadId === undefined && automation.action.checkout === "ticket") {
           if (!ticket) {
             return yield* new RunStartError({
-              message: "Only board hooks can use the ticket's workspace.",
+              message: "A ticket workflow is required to use a ticket's workspace.",
             });
           }
           if (Option.isNone(workspaces)) {
@@ -292,7 +277,7 @@ const make = (options: { readonly background: boolean }) =>
             branch = workspace.branch;
             setUpWorkspace = workspace.created;
           }
-        } else if (automation.action.checkout === "worktree") {
+        } else if (resumeThreadId === undefined && automation.action.checkout === "worktree") {
           const token = (yield* uuid).replaceAll("-", "");
           const created = yield* git
             .createWorktree({
@@ -326,7 +311,7 @@ const make = (options: { readonly background: boolean }) =>
               value.comments.toReversed().find((comment) => comment.isHandoff)?.body ?? null,
           });
         }
-        const text = renderPrompt(automation.prompt, {
+        const renderedPrompt = renderPrompt(automation.prompt, {
           ...(ticket
             ? {
                 ticket: {
@@ -340,7 +325,11 @@ const make = (options: { readonly background: boolean }) =>
           runNumber,
         });
 
-        const threadId = ThreadId.make(yield* uuid);
+        const text =
+          automation.trigger.type === "workflow"
+            ? `Ticket ${ticket ? ticketLabel(snapshot, ticket) : ""}\n\n${workflowPrompt(renderedPrompt, resumeThreadId !== undefined)}`
+            : renderedPrompt;
+        const threadId = resumeThreadId ?? ThreadId.make(yield* uuid);
         const createdAt = yield* nowIso;
         const title = ticket
           ? `${ticketLabel(snapshot, ticket)} · ${automation.title}`
@@ -349,29 +338,40 @@ const make = (options: { readonly background: boolean }) =>
           new RunStartError({
             message: `Could not start the chat: ${error instanceof Error ? error.message : String(error)}`,
           });
-        yield* orchestration
-          .dispatch({
-            type: "thread.create",
-            commandId: CommandId.make(`server:automation-thread:${yield* uuid}`),
-            threadId,
-            projectId,
-            title,
-            modelSelection,
-            runtimeMode: automation.action.runtimeMode,
-            interactionMode: automation.action.interactionMode,
-            branch,
-            worktreePath,
-            createdBy: "system",
-            creationSource: "server",
-          })
-          .pipe(Effect.mapError(dispatchFailed));
+        if (resumeThreadId === undefined)
+          yield* orchestration
+            .dispatch({
+              type: "thread.create",
+              commandId: CommandId.make(`server:automation-thread:${yield* uuid}`),
+              threadId,
+              projectId,
+              title,
+              modelSelection,
+              runtimeMode: automation.action.runtimeMode,
+              interactionMode: automation.action.interactionMode,
+              branch,
+              worktreePath,
+              createdBy: "system",
+              creationSource: "server",
+            })
+            .pipe(Effect.mapError(dispatchFailed));
         const threadKey = `${environmentId}:${threadId}`;
         // Recorded before the turn starts, so a turn that ends at once is still matched.
         yield* store.updateRun(runId, { status: "running", threadKey, startedAt: createdAt });
         if (ticket) {
           yield* boards
-            .dispatch({ type: "thread.link", threadKey, ticketId: ticket.id }, actorOf(automation))
-            .pipe(Effect.catch(() => Effect.void));
+            .dispatch(
+              automation.trigger.type === "workflow"
+                ? {
+                    type: "ticket.workflowSession",
+                    ticketId: ticket.id,
+                    threadKey,
+                    event: resumeThreadId === undefined ? "started" : "resumed",
+                  }
+                : { type: "thread.link", threadKey, ticketId: ticket.id },
+              actorOf(automation),
+            )
+            .pipe(Effect.mapError(dispatchFailed));
         }
         if (setUpWorkspace && ticket && Option.isSome(workspaces)) {
           yield* workspaces.value
@@ -406,7 +406,7 @@ const make = (options: { readonly background: boolean }) =>
       );
 
     const failRun = (
-      automation: { readonly id: string; readonly title: string },
+      automation: Pick<StoredAutomation, "id" | "title" | "trigger">,
       runId: string,
       ticketId: string | null,
       reason: string,
@@ -420,123 +420,55 @@ const make = (options: { readonly background: boolean }) =>
             actorOf(automation),
             "error",
           );
+          if (automation.trigger.type === "workflow") {
+            const ticket = (yield* boards.snapshot).tickets.find(
+              (candidate) => candidate.id === ticketId,
+            );
+            const run = (yield* store.runsForTicket(ticketId)).find(
+              (candidate) => candidate.id === runId,
+            );
+            yield* boards.dispatch(
+              {
+                type: "ticket.workflowSession",
+                ticketId,
+                threadKey: run?.threadKey ?? ticket?.workflowThreadKey ?? null,
+                event: "failed",
+                reason,
+              },
+              actorOf(automation),
+            );
+          }
         }
       }).pipe(
         Effect.catch((error) => Effect.logWarning("Could not record a failed run", { error })),
       );
 
-    const hookRunsSinceReset = (automationId: string, ticketId: string) =>
-      Effect.gen(function* () {
-        const resetAt = yield* store.ticketResetAt(ticketId);
-        const runs = yield* store.runsForTicket(ticketId);
-        return runs.filter(
-          (run) =>
-            run.automationId === automationId &&
-            run.startedAt !== null &&
-            (resetAt === null || run.createdAt > resetAt),
-        ).length;
-      });
-
-    /** A ticket is in (or just entered) a hooked column: run, queue, or stop. */
-    const fireHook = (automation: StoredAutomation, ticketId: string, queuedRunId?: string) =>
-      Effect.gen(function* () {
-        if (!automation.enabled || automation.trigger.type !== "board") return;
-        const snapshot = yield* boards.snapshot;
-        const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
-        if (!ticket || ticket.archivedAt !== null) return;
-        if (!boardTriggerMatches(automation.trigger, snapshot, ticket)) return;
-        // The ticket's own board decides pausing, including for any-board hooks.
-        if (yield* store.boardPaused(ticket.boardId)) return;
-        // A flagged ticket waits for a person; resolving the flag runs this again.
-        if (ticket.flag !== null) return;
-
-        const runs = yield* store.runsForTicket(ticketId);
-        if (queuedRunId === undefined && runs.some((run) => run.status === "running")) {
-          if (!runs.some((run) => run.status === "queued")) {
-            yield* store.insertRun({ automationId: automation.id, ticketId, status: "queued" });
-          }
-          return;
-        }
-        if ((yield* hookRunsSinceReset(automation.id, ticketId)) >= automation.maxRunsPerTicket) {
-          const reason = `"${automation.title}" ran ${automation.maxRunsPerTicket} times on this ticket without it moving on. Resume hooks to try again.`;
-          if (queuedRunId === undefined) {
-            yield* store.insertRun({
-              automationId: automation.id,
-              ticketId,
-              status: "skipped",
-              reason,
-            });
-          } else {
-            yield* store.updateRun(queuedRunId, {
-              status: "skipped",
-              reason,
-              finishedAt: yield* nowIso,
-            });
-          }
-          yield* escalate(ticketId, reason, actorOf(automation), "warning");
-          return;
-        }
-        const runId =
-          queuedRunId ??
-          (yield* store.insertRun({ automationId: automation.id, ticketId, status: "queued" }));
-        yield* startRun(automation, runId, ticketId);
-      });
-
-    /** Runs every hook that watches the ticket's current column. */
-    const fireHooksForTicket = (ticketId: string) =>
-      Effect.gen(function* () {
-        const snapshot = yield* boards.snapshot;
-        const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
-        if (!ticket) return;
-        const hooks = (yield* store.list).filter(
-          (automation) =>
-            automation.enabled && boardTriggerMatches(automation.trigger, snapshot, ticket),
-        );
-        for (const automation of hooks) {
-          yield* fireHook(automation, ticketId);
-        }
-      });
-
-    /** After a ticket's live run ends: start its queued run if it still applies. */
-    const startQueued = (ticketId: string) =>
-      Effect.gen(function* () {
-        const queued = (yield* store.runsForTicket(ticketId)).find(
-          (run) => run.status === "queued",
-        );
-        if (!queued) return;
-        const automation = yield* store.get(queued.automationId).pipe(Effect.option);
-        const snapshot = yield* boards.snapshot;
-        const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
-        const stillApplies =
-          Option.isSome(automation) &&
-          automation.value.enabled &&
-          ticket !== undefined &&
-          boardTriggerMatches(automation.value.trigger, snapshot, ticket);
-        if (!stillApplies || Option.isNone(automation)) {
-          yield* store.updateRun(queued.id, {
-            status: "skipped",
-            reason: "The ticket left the column before its turn came.",
-            finishedAt: yield* nowIso,
-          });
-          // Only one run waits per ticket, so the column it moved on to has not run yet.
-          yield* fireHooksForTicket(ticketId);
-          return;
-        }
-        // Through fireHook, so a queued run still respects the run limit.
-        yield* fireHook(automation.value, ticketId, queued.id);
-      });
-
-    /** The run's chat was deleted: a person stopped it, so no flag; the next run may start. */
+    /** Deletion clears execution ownership even after the last turn finished. */
     const settleDeleted = (threadKey: string) =>
       Effect.gen(function* () {
         const run = yield* store.runningRunForThread(threadKey);
-        if (Option.isNone(run)) return;
-        yield* store.updateRun(run.value.id, {
-          status: "failed",
-          reason: "The chat was deleted.",
-          finishedAt: yield* nowIso,
-        });
-        if (run.value.ticketId !== null) yield* startQueued(run.value.ticketId);
+        if (Option.isSome(run))
+          yield* store.updateRun(run.value.id, {
+            status: "failed",
+            reason: "The chat was deleted.",
+            finishedAt: yield* nowIso,
+          });
+        const ticket = (yield* boards.snapshot).tickets.find((candidate) =>
+          candidate.threadKeys.includes(threadKey),
+        );
+        if (!ticket) return;
+        if (ticket.workflowThreadKey === threadKey)
+          yield* boards.dispatch(
+            {
+              type: "ticket.workflowSession",
+              ticketId: ticket.id,
+              threadKey: null,
+              event: "failed",
+              reason: "The workflow session was deleted. Start again to create a new session.",
+            },
+            "system",
+          );
+        yield* boards.dispatch({ type: "thread.link", threadKey, ticketId: null }, "system");
       });
 
     /** A chat's turn ended (or never started): settle its run. */
@@ -582,8 +514,22 @@ const make = (options: { readonly background: boolean }) =>
             reason: outcome.reason,
             finishedAt: yield* nowIso,
           });
+          if (run.value.ticketId !== null) {
+            const ticket = (yield* boards.snapshot).tickets.find(
+              (candidate) => candidate.id === run.value.ticketId,
+            );
+            if (ticket?.workflowThreadKey === threadKey)
+              yield* boards.dispatch(
+                {
+                  type: "ticket.workflowSession",
+                  ticketId: ticket.id,
+                  threadKey,
+                  event: "finished",
+                },
+                "system",
+              );
+          }
         }
-        if (run.value.ticketId !== null) yield* startQueued(run.value.ticketId);
       });
 
     /** One scheduler pass: fire due schedules, record missed ones. */
@@ -631,26 +577,36 @@ const make = (options: { readonly background: boolean }) =>
         Effect.catchCause((cause) => Effect.logWarning(`Automation ${label} failed`, { cause })),
       );
 
-    const handleBoardEvent = (event: BoardEvent) =>
-      logged(
-        "board event",
-        serialized(
-          Effect.gen(function* () {
-            if (event.type === "ticket.flagResolved") {
-              // Resolving gives the hooks a fresh count, then runs what was held.
-              yield* store.resetTicket(event.ticketId, yield* nowIso);
-              yield* fireHooksForTicket(event.ticketId);
-              return;
-            }
-            // A person moving a ticket gives its hooks a fresh start.
-            if (event.actor === "user") yield* store.resetTicket(event.ticketId, yield* nowIso);
-            // The ticket now sits in the column it entered; run what watches it.
-            yield* fireHooksForTicket(event.ticketId);
-          }),
-        ),
-      );
+    // Column moves and flag resolution only update the board. Execution is explicit.
+    const handleBoardEvent = (_event: BoardEvent) => Effect.void;
 
     const handleDomainEvent = (event: OrchestrationV2DomainEvent) => {
+      if (event.type === "thread.created" && event.payload.lineage.parentThreadId !== null) {
+        const parentKey = `${environmentId}:${event.payload.lineage.parentThreadId}`;
+        return logged(
+          "workflow delegation",
+          serialized(
+            Effect.gen(function* () {
+              const snapshot = yield* boards.snapshot;
+              const childKey = `${environmentId}:${event.threadId}`;
+              if (snapshot.tickets.some((candidate) => candidate.threadKeys.includes(childKey)))
+                return;
+              const ticket = snapshot.tickets.find((candidate) =>
+                candidate.threadKeys.includes(parentKey),
+              );
+              if (!ticket?.workflow) return;
+              yield* boards.dispatch(
+                {
+                  type: "thread.link",
+                  ticketId: ticket.id,
+                  threadKey: `${environmentId}:${event.threadId}`,
+                },
+                `thread:${parentKey}`,
+              );
+            }),
+          ),
+        );
+      }
       if (event.type === "thread.deleted") {
         return logged(
           "chat deletion",
@@ -678,7 +634,6 @@ const make = (options: { readonly background: boolean }) =>
     const scheduledTick = logged("scheduler", serialized(tick));
 
     if (options.background) {
-      const boardEvents = Stream.fromSubscription(yield* boards.subscribeEvents);
       const domainEvents = orchestration.streamDomainEvents;
       yield* forkParked(
         Effect.gen(function* () {
@@ -686,7 +641,6 @@ const make = (options: { readonly background: boolean }) =>
           yield* Effect.forkScoped(
             scheduledTick.pipe(Effect.repeat(Schedule.spaced(SCHEDULER_TICK))),
           );
-          yield* Effect.forkScoped(Stream.runForEach(boardEvents, handleBoardEvent));
           yield* Stream.runForEach(domainEvents, handleDomainEvent);
         }),
       );
@@ -697,8 +651,9 @@ const make = (options: { readonly background: boolean }) =>
         Effect.gen(function* () {
           switch (command.type) {
             case "automation.create": {
-              const problem =
-                scheduleProblem(command.trigger) ?? boardTriggerProblem(command.trigger);
+              if (command.trigger.type === "board")
+                return yield* invalid("Column hooks have been replaced by ticket workflows.");
+              const problem = scheduleProblem(command.trigger);
               if (problem) return yield* invalid(problem);
               const actionProblem = stepsProblem(command.trigger, command.action, command.prompt);
               if (actionProblem) return yield* invalid(actionProblem);
@@ -721,7 +676,7 @@ const make = (options: { readonly background: boolean }) =>
                 trigger: command.trigger,
                 action: command.action,
                 enabled: command.enabled ?? true,
-                // A safety net against runaway loops; hook prompts decide sooner.
+                // Retained for compatibility with historical hook records.
                 maxRunsPerTicket: command.maxRunsPerTicket ?? 5,
               });
               return { id };
@@ -735,8 +690,9 @@ const make = (options: { readonly background: boolean }) =>
               );
               if (stepProblem) return yield* invalid(stepProblem);
               if (command.trigger) {
-                const problem =
-                  scheduleProblem(command.trigger) ?? boardTriggerProblem(command.trigger);
+                if (command.trigger.type === "board")
+                  return yield* invalid("Column hooks have been replaced by ticket workflows.");
+                const problem = scheduleProblem(command.trigger);
                 if (problem) return yield* invalid(problem);
               }
               yield* store.update(command.automationId, {
@@ -751,14 +707,155 @@ const make = (options: { readonly background: boolean }) =>
               });
               return { id: null };
             }
-            case "automation.delete":
-              yield* store.remove(command.automationId);
+            case "ticket.startWorkflow": {
+              const snapshot = yield* boards.snapshot.pipe(
+                Effect.mapError((error) => invalid(error.message)),
+              );
+              const ticket = snapshot.tickets.find(
+                (candidate) => candidate.id === command.ticketId,
+              );
+              if (
+                !ticket ||
+                ticket.archivedAt !== null ||
+                snapshot.boards.find((board) => board.id === ticket.boardId)?.archivedAt !== null
+              ) {
+                return yield* invalid("Choose an active ticket to start.");
+              }
+              if (!ticket.workflow) return yield* invalid("Choose a workflow on the ticket first.");
+              const problem = stepsProblem(
+                { type: "workflow" },
+                ticket.workflow.action,
+                ticket.workflow.prompt,
+              );
+              if (problem) return yield* invalid(problem);
+              for (const run of yield* store.runsForTicket(ticket.id)) {
+                if (run.status === "running" && run.threadKey !== null) {
+                  yield* settleThread(run.threadKey, null);
+                }
+              }
+              if ((yield* store.runsForTicket(ticket.id)).some((run) => run.status === "running")) {
+                return yield* invalid(
+                  "A session is already working on this ticket. Open that chat to follow its progress.",
+                );
+              }
+              let resumeThreadId: ThreadId | undefined;
+              for (const key of ticket.threadKeys) {
+                if (!key.startsWith(`${environmentId}:`)) continue;
+                const id = ThreadId.make(key.slice(key.indexOf(":") + 1));
+                const shell = yield* orchestration
+                  .getThreadShell(id)
+                  .pipe(Effect.mapError(() => invalid("Could not read the ticket's sessions.")));
+                if (
+                  shell &&
+                  (shell.activeRunId != null ||
+                    (shell.pendingBackgroundTasks?.length ?? 0) > 0 ||
+                    shell.status === "preparing" ||
+                    shell.status === "queued" ||
+                    shell.status === "starting" ||
+                    shell.status === "running" ||
+                    shell.status === "waiting")
+                ) {
+                  return yield* invalid(
+                    "A linked session is already working on this ticket. Open that chat to follow its progress.",
+                  );
+                }
+                if (shell && key === ticket.workflowThreadKey) resumeThreadId = id;
+              }
+              if (ticket.flag !== null) {
+                yield* boards
+                  .dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, "user")
+                  .pipe(Effect.mapError((error) => invalid(error.message)));
+              }
+              const preset = yield* store.get(ticket.workflow.presetId);
+              const automation: StoredAutomation = {
+                ...preset,
+                trigger: { type: "workflow" },
+                title: ticket.workflow.title,
+                prompt: ticket.workflow.prompt,
+                action: ticket.workflow.action,
+              };
+              const runId = yield* store.insertRun({
+                automationId: preset.id,
+                ticketId: ticket.id,
+                status: "queued",
+              });
+              yield* startRun(automation, runId, ticket.id, resumeThreadId);
+              const started = (yield* store.runsForTicket(ticket.id)).find(
+                (run) => run.id === runId,
+              );
+              if (started?.status === "failed")
+                return yield* invalid(started.reason ?? "The workflow could not start.");
+              return { id: runId };
+            }
+            case "ticket.pauseWorkflow": {
+              const snapshot = yield* boards.snapshot.pipe(
+                Effect.mapError((error) => invalid(error.message)),
+              );
+              const ticket = snapshot.tickets.find(
+                (candidate) => candidate.id === command.ticketId,
+              );
+              const key = ticket?.workflowThreadKey;
+              if (!ticket || !key || !key.startsWith(`${environmentId}:`))
+                return yield* invalid("This ticket has no workflow session.");
+              const threadId = ThreadId.make(key.slice(key.indexOf(":") + 1));
+              const shell = yield* orchestration
+                .getThreadShell(threadId)
+                .pipe(Effect.mapError(() => invalid("Could not read the workflow session.")));
+              if (shell?.activeRunId) {
+                yield* orchestration
+                  .dispatch({
+                    type: "run.interrupt",
+                    commandId: CommandId.make(`server:workflow-pause:${yield* uuid}`),
+                    threadId,
+                    runId: shell.activeRunId,
+                    reason: "The ticket workflow was paused.",
+                    holdQueue: true,
+                  })
+                  .pipe(Effect.mapError(() => invalid("Could not pause the workflow session.")));
+              }
+              const running = yield* store.runningRunForThread(key);
+              if (Option.isSome(running))
+                yield* store.updateRun(running.value.id, {
+                  status: "skipped",
+                  reason: "Paused by the user.",
+                  finishedAt: yield* nowIso,
+                });
+              yield* boards
+                .dispatch(
+                  {
+                    type: "ticket.workflowSession",
+                    ticketId: ticket.id,
+                    threadKey: key,
+                    event: "paused",
+                  },
+                  "user",
+                )
+                .pipe(Effect.mapError((error) => invalid(error.message)));
+              yield* boards
+                .dispatch(
+                  {
+                    type: "ticket.flag",
+                    ticketId: ticket.id,
+                    level: "warning",
+                    reason: "Workflow paused. Resume when ready.",
+                  },
+                  "user",
+                )
+                .pipe(Effect.mapError((error) => invalid(error.message)));
               return { id: null };
+            }
+            case "automation.delete": {
+              const current = yield* store.get(command.automationId);
+              // Assigned tickets keep their instruction snapshot and run history.
+              if (current.trigger.type === "workflow")
+                yield* store.update(current.id, { enabled: false });
+              else yield* store.remove(current.id);
+              return { id: null };
+            }
             case "automation.runNow": {
               const automation = yield* store.get(command.automationId);
-              if (automation.trigger.type === "board" && command.ticketId === undefined) {
-                return yield* invalid("Pick the ticket to run this hook for.");
-              }
+              if (automation.trigger.type !== "schedule")
+                return yield* invalid("Start or resume the workflow from its ticket.");
               const ticketId = command.ticketId ?? null;
               // One agent at a time per ticket: they share its workspace.
               if (ticketId !== null) {
@@ -777,41 +874,17 @@ const make = (options: { readonly background: boolean }) =>
               yield* startRun(automation, runId, ticketId);
               return { id: runId };
             }
-            case "ticket.resumeHooks": {
-              // Same as resolving the flag: fresh count, then the held hooks run.
-              const snapshot = yield* boards.snapshot.pipe(
-                Effect.mapError((error) => invalid(error.message)),
+            case "ticket.resumeHooks":
+            case "board.pauseHooks":
+              return yield* invalid(
+                "Column hooks have been replaced by Start / Resume on the ticket workflow.",
               );
-              const flagged =
-                snapshot.tickets.find((ticket) => ticket.id === command.ticketId)?.flag != null;
-              if (flagged) {
-                // The flag-resolved event resets the count and runs the hooks.
-                yield* boards
-                  .dispatch({ type: "ticket.resolveFlag", ticketId: command.ticketId }, "user")
-                  .pipe(Effect.mapError((error) => invalid(error.message)));
-              } else {
-                yield* store.resetTicket(command.ticketId, yield* nowIso);
-                yield* fireHooksForTicket(command.ticketId).pipe(
-                  Effect.catch((error) => Effect.logWarning("Resume hooks failed", { error })),
-                );
-              }
-              return { id: null };
-            }
-            case "board.pauseHooks": {
-              yield* store.setBoardPaused(command.boardId, command.paused);
-              if (!command.paused) {
-                const snapshot = yield* boards.snapshot.pipe(
-                  Effect.mapError((error) => invalid(error.message)),
-                );
-                for (const ticket of snapshot.tickets) {
-                  if (ticket.boardId !== command.boardId || ticket.archivedAt !== null) continue;
-                  yield* fireHooksForTicket(ticket.id).pipe(Effect.catch(() => Effect.void));
-                }
-              }
-              return { id: null };
-            }
           }
         }),
+      ).pipe(
+        Effect.mapError((error) =>
+          error._tag === "AutomationsCommandError" ? error : invalid(error.message),
+        ),
       );
 
     return AutomationEngine.of({

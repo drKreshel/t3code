@@ -8,6 +8,7 @@ import {
   BoardsCommandError,
   TicketPriority,
   TicketFolderPath,
+  TicketWorkflow,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -50,7 +51,7 @@ const FlagSummary = Schema.NullOr(
   }),
 ).annotate({
   description:
-    "Set when the ticket waits on the user: warning (help was asked for) or error (a run failed). Its hooks wait until the user resolves it.",
+    "Set when the ticket waits on the user: warning (help was asked for or work paused) or error (a run failed). Resume explicitly when ready.",
 });
 
 export const BoardSummary = Schema.Struct({
@@ -86,6 +87,16 @@ export const TicketDetailResult = Schema.Struct({
   priority: TicketPriority,
   project: Schema.NullOr(Schema.String),
   folder: Schema.NullOr(Schema.String),
+  workflow: Schema.NullOr(TicketWorkflow),
+  workflowThreadKey: Schema.NullOr(Schema.String),
+  history: Schema.Array(
+    Schema.Struct({
+      kind: Schema.String,
+      actor: Schema.String,
+      createdAt: Schema.String,
+      payload: Schema.Record(Schema.String, Schema.Unknown),
+    }),
+  ),
   flag: FlagSummary,
   criteria: Schema.Array(
     Schema.Struct({ number: Schema.Int, text: Schema.String, checked: Schema.Boolean }),
@@ -94,7 +105,7 @@ export const TicketDetailResult = Schema.Struct({
     Schema.Struct({ key: Schema.String, title: Schema.String, column: Schema.String }),
   ).annotate({
     description:
-      "Tickets this one depends on, with the column each sits in. T3 enforces nothing: judge from the columns (and the hook's prompt) whether they are finished.",
+      "Tickets this one depends on, with the column each sits in. Judge from those columns and the workflow instructions whether they are finished.",
   }),
   latestHandoff: Schema.NullOr(Schema.String),
   comments: Schema.Array(
@@ -140,7 +151,7 @@ const TicketChanged = Schema.Struct({
 
 const ListBoardsTool = Tool.make("list_boards", {
   description:
-    "List T3 Code boards with their keys, columns (name, type, ticket count), and default project. Boards plan work as tickets keyed like WEB-12.",
+    "List T3 Code boards with their keys, columns (name and ticket count), and default project. Boards plan work as tickets keyed like WEB-12.",
   parameters: Schema.Struct({
     includeArchived: Schema.optional(Schema.Boolean),
   }),
@@ -225,6 +236,17 @@ const CreateTicketTool = Tool.make("create_ticket", {
     title: TrimmedNonEmptyString,
     description: Schema.optional(Schema.String.annotate({ description: "Markdown." })),
     column: Schema.optional(ColumnRef),
+    workflow: Schema.optional(
+      TrimmedNonEmptyString.annotate({
+        description:
+          "Workflow preset id or exact title, from list_workflows. Selecting one does not start it.",
+      }),
+    ),
+    workflowInstructions: Schema.optional(
+      TrimmedNonEmptyString.annotate({
+        description: "Override the selected preset's instructions for this ticket only.",
+      }),
+    ),
     priority: Schema.optional(TicketPriority),
     folder: Schema.optional(
       Schema.NullOr(TicketFolderPath).annotate({
@@ -263,6 +285,18 @@ const UpdateTicketTool = Tool.make("update_ticket", {
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     title: Schema.optional(TrimmedNonEmptyString),
+    workflow: Schema.optional(
+      Schema.NullOr(TrimmedNonEmptyString).annotate({
+        description:
+          "Workflow preset id or exact title, from list_workflows. null removes it. Reassigning copies the current preset instructions.",
+      }),
+    ),
+    workflowInstructions: Schema.optional(
+      TrimmedNonEmptyString.annotate({
+        description:
+          "Edit this ticket's workflow instructions without changing the reusable preset.",
+      }),
+    ),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),
     folder: Schema.optional(
@@ -290,7 +324,7 @@ const UpdateTicketTool = Tool.make("update_ticket", {
 
 const MoveTicketTool = Tool.make("move_ticket", {
   description:
-    "Move a ticket to another column of its board. Moving it can start that column's automations. To ask the user for help, use request_human instead.",
+    "Move a ticket to another column to record progress. Moving it does not start or resume its workflow, or resolve its flag. To ask the user for help, use request_human.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     column: ColumnRef,
@@ -325,7 +359,7 @@ const AddCommentTool = Tool.make("add_comment", {
 
 const RequestHumanTool = Tool.make("request_human", {
   description:
-    "Escalate a ticket to the user: flags it (yellow) with the reason, where it stands, and pauses its automations until the user resolves it. Use when you are stuck, need a decision, or need an answer only the user has. Not for ordinary review.",
+    "Flag a ticket for the user with the reason, where it stands. Use when stuck or when you need a decision or answer from the user. Leave a handoff and stop; workflow execution resumes explicitly. Ordinary review belongs in the workflow instructions.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     reason: TrimmedNonEmptyString.annotate({

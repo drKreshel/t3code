@@ -177,6 +177,16 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
       return "Linked a chat";
     case "thread.unlinked":
       return "Unlinked a chat";
+    case "workflow.started":
+      return "Started the workflow";
+    case "workflow.resumed":
+      return "Resumed the workflow in its existing chat";
+    case "workflow.paused":
+      return "Paused the workflow";
+    case "workflow.finished":
+      return "The workflow chat finished its turn";
+    case "workflow.failed":
+      return `Workflow stopped: ${text("reason")}`;
     case "archived":
       return "Archived";
     case "unarchived":

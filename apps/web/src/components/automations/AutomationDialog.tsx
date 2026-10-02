@@ -1,6 +1,5 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
-  anyBoardColumnName,
   type Automation,
   type AutomationCheckout,
   type AutomationStep,
@@ -55,17 +54,12 @@ import {
 } from "./automations.logic";
 import { type StepRow, StepsEditor, toStepRows } from "./StepsEditor";
 
-/** Prefill for a new automation: a template, or a board hook from a board. */
+/** Prefill for a new scheduled automation or workflow preset. */
 export interface AutomationDraft {
   readonly title?: string;
   readonly prompt?: string;
   readonly repeat?: RepeatKind;
-  /** Start on the board trigger even without a board (templates for any board). */
-  readonly trigger?: AutomationTrigger["type"];
-  readonly boardId?: string;
-  readonly columnId?: string;
-  /** Watches the column with this name on every board. */
-  readonly anyBoardColumnName?: string;
+  readonly trigger?: "schedule" | "workflow";
   /** Built-in steps instead of a chat. */
   readonly steps?: ReadonlyArray<AutomationStep>;
 }
@@ -88,10 +82,9 @@ const CHECKOUT_LABEL: Record<AutomationCheckout, string> = {
 };
 
 /** Select values that are not ids. */
-const ANY_BOARD = "__any__";
 const INHERIT_PROJECT = "__inherit__";
 
-const HOOK_PROMPT_HINT =
+const WORKFLOW_PROMPT_HINT =
   "Variables: {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.criteria}}, {{ticket.handoff}}, {{board.name}}, {{run.number}}.";
 
 const browserTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -231,7 +224,8 @@ function AutomationForm({
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const initialTrigger = automation?.trigger;
-  const initialBoardTrigger = initialTrigger?.type === "board" ? initialTrigger : null;
+  const isWorkflow = initialTrigger?.type === "workflow" || draft?.trigger === "workflow";
+  const kind = isWorkflow ? "workflow" : "schedule";
 
   const [title, setTitle] = useState(automation?.title ?? draft?.title ?? "");
   const [prompt, setPrompt] = useState(automation?.prompt ?? draft?.prompt ?? "");
@@ -239,11 +233,6 @@ function AutomationForm({
   const [does, setDoes] = useState<"chat" | "steps">(initialSteps.length > 0 ? "steps" : "chat");
   const [stepRows, setStepRows] = useState<StepRow[]>(() => toStepRows(initialSteps));
   const steps = stepRows.map((row) => row.step);
-  const [kind, setKind] = useState<AutomationTrigger["type"]>(
-    initialTrigger?.type ??
-      draft?.trigger ??
-      (draft?.boardId || draft?.anyBoardColumnName ? "board" : "schedule"),
-  );
   const [schedule, setSchedule] = useState<ScheduleForm>(
     initialTrigger?.type === "schedule"
       ? scheduleToForm(initialTrigger.schedule)
@@ -252,20 +241,6 @@ function AutomationForm({
   const [timezone, setTimezone] = useState(
     initialTrigger?.type === "schedule" ? initialTrigger.timezone : browserTimezone(),
   );
-  const [boardScope, setBoardScope] = useState(
-    initialBoardTrigger
-      ? (initialBoardTrigger.boardId ?? ANY_BOARD)
-      : draft?.anyBoardColumnName
-        ? ANY_BOARD
-        : (draft?.boardId ?? ""),
-  );
-  const [columnId, setColumnId] = useState(initialBoardTrigger?.columnId ?? draft?.columnId ?? "");
-  const [columnName, setColumnName] = useState<string>(
-    (initialBoardTrigger ? anyBoardColumnName(initialBoardTrigger) : null) ??
-      draft?.anyBoardColumnName ??
-      "",
-  );
-  const [maxRuns, setMaxRuns] = useState(automation?.maxRunsPerTicket ?? 3);
   const [projectKey, setProjectKey] = useState<string | null>(
     automation?.action.projectKey ?? null,
   );
@@ -275,9 +250,9 @@ function AutomationForm({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     automation?.action.runtimeMode ?? "full-access",
   );
-  // Hooks default to the ticket's workspace, so every chat on a ticket shares one checkout.
+  // Workflow sessions share the ticket's workspace by default.
   const [checkout, setCheckout] = useState<AutomationCheckout>(
-    automation?.action.checkout ?? (kind === "board" ? "ticket" : "local"),
+    automation?.action.checkout ?? (isWorkflow ? "ticket" : "local"),
   );
   const [enabled, setEnabled] = useState(automation?.enabled ?? true);
   const [submitting, setSubmitting] = useState(false);
@@ -287,16 +262,7 @@ function AutomationForm({
     boards.status === "ready"
       ? boards.snapshot.boards.filter((board) => board.archivedAt === null)
       : [];
-  const anyBoard = boardScope === ANY_BOARD;
-  // Names used across boards; a stored name no board uses anymore stays pickable.
-  const columnNameOptions = [
-    ...new Set([
-      ...columnNamesAcrossBoards(liveBoards),
-      ...(columnName.trim() ? [columnName.trim()] : []),
-    ]),
-  ];
-  const board = anyBoard ? undefined : liveBoards.find((candidate) => candidate.id === boardScope);
-  const columns = board?.columns.toSorted((a, b) => a.position - b.position) ?? [];
+  const columnNameOptions = columnNamesAcrossBoards(liveBoards);
   const projectOptions = useMemo(
     () =>
       projects
@@ -310,7 +276,7 @@ function AutomationForm({
   );
   const projectLabel =
     projectOptions.find((option) => option.key === projectKey)?.title ??
-    (kind === "board" ? "Inherit from the ticket, then the board" : "Choose a project");
+    (isWorkflow ? "Inherit from the ticket, then the board" : "Choose a project");
 
   const updateSchedule = (patch: Partial<ScheduleForm>) =>
     setSchedule((current) => ({ ...current, ...patch }));
@@ -330,12 +296,8 @@ function AutomationForm({
         schedule: compiled.schedule,
         timezone: timezone.trim() || "UTC",
       };
-    } else if (anyBoard) {
-      if (!columnName.trim()) return setError("Pick the column name to watch on every board.");
-      trigger = { type: "board", boardId: null, columnId: null, columnName: columnName.trim() };
     } else {
-      if (!board || !columnId) return setError("Pick the board and the column.");
-      trigger = { type: "board", boardId: board.id, columnId };
+      trigger = { type: "workflow" };
     }
     if (!title.trim()) return setError("Give it a title.");
     if (does === "chat" && !prompt.trim())
@@ -356,7 +318,7 @@ function AutomationForm({
       trigger,
       action,
       enabled,
-      maxRunsPerTicket: Math.max(1, maxRuns),
+      maxRunsPerTicket: automation?.maxRunsPerTicket ?? 5,
     };
     const result = await dispatch(
       automation
@@ -370,9 +332,19 @@ function AutomationForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{automation ? "Edit automation" : "New automation"}</DialogTitle>
+        <DialogTitle>
+          {isWorkflow
+            ? automation
+              ? "Edit workflow preset"
+              : "New workflow preset"
+            : automation
+              ? "Edit automation"
+              : "New automation"}
+        </DialogTitle>
         <DialogDescription>
-          Starts a new chat with your prompt on a schedule, or when a ticket enters a column.
+          {isWorkflow
+            ? "Select this preset on a ticket, then Start or Resume. Tickets keep an editable copy of these instructions."
+            : "Starts a chat or performs cleanup on a schedule."}
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>
@@ -383,27 +355,29 @@ function AutomationForm({
               autoFocus
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Weekly dependency audit"
+              placeholder={isWorkflow ? "Feature workflow" : "Weekly dependency audit"}
             />
           </Field>
-          <Field label="Does">
-            <ToggleGroup
-              aria-label="What it does"
-              variant="segmented"
-              value={[does]}
-              onValueChange={(next) => {
-                const value = next[0];
-                if (value === "chat" || value === "steps") setDoes(value);
-              }}
-            >
-              <Toggle value="chat">Start a chat</Toggle>
-              <Toggle value="steps">Run steps (no chat)</Toggle>
-            </ToggleGroup>
-          </Field>
+          {!isWorkflow ? (
+            <Field label="Does">
+              <ToggleGroup
+                aria-label="What it does"
+                variant="segmented"
+                value={[does]}
+                onValueChange={(next) => {
+                  const value = next[0];
+                  if (value === "chat" || value === "steps") setDoes(value);
+                }}
+              >
+                <Toggle value="chat">Start a chat</Toggle>
+                <Toggle value="steps">Run steps (no chat)</Toggle>
+              </ToggleGroup>
+            </Field>
+          ) : null}
           {does === "steps" ? (
             <Field label="Steps">
               <StepsEditor
-                trigger={kind}
+                trigger="schedule"
                 rows={stepRows}
                 onChange={setStepRows}
                 columnNames={columnNameOptions}
@@ -415,9 +389,9 @@ function AutomationForm({
           ) : null}
           {does === "chat" ? (
             <Field
-              label="Prompt"
+              label={isWorkflow ? "Instructions" : "Prompt"}
               htmlFor="automation-prompt"
-              hint={kind === "board" ? HOOK_PROMPT_HINT : undefined}
+              hint={isWorkflow ? WORKFLOW_PROMPT_HINT : undefined}
             >
               <Textarea
                 id="automation-prompt"
@@ -425,31 +399,13 @@ function AutomationForm({
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder={
-                  kind === "board"
+                  isWorkflow
                     ? "Test {{ticket.key}} and check off its acceptance criteria…"
                     : "Check for outdated dependencies and open a PR…"
                 }
               />
             </Field>
           ) : null}
-
-          <Field label="Runs">
-            <ToggleGroup
-              aria-label="Trigger"
-              variant="segmented"
-              value={[kind]}
-              onValueChange={(next) => {
-                const value = next[0];
-                if (value === "schedule" || value === "board") {
-                  setKind(value);
-                  if (value === "schedule" && checkout === "ticket") setCheckout("local");
-                }
-              }}
-            >
-              <Toggle value="schedule">On a schedule</Toggle>
-              <Toggle value="board">When a ticket enters a column</Toggle>
-            </ToggleGroup>
-          </Field>
 
           {kind === "schedule" ? (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -559,88 +515,7 @@ function AutomationForm({
                 </Field>
               ) : null}
             </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Board">
-                <Select
-                  value={boardScope}
-                  onValueChange={(value) => {
-                    setBoardScope(String(value));
-                    setColumnId("");
-                  }}
-                >
-                  <SelectTrigger aria-label="Board">
-                    <SelectValue>
-                      {anyBoard ? "Any board" : (board?.name ?? "Choose a board")}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup alignItemWithTrigger={false}>
-                    <SelectItem value={ANY_BOARD}>Any board</SelectItem>
-                    {liveBoards.map((candidate) => (
-                      <SelectItem key={candidate.id} value={candidate.id}>
-                        {candidate.name}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </Field>
-              {anyBoard ? (
-                <Field label="Column name">
-                  <Select
-                    value={columnName}
-                    onValueChange={(value) => setColumnName(String(value))}
-                  >
-                    <SelectTrigger aria-label="Column name">
-                      <SelectValue>{columnName || "Choose a column"}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup alignItemWithTrigger={false}>
-                      {columnNameOptions.map((name) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                </Field>
-              ) : (
-                <Field label="Column">
-                  <Select
-                    value={columnId}
-                    disabled={!board}
-                    onValueChange={(value) => setColumnId(String(value))}
-                  >
-                    <SelectTrigger aria-label="Column">
-                      <SelectValue>
-                        {columns.find((column) => column.id === columnId)?.name ??
-                          "Choose a column"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup alignItemWithTrigger={false}>
-                      {columns.map((column) => (
-                        <SelectItem key={column.id} value={column.id}>
-                          {column.name}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                </Field>
-              )}
-              <Field
-                label="Run limit per ticket"
-                htmlFor="automation-max-runs"
-                hint="After this many runs, the ticket goes to Needs you."
-              >
-                <Input
-                  id="automation-max-runs"
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={maxRuns}
-                  onChange={(event) => setMaxRuns(Math.max(1, Number(event.target.value)))}
-                />
-              </Field>
-            </div>
-          )}
+          ) : null}
 
           {does === "chat" ? (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -655,7 +530,7 @@ function AutomationForm({
                     <SelectValue>{projectLabel}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup alignItemWithTrigger={false}>
-                    {kind === "board" ? (
+                    {isWorkflow ? (
                       <SelectItem value={INHERIT_PROJECT}>
                         Inherit from the ticket, then the board
                       </SelectItem>
@@ -690,7 +565,9 @@ function AutomationForm({
                   <SelectPopup alignItemWithTrigger={false}>
                     {(Object.keys(CHECKOUT_LABEL) as AutomationCheckout[])
                       // A schedule has no ticket to share a workspace with.
-                      .filter((option) => kind === "board" || option !== "ticket")
+                      .filter((option) =>
+                        isWorkflow ? option !== "worktree" : option !== "ticket",
+                      )
                       .map((option) => (
                         <SelectItem key={option} value={option}>
                           {CHECKOUT_LABEL[option]}
@@ -737,7 +614,7 @@ function AutomationForm({
           Cancel
         </Button>
         <Button type="submit" form={formId} disabled={submitting}>
-          {automation ? "Save" : "Create automation"}
+          {automation ? "Save" : isWorkflow ? "Create workflow" : "Create automation"}
         </Button>
       </DialogFooter>
     </>

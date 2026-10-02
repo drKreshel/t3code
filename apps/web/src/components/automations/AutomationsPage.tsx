@@ -59,20 +59,15 @@ const TEMPLATES: ReadonlyArray<{ readonly label: string; readonly draft: Automat
       repeat: "weekdays",
     },
   },
-  {
-    label: "Test tickets entering Testing",
-    draft: {
-      trigger: "board",
-      anyBoardColumnName: "Review",
-      title: "Test ticket",
-      prompt:
-        "Test {{ticket.key}}: {{ticket.title}}. Read the ticket with get_ticket, verify each acceptance criterion and check off the ones that pass. If all pass, move it to Done. Otherwise leave a handoff comment saying what failed and move it back to In progress.",
-    },
-  },
 ];
 
-/** Every automation: schedules and board hooks, with their recent runs. */
-export function AutomationsPage() {
+/** Scheduled automations and workflow presets, with their execution history. */
+export function AutomationsPage({
+  tab = "scheduled",
+}: {
+  readonly tab?: "scheduled" | "workflows";
+}) {
+  const isWorkflows = tab === "workflows";
   const automations = useAutomations();
   const boards = useBoards();
   const [dialog, setDialog] = useState<{
@@ -104,23 +99,30 @@ export function AutomationsPage() {
     const scheduled = snapshot.automations.filter(
       (automation) => automation.trigger.type === "schedule",
     );
-    const hooks = snapshot.automations.filter((automation) => automation.trigger.type === "board");
+    const workflows = snapshot.automations.filter(
+      (automation) => automation.trigger.type === "workflow",
+    );
+    const visible = isWorkflows ? workflows : scheduled;
     return (
       <WorkspacePageContainer width="wide">
-        {snapshot.automations.length === 0 ? (
+        {visible.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <ZapIcon />
               </EmptyMedia>
-              <EmptyTitle>No automations yet</EmptyTitle>
+              <EmptyTitle>
+                {isWorkflows ? "No workflow presets yet" : "No automations yet"}
+              </EmptyTitle>
               <EmptyDescription>
-                Start a chat on a schedule, or whenever a ticket enters a board column.
+                {isWorkflows
+                  ? "Create instructions you can select and customize on each ticket."
+                  : "Start a chat or perform cleanup on a schedule."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}
-        {scheduled.length > 0 ? (
+        {!isWorkflows && scheduled.length > 0 ? (
           <AutomationSection
             title="Scheduled"
             automations={scheduled}
@@ -129,51 +131,71 @@ export function AutomationsPage() {
             onEdit={(automation) => setDialog({ automation, draft: null })}
           />
         ) : null}
-        {hooks.length > 0 ? (
+        {isWorkflows && workflows.length > 0 ? (
           <AutomationSection
-            title="Board hooks"
-            automations={hooks}
+            title="Workflow presets"
+            automations={workflows}
             runs={snapshot.runs}
             boardColumnLabel={boardColumnLabel}
             onEdit={(automation) => setDialog({ automation, draft: null })}
           />
         ) : null}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Start from a template</h2>
-          <div className="flex flex-wrap gap-2">
-            {TEMPLATES.map((template) => (
-              <Button
-                key={template.label}
-                size="xs"
-                variant="outline"
-                onClick={() => setDialog({ automation: null, draft: template.draft })}
-              >
-                {template.label}
-              </Button>
-            ))}
-          </div>
-        </section>
+        {!isWorkflows ? (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-sm font-medium text-muted-foreground">Start from a template</h2>
+            <div className="flex flex-wrap gap-2">
+              {TEMPLATES.map((template) => (
+                <Button
+                  key={template.label}
+                  size="xs"
+                  variant="outline"
+                  onClick={() => setDialog({ automation: null, draft: template.draft })}
+                >
+                  {template.label}
+                </Button>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </WorkspacePageContainer>
     );
   };
 
   return (
     <BoardsPageFrame
-      root="Automations"
+      root={isWorkflows ? "Workflows" : "Automations"}
       crumbs={[]}
       actions={
         automations.status === "ready" ? (
           <Button
             size="xs"
             variant="outline"
-            onClick={() => setDialog({ automation: null, draft: null })}
+            onClick={() =>
+              setDialog({ automation: null, draft: isWorkflows ? { trigger: "workflow" } : null })
+            }
           >
             <PlusIcon />
-            New automation
+            {isWorkflows ? "New workflow" : "New automation"}
           </Button>
         ) : null
       }
     >
+      <div className="flex gap-2 px-6 pt-4">
+        <Button
+          size="xs"
+          variant={isWorkflows ? "ghost" : "secondary"}
+          render={<Link to="/automations" search={{ tab: "scheduled" }} />}
+        >
+          Scheduled
+        </Button>
+        <Button
+          size="xs"
+          variant={isWorkflows ? "secondary" : "ghost"}
+          render={<Link to="/automations" search={{ tab: "workflows" }} />}
+        >
+          Workflows
+        </Button>
+      </div>
       {content()}
       <AutomationDialog
         open={dialog !== null}
@@ -240,6 +262,10 @@ function AutomationRow({
   const remove = async () => {
     const api = readLocalApi();
     if (!api) return;
+    if (automation.trigger.type === "workflow") {
+      void dispatch({ type: "automation.update", automationId: automation.id, enabled: false });
+      return;
+    }
     const confirmed = await settlePromise(() =>
       api.dialogs.confirm(`Delete "${automation.title}"?\nIts run history is deleted too.`, {
         variant: "destructive",
@@ -322,7 +348,9 @@ function AutomationRow({
             ) : null}
             <MenuItem onClick={onEdit}>Edit</MenuItem>
             <MenuSeparator />
-            <MenuItem onClick={() => void remove()}>Delete</MenuItem>
+            <MenuItem onClick={() => void remove()}>
+              {isSchedule ? "Delete" : "Retire preset"}
+            </MenuItem>
           </MenuPopup>
         </Menu>
       </div>

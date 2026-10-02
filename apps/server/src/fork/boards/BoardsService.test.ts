@@ -122,7 +122,7 @@ it.layer(TestLayer)("BoardsService", (it) => {
     }),
   );
 
-  it.effect("keeps a flag where the ticket stands until resolved or moved by a person", () =>
+  it.effect("keeps a flag through column moves until explicitly resolved", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Help", key: "HELP" });
       const todo = columnNamed(yield* snapshot, boardId, "Todo");
@@ -137,12 +137,12 @@ it.layer(TestLayer)("BoardsService", (it) => {
         reason: "Which API version?",
         by: "thread:env:agent",
       });
-      // An agent moving it keeps the flag; a person moving it resolves it.
+      // Organizing the board does not resolve the decision for either actor.
       yield* dispatch({ type: "ticket.move", ticketId: ticket, columnId: todo }, "automation:a");
       assert.ok((yield* find).flag);
       const backlog = columnNamed(yield* snapshot, boardId, "Backlog");
       yield* dispatch({ type: "ticket.move", ticketId: ticket, columnId: backlog });
-      assert.equal((yield* find).flag, null);
+      assert.ok((yield* find).flag);
 
       yield* dispatch({
         type: "ticket.flag",

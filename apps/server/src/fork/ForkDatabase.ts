@@ -16,6 +16,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { ServerConfig } from "../config.ts";
+import { migrateColumnWorkflows } from "./automations/workflowMigration.ts";
 
 /**
  * Applied in order, once each. Append only: a shipped entry is never edited,
@@ -209,6 +210,13 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
     version: 7,
     statements: [`ALTER TABLE fork_tickets ADD COLUMN folder TEXT`],
   },
+  {
+    version: 8,
+    statements: [
+      `ALTER TABLE fork_tickets ADD COLUMN workflow_json TEXT`,
+      `ALTER TABLE fork_tickets ADD COLUMN workflow_thread_key TEXT`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {
@@ -231,6 +239,7 @@ export const runForkMigrations = Effect.gen(function* () {
         for (const statement of migration.statements) {
           yield* sql.unsafe(statement);
         }
+        if (migration.version === 8) yield* migrateColumnWorkflows;
         yield* sql`
           INSERT INTO fork_schema_migrations (version, applied_at)
           VALUES (${migration.version}, ${DateTime.formatIso(yield* DateTime.now)})

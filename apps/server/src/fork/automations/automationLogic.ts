@@ -130,6 +130,12 @@ export function stepsProblem(
   prompt: string,
 ): string | null {
   const steps = action.steps ?? [];
+  if (trigger.type === "workflow") {
+    if (steps.length > 0)
+      return "Workflows use instructions rather than built-in automation steps.";
+    if (action.checkout === "worktree")
+      return "Use the ticket workspace or shared project for a workflow.";
+  }
   if (steps.length === 0) {
     return prompt.trim() ? null : "Write the prompt the chat starts with.";
   }

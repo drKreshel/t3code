@@ -30,7 +30,7 @@ export function BoardsPageFrame({
   children,
 }: {
   /** The first crumb, and the page it links to. */
-  readonly root?: "Boards" | "Automations";
+  readonly root?: "Boards" | "Automations" | "Workflows";
   readonly crumbs: ReadonlyArray<BoardsCrumb>;
   readonly actions?: ReactNode;
   readonly scroll?: boolean;

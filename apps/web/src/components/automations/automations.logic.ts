@@ -135,6 +135,7 @@ export function describeTrigger(
   boardColumnLabel: (boardId: string, columnId: string) => string,
 ): string {
   if (trigger.type === "schedule") return describeSchedule(trigger.schedule);
+  if (trigger.type === "workflow") return "Ticket workflow · Start / Resume";
   if (trigger.boardId === null || trigger.columnId === null) {
     return `When a ticket enters "${anyBoardColumnName(trigger) ?? "?"}" on any board`;
   }

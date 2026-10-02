@@ -19,32 +19,21 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { Link } from "@tanstack/react-router";
-import type { Automation, Board, BoardColumn } from "@t3tools/contracts";
+import type { Board, BoardColumn } from "@t3tools/contracts";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   EllipsisIcon,
-  PauseIcon,
-  PlayIcon,
   ZapIcon,
   FolderIcon,
   LinkIcon,
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from "react";
+import { useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { cn } from "../../lib/utils";
-import { useAutomations, useAutomationsDispatch } from "../../state/automations";
 import { useBoardsDispatch } from "../../state/boards";
-import { AutomationDialog, type AutomationDraft } from "../automations/AutomationDialog";
-import { hooksByColumn } from "../automations/automations.logic";
 import { resolveProjectStatusIndicator, resolveThreadStatusPill } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -95,22 +84,6 @@ function BoardView({
   const defaultProject = lookupProject(board.defaultProjectKey);
   const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const automations = useAutomations();
-  const automationsDispatch = useAutomationsDispatch();
-  const [hookDialog, setHookDialog] = useState<{
-    readonly automation: Automation | null;
-    readonly draft: AutomationDraft | null;
-  } | null>(null);
-  const hooks = useMemo(
-    () =>
-      automations.status === "ready"
-        ? hooksByColumn(automations.snapshot.automations, board)
-        : new Map<string, Automation[]>(),
-    [automations, board],
-  );
-  const hooksPaused =
-    automations.status === "ready" &&
-    automations.snapshot.boardHooks.some((state) => state.boardId === board.id && state.paused);
   const columns = useMemo(
     () => board.columns.toSorted((a, b) => a.position - b.position),
     [board.columns],
@@ -133,21 +106,6 @@ function BoardView({
   const [activeId, setActiveId] = useState<string | null>(null);
   const justDraggedRef = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  // Shift held at the drop makes it a quiet move: organizing, no hooks.
-  const shiftHeld = useRef(false);
-  useEffect(() => {
-    const track = (event: KeyboardEvent | PointerEvent) => {
-      shiftHeld.current = event.shiftKey;
-    };
-    window.addEventListener("keydown", track);
-    window.addEventListener("keyup", track);
-    window.addEventListener("pointermove", track);
-    return () => {
-      window.removeEventListener("keydown", track);
-      window.removeEventListener("keyup", track);
-      window.removeEventListener("pointermove", track);
-    };
-  }, []);
   const order =
     dragOrder ??
     new Map(
@@ -218,14 +176,13 @@ function BoardView({
       const id = ids[index + offset];
       return id === undefined ? undefined : viewById.get(id)?.ticket.position;
     };
-    // Columns mean nothing: tickets move freely. A blocked one's hooks wait.
+    // Moving a ticket records progress; execution starts explicitly from its workflow.
     if (!unchanged) {
       await dispatch({
         type: "ticket.move",
         ticketId: activeKey,
         columnId,
         position: positionBetween(neighbour(-1), neighbour(1)),
-        ...(shiftHeld.current ? { quiet: true } : {}),
       });
     }
     setDragOrder(null);
@@ -303,26 +260,10 @@ function BoardView({
                 <SettingsIcon />
                 Board settings
               </MenuItem>
-              <MenuItem
-                onClick={() => setHookDialog({ automation: null, draft: { boardId: board.id } })}
-              >
+              <MenuItem render={<Link to="/automations" search={{ tab: "workflows" }} />}>
                 <ZapIcon />
-                Add hook…
+                Workflows
               </MenuItem>
-              {hooks.size > 0 ? (
-                <MenuItem
-                  onClick={() =>
-                    void automationsDispatch({
-                      type: "board.pauseHooks",
-                      boardId: board.id,
-                      paused: !hooksPaused,
-                    })
-                  }
-                >
-                  {hooksPaused ? <PlayIcon /> : <PauseIcon />}
-                  {hooksPaused ? "Resume hooks" : "Pause hooks"}
-                </MenuItem>
-              ) : null}
               <MenuSeparator />
               <MenuItem
                 onClick={() =>
@@ -370,29 +311,12 @@ function BoardView({
               adding={addingColumnId === column.id}
               onAddingChange={(adding) => setAddingColumnId(adding ? column.id : null)}
               justDraggedRef={justDraggedRef}
-              hooks={hooks.get(column.id) ?? []}
-              hooksPaused={hooksPaused}
-              onEditHook={(automation) => setHookDialog({ automation, draft: null })}
-              onAddHook={() =>
-                setHookDialog({
-                  automation: null,
-                  draft: { boardId: board.id, columnId: column.id },
-                })
-              }
             />
           ))}
         </div>
         <DragOverlay>{activeView ? <TicketCard view={activeView} overlay /> : null}</DragOverlay>
       </DndContext>
       <BoardSettingsDialog board={board} open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <AutomationDialog
-        open={hookDialog !== null}
-        onOpenChange={(open) => {
-          if (!open) setHookDialog(null);
-        }}
-        automation={hookDialog?.automation ?? null}
-        draft={hookDialog?.draft ?? null}
-      />
     </BoardsPageFrame>
   );
 }
@@ -404,10 +328,6 @@ function BoardColumnView({
   adding,
   onAddingChange,
   justDraggedRef,
-  hooks,
-  hooksPaused,
-  onEditHook,
-  onAddHook,
 }: {
   readonly board: Board;
   readonly column: BoardColumn;
@@ -415,11 +335,6 @@ function BoardColumnView({
   readonly adding: boolean;
   readonly onAddingChange: (adding: boolean) => void;
   readonly justDraggedRef: { readonly current: boolean };
-  /** Automations that run when a ticket enters this column. */
-  readonly hooks: ReadonlyArray<Automation>;
-  readonly hooksPaused: boolean;
-  readonly onEditHook: (automation: Automation) => void;
-  readonly onAddHook: () => void;
 }) {
   const { setNodeRef } = useDroppable({ id: column.id });
   return (
@@ -431,37 +346,6 @@ function BoardColumnView({
         <span className={cn("size-2 shrink-0 rounded-full", columnDotClass(column.color))} />
         <h2 className="min-w-0 truncate font-medium">{column.name}</h2>
         <span className="text-xs tabular-nums text-muted-foreground">{views.length}</span>
-        {board.archivedAt === null ? (
-          <Menu>
-            <MenuTrigger
-              render={
-                <Button
-                  aria-label={
-                    hooks.length > 0
-                      ? `${hooks.length} hook${hooks.length === 1 ? "" : "s"} on ${column.name}${hooksPaused ? " (paused)" : ""}`
-                      : `Add a hook to ${column.name}`
-                  }
-                  className="ml-auto"
-                  size={hooks.length > 0 ? "xs" : "icon-xs"}
-                  variant={hooks.length > 0 && !hooksPaused ? "secondary" : "ghost"}
-                />
-              }
-            >
-              <ZapIcon />
-              {hooks.length > 0 ? hooks.length : null}
-            </MenuTrigger>
-            <MenuPopup align="end">
-              {hooks.map((automation) => (
-                <MenuItem key={automation.id} onClick={() => onEditHook(automation)}>
-                  {automation.title}
-                  {automation.enabled ? "" : " (off)"}
-                </MenuItem>
-              ))}
-              {hooks.length > 0 ? <MenuSeparator /> : null}
-              <MenuItem onClick={onAddHook}>Add hook to {column.name}…</MenuItem>
-            </MenuPopup>
-          </Menu>
-        ) : null}
         {board.archivedAt === null ? (
           <Button
             aria-label={`Add ticket to ${column.name}`}
@@ -639,6 +523,9 @@ function TicketCard({
         ) : null}
       </div>
       <p className="line-clamp-3 text-foreground">{ticket.title}</p>
+      {ticket.workflow ? (
+        <p className="truncate text-xs text-muted-foreground">{ticket.workflow.title}</p>
+      ) : null}
       {view.attention || view.requirements.length > 0 || ticket.criteria.length > 0 || project ? (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {view.attention ? (

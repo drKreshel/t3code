@@ -11,6 +11,8 @@ import {
   type OrchestrationV2ThreadShell,
   ProjectId,
   ThreadId,
+  RunId,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -19,12 +21,16 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import type { Tool } from "effect/unstable/ai";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../../serverSettings.ts";
+import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
+import { AutomationsToolkit } from "../mcp/automationsTools.ts";
+import { AutomationsToolkitHandlersLive } from "../mcp/automationsHandlers.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { AutomationEngine, layerManual } from "./AutomationEngine.ts";
 import { AutomationsStore, layerMemory as storeLayerMemory } from "./AutomationsStore.ts";
@@ -69,9 +75,22 @@ const makeHarness = Effect.gen(function* () {
   const fakes = Layer.mergeAll(
     Layer.mock(OrchestratorV2)({
       dispatch: (command) =>
-        Ref.update(commands, (list) => [...list, command]).pipe(
-          Effect.as({ sequence: 1, storedEvents: [] }),
-        ),
+        Effect.gen(function* () {
+          yield* Ref.update(commands, (list) => [...list, command]);
+          if (command.type === "thread.create")
+            yield* Ref.update(turnStates, (states) =>
+              new Map(states).set(command.threadId, "completed"),
+            );
+          if (command.type === "message.dispatch")
+            yield* Ref.update(turnStates, (states) =>
+              new Map(states).set(command.threadId, "running"),
+            );
+          if (command.type === "run.interrupt")
+            yield* Ref.update(turnStates, (states) =>
+              new Map(states).set(command.threadId, "interrupted"),
+            );
+          return { sequence: 1, storedEvents: [] };
+        }),
       streamDomainEvents: Stream.empty,
       getThreadShell: (threadId) =>
         Ref.get(turnStates).pipe(
@@ -81,6 +100,11 @@ const makeHarness = Effect.gen(function* () {
               ? null
               : ({
                   id: threadId,
+                  activeRunId: ["running", "preparing", "queued", "starting", "waiting"].includes(
+                    state,
+                  )
+                    ? RunId.make(`run:${threadId}`)
+                    : null,
                   status: state === "error" ? "failed" : state,
                   lastError: null,
                 } as OrchestrationV2ThreadShell);
@@ -142,7 +166,17 @@ const makeHarness = Effect.gen(function* () {
       }),
     );
 
-  return { engine, boards, store, commands, threadIdsStarted, endTurn, boardDispatch };
+  return {
+    engine,
+    boards,
+    store,
+    commands,
+    turnStates,
+    threadIdsStarted,
+    endTurn,
+    boardDispatch,
+    fakes,
+  };
 });
 
 const TestLayer = Layer.mergeAll(boardsLayerMemory, storeLayerMemory).pipe(
@@ -161,15 +195,21 @@ const setupBoard = (harness: Effect.Success<typeof makeHarness>) =>
     const hookId = (yield* harness.engine.dispatch({
       type: "automation.create",
       title: "Implement",
-      prompt: "Implement {{ticket.key}}: {{ticket.title}}",
-      trigger: { type: "board", boardId, columnId: column("In progress") },
+      prompt: "Implement {{ticket.key}}: {{ticket.title}}. Latest handoff: {{ticket.handoff}}",
+      trigger: { type: "workflow" },
       action,
-      maxRunsPerTicket: 2,
     })).id!;
+    const preset = yield* harness.store.get(hookId);
+    const workflow = {
+      presetId: hookId,
+      title: preset.title,
+      prompt: preset.prompt,
+      action: preset.action,
+    };
     const ticket = (title: string, requires?: string[]) =>
       harness.boards
         .dispatch(
-          { type: "ticket.create", boardId, title, ...(requires ? { requires } : {}) },
+          { type: "ticket.create", boardId, title, workflow, ...(requires ? { requires } : {}) },
           "user",
         )
         .pipe(Effect.map((result) => result.id!));
@@ -177,155 +217,293 @@ const setupBoard = (harness: Effect.Success<typeof makeHarness>) =>
   });
 
 describe("AutomationEngine", () => {
-  it.effect(
-    "starts a linked chat with the rendered prompt when a ticket enters a hooked column",
-    () =>
-      Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        const { column, ticket } = yield* setupBoard(harness);
-        const ticketId = yield* ticket("Meter notes");
-        yield* harness.boardDispatch({
-          type: "ticket.move",
-          ticketId,
-          columnId: column("In progress"),
-        });
-
-        const commands = yield* Ref.get(harness.commands);
-        expect(commands.map((command) => command.type)).toEqual([
-          "thread.create",
-          "message.dispatch",
-        ]);
-        const turn = commands[1]!;
-        expect(turn.type === "message.dispatch" && turn.text).toBe(
-          "Implement ATLAS-1: Meter notes",
-        );
-        const [threadId] = yield* harness.threadIdsStarted;
-        const linked = (yield* harness.boards.snapshot).tickets[0]!.threadKeys;
-        expect(linked).toEqual([`${ENVIRONMENT_ID}:${threadId}`]);
-        const runs = (yield* harness.store.snapshot).runs;
-        expect(runs.map((run) => run.status)).toEqual(["running"]);
-      }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("keeps a v2 run active through preparation, startup, and waiting", () =>
+  it.effect("creates and edits presets through MCP, then starts and pauses a linked ticket", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Long setup");
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId,
-        columnId: column("In progress"),
+      const { boardId } = yield* setupBoard(harness);
+      const toolkit = yield* AutomationsToolkit.pipe(
+        Effect.provide(AutomationsToolkitHandlersLive.pipe(Layer.provide(harness.fakes))),
+        Effect.provideService(AutomationEngine, harness.engine),
+      );
+      const invocation: McpInvocationContext.McpInvocationScope = {
+        environmentId: ENVIRONMENT_ID,
+        threadId: ThreadId.make("caller"),
+        providerSessionId: "test",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const call = <Name extends keyof typeof AutomationsToolkit.tools>(
+        name: Name,
+        parameters: Parameters<typeof toolkit.handle<Name>>[1],
+      ) =>
+        toolkit.handle(name, parameters).pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.map(
+            (items) =>
+              items.at(-1)!.result as Tool.Success<(typeof AutomationsToolkit.tools)[Name]>,
+          ),
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provide(harness.fakes),
+        );
+      const modelSelection = {
+        instanceId: ProviderInstanceId.make("custom-provider"),
+        model: "custom-model",
+      };
+      const preset = yield* call("create_workflow", {
+        title: "Small review",
+        instructions: "Review and record findings.",
+        modelSelection,
+        checkout: "local",
       });
-      const [threadId] = yield* harness.threadIdsStarted;
-      for (const state of ["preparing", "queued", "starting", "running", "waiting"] as const) {
-        yield* harness.endTurn(threadId!, state);
-        yield* harness.engine.tick;
-        expect((yield* harness.store.snapshot).runs[0]!.status).toBe("running");
-        expect((yield* harness.boards.snapshot).tickets[0]!.flag).toBeNull();
-      }
-      yield* harness.endTurn(threadId!, "completed");
-      expect((yield* harness.store.snapshot).runs[0]!.status).toBe("succeeded");
+      const listed = (yield* call("list_workflows", {})).workflows.find(
+        (workflow) => workflow.id === preset.id,
+      )!;
+      expect(listed.action.modelSelection).toEqual(modelSelection);
+      yield* call("update_workflow", {
+        workflow: preset.id,
+        instructions: "Review the changed queries.",
+        modelSelection: null,
+      });
+      const saved = yield* harness.store.get(preset.id);
+      expect(saved.prompt).toBe("Review the changed queries.");
+      expect(saved.action.modelSelection).toBeNull();
+      const ticketId = (yield* harness.boards.dispatch(
+        {
+          type: "ticket.create",
+          boardId,
+          title: "Queries",
+          workflow: {
+            presetId: saved.id,
+            title: saved.title,
+            prompt: saved.prompt,
+            action: saved.action,
+          },
+        },
+        "user",
+      )).id!;
+      yield* harness.boards.dispatch(
+        { type: "thread.link", ticketId, threadKey: `${ENVIRONMENT_ID}:${invocation.threadId}` },
+        "user",
+      );
+      const started = yield* call("start_workflow", {});
+      expect(started.ticket).toBe("ATLAS-1");
+      expect(started.threadKey).toBe(
+        (yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey,
+      );
+      yield* call("pause_workflow", {});
+      expect((yield* harness.boards.snapshot).tickets[0]?.flag?.level).toBe("warning");
     }).pipe(Effect.provide(TestLayer)),
   );
-
-  it.effect("queues a second trigger behind the live chat and starts it when that chat ends", () =>
+  it.effect("starts explicitly, resumes the same chat, and reads the latest ticket handoff", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
+      const { ticket, column } = yield* setupBoard(harness);
       const ticketId = yield* ticket("Meter notes");
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Todo") });
-      yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("In progress") },
-        "automation:other",
-      );
-      // Re-entering while the first chat still runs queues one run.
-      yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("Todo") },
-        "agent",
-      );
-      yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("In progress") },
-        "agent",
-      );
-      expect((yield* harness.threadIdsStarted).length).toBe(1);
-      expect((yield* harness.store.snapshot).runs.map((run) => run.status).toSorted()).toEqual([
-        "queued",
-        "running",
-      ]);
-
-      const [first] = yield* harness.threadIdsStarted;
-      yield* harness.endTurn(first!, "completed");
-      expect((yield* harness.threadIdsStarted).length).toBe(2);
-      const statuses = (yield* harness.store.snapshot).runs.map((run) => run.status).toSorted();
-      expect(statuses).toEqual(["running", "succeeded"]);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("stops at the run limit and flags the ticket where it stands", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Flaky");
-      // Two runs that end without the ticket moving on: the agent bounces it back.
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        yield* harness.boardDispatch(
-          { type: "ticket.move", ticketId, columnId: column("In progress") },
-          "agent",
-        );
-        yield* harness.endTurn((yield* harness.threadIdsStarted).at(-1)!, "completed");
-        yield* harness.boardDispatch(
-          { type: "ticket.move", ticketId, columnId: column("Review") },
-          "agent",
-        );
-      }
-      // The third entry hits the limit of 2.
-      yield* harness.boardDispatch(
-        { type: "ticket.move", ticketId, columnId: column("In progress") },
-        "agent",
-      );
-      expect((yield* harness.threadIdsStarted).length).toBe(2);
-      const current = (yield* harness.boards.snapshot).tickets[0]!;
-      expect(current.columnId).toBe(column("In progress"));
-      expect(current.flag).toMatchObject({ level: "warning" });
-      expect(current.flag?.reason).toMatch(/ran 2 times/);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("fires hooks for tickets that require others: Requires is only a link", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
-      const schema = yield* ticket("Schema");
-      const endpoint = yield* ticket("Endpoint", [schema]);
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId: endpoint,
-        columnId: column("In progress"),
-      });
-      expect((yield* harness.threadIdsStarted).length).toBe(1);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("escalates a failed chat with its reason", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Crashy");
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId,
-        columnId: column("In progress"),
-      });
+      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Review") });
+      expect(yield* harness.threadIdsStarted).toEqual([]);
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
       const [threadId] = yield* harness.threadIdsStarted;
-      yield* harness.endTurn(threadId!, "error");
-      const current = (yield* harness.boards.snapshot).tickets[0]!;
-      expect(current.flag).toMatchObject({ level: "error" });
-      expect(current.flag?.reason).toMatch(/"Implement" failed/);
-      expect((yield* harness.store.snapshot).runs[0]!.status).toBe("failed");
+      expect((yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey).toBe(
+        `${ENVIRONMENT_ID}:${threadId}`,
+      );
+      yield* harness.endTurn(threadId!, "completed");
+      yield* harness.boards.dispatch(
+        {
+          type: "comment.add",
+          ticketId,
+          body: "Review found one layout issue. Fix that next.",
+          isHandoff: true,
+        },
+        "user",
+      );
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      expect(yield* harness.threadIdsStarted).toEqual([threadId]);
+      const messages = (yield* Ref.get(harness.commands)).filter(
+        (command) => command.type === "message.dispatch",
+      );
+      expect(messages).toHaveLength(2);
+      expect(messages[1]?.threadId).toBe(threadId);
+      expect(messages[1]?.text).toContain("Review found one layout issue.");
+      const detail = yield* Stream.runHead(harness.boards.ticketDetailStream(ticketId));
+      expect(Option.isSome(detail) && detail.value.events.map((event) => event.kind)).toEqual(
+        expect.arrayContaining(["workflow.started", "workflow.finished", "workflow.resumed"]),
+      );
     }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect("serializes simultaneous starts and refuses a second execution", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("One owner");
+      const results = yield* Effect.all(
+        [
+          harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId }).pipe(Effect.result),
+          harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId }).pipe(Effect.result),
+        ],
+        { concurrency: 2 },
+      );
+      expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
+      expect(yield* harness.threadIdsStarted).toHaveLength(1);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("waits for preparation and approvals, and detects active manual sessions", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Manual work");
+      const manual = ThreadId.make("manual");
+      yield* harness.boards.dispatch(
+        { type: "thread.link", ticketId, threadKey: `${ENVIRONMENT_ID}:${manual}` },
+        "user",
+      );
+      for (const state of ["preparing", "waiting", "running"] as const) {
+        yield* Ref.update(harness.turnStates, (states) => new Map(states).set(manual, state));
+        const error = yield* harness.engine
+          .dispatch({ type: "ticket.startWorkflow", ticketId })
+          .pipe(Effect.flip);
+        expect(error.message).toMatch(/already working/);
+      }
+      expect(yield* harness.threadIdsStarted).toHaveLength(0);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("pauses with a warning, holds the queue, and resumes without a new session", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Pause me");
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      yield* harness.engine.dispatch({ type: "ticket.pauseWorkflow", ticketId });
+      expect(
+        (yield* Ref.get(harness.commands)).find((command) => command.type === "run.interrupt"),
+      ).toMatchObject({ holdQueue: true });
+      expect((yield* harness.boards.snapshot).tickets[0]?.flag?.level).toBe("warning");
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      expect(yield* harness.threadIdsStarted).toHaveLength(1);
+      expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("keeps instruction snapshots and assigned tickets usable after retiring a preset", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket, hookId } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Keep instructions");
+      yield* harness.engine.dispatch({
+        type: "automation.update",
+        automationId: hookId,
+        prompt: "Replacement process",
+      });
+      yield* harness.engine.dispatch({ type: "automation.delete", automationId: hookId });
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      const message = (yield* Ref.get(harness.commands)).find(
+        (command) => command.type === "message.dispatch",
+      );
+      expect(message?.text).toContain("Implement ATLAS-1: Keep instructions");
+      expect(message?.text).not.toContain("Replacement process");
+      expect((yield* harness.store.get(hookId)).enabled).toBe(false);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("links delegated child chats to the same ticket without launching extra work", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Delegated review");
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      const [parent] = yield* harness.threadIdsStarted;
+      const child = ThreadId.make("review-child");
+      yield* harness.engine.handleDomainEvent({
+        type: "thread.created",
+        threadId: child,
+        payload: { lineage: { parentThreadId: parent } },
+      } as unknown as OrchestrationV2DomainEvent);
+      expect((yield* harness.boards.snapshot).tickets[0]?.threadKeys).toEqual([
+        `${ENVIRONMENT_ID}:${parent}`,
+        `${ENVIRONMENT_ID}:${child}`,
+      ]);
+      expect(yield* harness.threadIdsStarted).toHaveLength(1);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("replaces a deleted owner session and retains its ticket history", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Recover owner");
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      const [owner] = yield* harness.threadIdsStarted;
+      yield* Ref.update(harness.turnStates, (states) => {
+        const next = new Map(states);
+        next.delete(owner!);
+        return next;
+      });
+      yield* harness.engine.handleDomainEvent({
+        type: "thread.deleted",
+        threadId: owner,
+      } as unknown as OrchestrationV2DomainEvent);
+      expect((yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey).toBeNull();
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      expect(yield* harness.threadIdsStarted).toHaveLength(2);
+      const secondOwner = (yield* harness.threadIdsStarted)[1]!;
+      yield* harness.endTurn(secondOwner, "completed");
+      yield* Ref.update(harness.turnStates, (states) => {
+        const next = new Map(states);
+        next.delete(secondOwner);
+        return next;
+      });
+      yield* harness.engine.handleDomainEvent({
+        type: "thread.deleted",
+        threadId: secondOwner,
+      } as unknown as OrchestrationV2DomainEvent);
+      expect((yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey).toBeNull();
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      expect(yield* harness.threadIdsStarted).toHaveLength(3);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("refuses column hooks and does not start work when a human flag is resolved", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket, boardId, column } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Explicit only");
+      const error = yield* harness.engine
+        .dispatch({
+          type: "automation.create",
+          title: "Old hook",
+          prompt: "Do work",
+          trigger: { type: "board", boardId, columnId: column("Review") },
+          action,
+        })
+        .pipe(Effect.flip);
+      expect(error.message).toMatch(/replaced by ticket workflows/);
+      yield* harness.boardDispatch({
+        type: "ticket.flag",
+        ticketId,
+        level: "warning",
+        reason: "Needs a decision",
+      });
+      yield* harness.boardDispatch({ type: "ticket.resolveFlag", ticketId });
+      expect(yield* harness.threadIdsStarted).toHaveLength(0);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("records workflow failures on the ticket and flags it for a human", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Failure");
+      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      const [owner] = yield* harness.threadIdsStarted;
+      yield* harness.endTurn(owner!, "error");
+      expect((yield* harness.boards.snapshot).tickets[0]?.flag?.level).toBe("error");
+      expect((yield* harness.store.snapshot).runs[0]?.status).toBe("failed");
+    }).pipe(Effect.provide(TestLayer)),
+  );
   it.effect("runs a schedule on demand in its project, without a ticket", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
@@ -348,7 +526,9 @@ describe("AutomationEngine", () => {
         worktreePath: "/work/worktrees/abcd1234",
         branch: "t3code/abcd1234",
       });
-      const automation = (yield* harness.store.snapshot).automations[0]!;
+      const automation = (yield* harness.store.snapshot).automations.find(
+        (candidate) => candidate.id === id,
+      )!;
       expect(automation.nextRunAt).not.toBeNull();
     }).pipe(Effect.provide(TestLayer)),
   );
@@ -385,91 +565,6 @@ describe("AutomationEngine", () => {
         })
         .pipe(Effect.flip);
       expect(badCron.message).toMatch(/Invalid schedule/);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("an any-board hook fires on every board's column of its type", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const boardId = (yield* harness.boards.dispatch(
-        { type: "board.create", name: "Beta", key: "BETA", defaultProjectKey: PROJECT_KEY },
-        "user",
-      )).id!;
-      yield* harness.engine.dispatch({
-        type: "automation.create",
-        title: "Test anything",
-        prompt: "Test {{ticket.key}}",
-        trigger: { type: "board", boardId: null, columnId: null, columnName: "review" },
-        action,
-      });
-      const columns = (yield* harness.boards.snapshot).boards[0]!.columns;
-      const review = columns.find((column) => column.name === "Review")!.id;
-      const active = columns.find((column) => column.name === "In progress")!.id;
-      const ticketId = (yield* harness.boards.dispatch(
-        { type: "ticket.create", boardId, title: "Anywhere" },
-        "user",
-      )).id!;
-
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: active });
-      expect(yield* harness.threadIdsStarted).toEqual([]);
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: review });
-      const commands = yield* Ref.get(harness.commands);
-      const turn = commands.find((command) => command.type === "message.dispatch");
-      expect(turn?.type === "message.dispatch" && turn.text).toBe("Test BETA-1");
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("rejects an any-board hook without a column name", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const error = yield* harness.engine
-        .dispatch({
-          type: "automation.create",
-          title: "Nowhere",
-          prompt: "Test",
-          trigger: { type: "board", boardId: null, columnId: null },
-          action,
-        })
-        .pipe(Effect.flip);
-      expect(error.message).toMatch(/Name the column/);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-  it.effect("runs built-in steps without a chat", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { boardId, column, ticket } = yield* setupBoard(harness);
-      yield* harness.engine.dispatch({
-        type: "automation.create",
-        title: "Bounce to Done",
-        prompt: "",
-        trigger: { type: "board", boardId, columnId: column("Review") },
-        action: { ...action, steps: [{ type: "moveTo", column: "Done" }] },
-      });
-      const ticketId = yield* ticket("Quick");
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Review") });
-      expect((yield* harness.boards.snapshot).tickets[0]!.columnId).toBe(column("Done"));
-      expect(yield* harness.threadIdsStarted).toEqual([]);
-      const runs = (yield* harness.store.snapshot).runs;
-      expect(runs.map((run) => run.status)).toContain("succeeded");
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("flags the ticket when a step cannot run", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { boardId, column, ticket } = yield* setupBoard(harness);
-      yield* harness.engine.dispatch({
-        type: "automation.create",
-        title: "Park it",
-        prompt: "",
-        trigger: { type: "board", boardId, columnId: column("Review") },
-        action: { ...action, steps: [{ type: "moveTo", column: "Parking" }] },
-      });
-      const ticketId = yield* ticket("Lost");
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Review") });
-      const flagged = (yield* harness.boards.snapshot).tickets[0]!;
-      expect(flagged.flag).toMatchObject({ level: "error" });
-      expect(flagged.flag?.reason).toMatch(/no column named "Parking"/);
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -514,7 +609,7 @@ describe("AutomationEngine", () => {
             },
           })
           .pipe(Effect.flip)).message,
-      ).toMatch(/runs on a schedule/);
+      ).toMatch(/replaced by ticket workflows/);
     }).pipe(Effect.provide(TestLayer)),
   );
   it.effect("sweeps only the board a stale-ticket step names", () =>
@@ -558,95 +653,6 @@ describe("AutomationEngine", () => {
       expect(yield* sweep(boardId)).toBe(column("Backlog"));
     }).pipe(Effect.provide(TestLayer)),
   );
-  it.effect("runs a flagged ticket's hook once when a person moves it", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Stuck");
-      yield* harness.boards.dispatch(
-        { type: "ticket.flag", ticketId, level: "warning", reason: "Which API?" },
-        "user",
-      );
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId,
-        columnId: column("In progress"),
-      });
-      expect((yield* harness.boards.snapshot).tickets[0]!.flag).toBeNull();
-      expect((yield* harness.store.snapshot).runs.map((run) => run.status)).toEqual(["running"]);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("runs the hook of the column a ticket ended in after the live chat", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { boardId, column, ticket } = yield* setupBoard(harness);
-      for (const name of ["Review", "Done"]) {
-        yield* harness.engine.dispatch({
-          type: "automation.create",
-          title: name,
-          prompt: `${name} {{ticket.key}}`,
-          trigger: { type: "board", boardId, columnId: column(name) },
-          action,
-        });
-      }
-      const ticketId = yield* ticket("Fast");
-      for (const name of ["In progress", "Review", "Done"]) {
-        yield* harness.boardDispatch(
-          { type: "ticket.move", ticketId, columnId: column(name) },
-          "agent",
-        );
-      }
-      const [first] = yield* harness.threadIdsStarted;
-      yield* harness.endTurn(first!, "completed");
-      const turns = (yield* Ref.get(harness.commands)).flatMap((command) =>
-        command.type === "message.dispatch" ? [command.text] : [],
-      );
-      expect(turns).toEqual(["Implement ATLAS-1: Fast", "Done ATLAS-1"]);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("a deleted chat ends its run and lets the queued one start", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Gone");
-      for (const name of ["In progress", "Todo", "In progress"]) {
-        yield* harness.boardDispatch(
-          { type: "ticket.move", ticketId, columnId: column(name) },
-          "agent",
-        );
-      }
-      const [first] = yield* harness.threadIdsStarted;
-      yield* harness.engine.handleDomainEvent({
-        type: "thread.deleted",
-        threadId: first,
-      } as unknown as OrchestrationV2DomainEvent);
-      expect((yield* harness.threadIdsStarted).length).toBe(2);
-      const runs = (yield* harness.store.snapshot).runs;
-      expect(runs.find((run) => run.status === "failed")?.reason).toBe("The chat was deleted.");
-      expect((yield* harness.boards.snapshot).tickets[0]!.flag).toBeNull();
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("refuses to run a hook by hand while a chat works on the ticket", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { column, hookId, ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Busy");
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId,
-        columnId: column("In progress"),
-      });
-      const refused = yield* harness.engine
-        .dispatch({ type: "automation.runNow", automationId: hookId, ticketId })
-        .pipe(Effect.flip);
-      expect(refused.message).toMatch(/already working on this ticket/);
-      expect((yield* harness.threadIdsStarted).length).toBe(1);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
   it.effect("a one-off moved to a new time fires again", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
@@ -671,22 +677,6 @@ describe("AutomationEngine", () => {
       yield* harness.store.markFired(id, "2030-02-01T09:00:00.000Z");
       yield* harness.store.update(id, { trigger: once("2030-02-01T09:00:00.000Z") });
       expect((yield* harness.store.get(id)).nextRunAt).toBeNull();
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("runs no hooks for a quiet move", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { column, ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Just tidying");
-      yield* harness.boardDispatch({
-        type: "ticket.move",
-        ticketId,
-        columnId: column("In progress"),
-        quiet: true,
-      });
-      expect(yield* harness.threadIdsStarted).toEqual([]);
-      expect((yield* harness.boards.snapshot).tickets[0]!.columnId).toBe(column("In progress"));
     }).pipe(Effect.provide(TestLayer)),
   );
 });

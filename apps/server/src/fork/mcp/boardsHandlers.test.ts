@@ -18,6 +18,10 @@ import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
 import { BoardsService, layerMemory } from "../boards/BoardsService.ts";
+import {
+  AutomationsStore,
+  layerMemory as automationsLayerMemory,
+} from "../automations/AutomationsStore.ts";
 import { BoardsToolkitHandlersLive } from "./boardsHandlers.ts";
 import { BoardsToolkit } from "./boardsTools.ts";
 
@@ -75,8 +79,52 @@ const makeHarness = Effect.gen(function* () {
 });
 
 const BoardsTestLayer = layerMemory.pipe(Layer.provide(NodeServices.layer));
+const WorkflowsTestLayer = Layer.mergeAll(layerMemory, automationsLayerMemory).pipe(
+  Layer.provide(NodeServices.layer),
+);
 
 describe("boards toolkit handlers", () => {
+  it.effect(
+    "lets skills select and customize workflow snapshots, refresh a preset, and remove it",
+    () =>
+      Effect.gen(function* () {
+        const { call } = yield* makeHarness;
+        const store = yield* AutomationsStore;
+        yield* call("create_board", { name: "Atlas", key: "ATLAS" });
+        yield* call("create_ticket", {
+          board: "ATLAS",
+          title: "Review layout",
+          column: "Review",
+          workflow: "Review only",
+          workflowInstructions: "Review the layout and record findings.",
+          linkThisChat: true,
+        });
+        const ticket = yield* call("get_ticket", {});
+        expect(ticket.workflow?.prompt).toBe("Review the layout and record findings.");
+        expect(ticket.column).toBe("Review");
+        expect(ticket.workflowThreadKey).toBeNull();
+        yield* store.update("builtin:review-only", { prompt: "Updated reusable instructions." });
+        expect((yield* call("get_ticket", {})).workflow?.prompt).toBe(ticket.workflow?.prompt);
+        yield* call("update_ticket", { workflow: "builtin:review-only" });
+        expect((yield* call("get_ticket", {})).workflow?.prompt).toBe(
+          "Updated reusable instructions.",
+        );
+        yield* call("update_ticket", {
+          workflowInstructions: "Ticket-specific review instructions.",
+        });
+        expect((yield* call("get_ticket", {})).workflow?.prompt).toBe(
+          "Ticket-specific review instructions.",
+        );
+        expect((yield* store.get("builtin:review-only")).prompt).toBe(
+          "Updated reusable instructions.",
+        );
+        expect((yield* call("get_ticket", {})).history.map((event) => event.kind)).toContain(
+          "updated",
+        );
+        yield* call("update_ticket", { workflow: null });
+        expect((yield* call("get_ticket", {})).workflow).toBeNull();
+      }).pipe(Effect.provide(WorkflowsTestLayer)),
+  );
   it.effect("lets a skill assign, change, and clear a ticket folder through board tools", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

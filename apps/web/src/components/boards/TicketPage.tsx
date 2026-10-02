@@ -18,7 +18,6 @@ import {
   FolderIcon,
   MessageSquarePlusIcon,
   PlusIcon,
-  RotateCcwIcon,
   Trash2Icon,
   UnlinkIcon,
   XIcon,
@@ -26,7 +25,7 @@ import {
 import { useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import { useAutomations, useAutomationsDispatch } from "../../state/automations";
+import { useAutomations } from "../../state/automations";
 import { useBoardsDispatch, useTicketDetail } from "../../state/boards";
 import { useSidebarFolderStore } from "../../sidebarFolderStore";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -44,6 +43,7 @@ import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { TicketWorkspaceSection } from "./WorkspaceSettings";
+import { TicketWorkflowSection } from "./TicketWorkflowSection";
 import { describeTicketEvent } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { columnDotClass, PRIORITIES, PRIORITY_LABEL } from "./boardsPresentation";
@@ -115,6 +115,7 @@ function TicketBody({
             </section>
           ) : null}
           <DescriptionSection view={view} readOnly={readOnly} />
+          <TicketWorkflowSection view={view} readOnly={readOnly} />
           <CriteriaSection view={view} readOnly={readOnly} />
           <SessionsSection view={view} readOnly={readOnly} />
           <TicketWorkspaceSection
@@ -123,7 +124,7 @@ function TicketBody({
             projectKey={view.ticket.projectKey ?? view.board.defaultProjectKey}
             readOnly={readOnly}
           />
-          <TicketRunsSection view={view} readOnly={readOnly} />
+          <TicketRunsSection view={view} />
           <CommentsSection
             view={view}
             comments={comments}
@@ -919,16 +920,9 @@ function TicketProperties({
   );
 }
 
-/** Automation runs on this ticket, and the way back from the run limit. */
-function TicketRunsSection({
-  view,
-  readOnly,
-}: {
-  readonly view: TicketView;
-  readonly readOnly: boolean;
-}) {
+/** Execution history; a finished turn does not mean the ticket is complete. */
+function TicketRunsSection({ view }: { readonly view: TicketView }) {
   const automations = useAutomations();
-  const dispatch = useAutomationsDispatch();
   if (automations.status !== "ready") return null;
   const runs = automations.snapshot.runs.filter((run) => run.ticketId === view.ticket.id);
   if (runs.length === 0) return null;
@@ -937,33 +931,7 @@ function TicketRunsSection({
     "Deleted automation";
   return (
     <section className="flex flex-col gap-2">
-      <SectionHeading
-        actions={
-          !readOnly ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      void dispatch({ type: "ticket.resumeHooks", ticketId: view.ticket.id })
-                    }
-                  >
-                    <RotateCcwIcon />
-                    Resume hooks
-                  </Button>
-                }
-              />
-              <TooltipPopup side="top">
-                Resets the run limit and runs the hooks of its current column
-              </TooltipPopup>
-            </Tooltip>
-          ) : null
-        }
-      >
-        Automation runs
-      </SectionHeading>
+      <SectionHeading>Workflow turns</SectionHeading>
       <ol className="flex flex-col gap-1.5 text-sm">
         {runs.slice(0, 10).map((run) => {
           const threadRef = run.threadKey ? parseScopedThreadKey(run.threadKey) : null;
@@ -994,8 +962,8 @@ function TicketRunsSection({
 }
 
 /**
- * What the ticket waits on, with the way out: Resolve clears a stored flag and
- * lets the ticket's held automations run. Chat waits clear themselves.
+ * Resolve clears a stored flag; execution resumes explicitly. Chat waits
+ * clear themselves.
  */
 function TicketAttentionBanner({
   view,

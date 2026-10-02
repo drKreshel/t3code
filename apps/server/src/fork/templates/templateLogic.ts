@@ -13,6 +13,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   type TemplateAutomation,
 } from "@t3tools/contracts";
+import { instructionsFromAutomation } from "../automations/workflowLogic.ts";
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -38,12 +39,17 @@ export function automationsForBoard(
       const columnName = automation.trigger.column;
       const column = board.columns.find((candidate) => sameName(candidate.name, columnName));
       if (!column) return [];
+      const { steps: _steps, ...action } = automation.action;
       return [
         {
           ...base,
-          title: automation.title,
-          trigger: { type: "board" as const, boardId: board.id, columnId: column.id },
-          action: automation.action,
+          title: scheduleTitle(automation.title, board),
+          trigger: { type: "workflow" as const },
+          prompt: instructionsFromAutomation(automation.prompt, automation.action),
+          action: {
+            ...action,
+            checkout: action.checkout === "worktree" ? "ticket" : action.checkout,
+          },
         },
       ];
     }
@@ -131,22 +137,7 @@ export function templatePartsOf(
   };
 }
 
-/** A hook that starts a chat in the ticket's workspace. */
-const chatHook = (column: string, title: string, prompt: string): TemplateAutomation => ({
-  title,
-  prompt,
-  trigger: { type: "board", column },
-  action: {
-    projectKey: null,
-    modelSelection: null,
-    runtimeMode: DEFAULT_RUNTIME_MODE,
-    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-    checkout: "ticket",
-  },
-  enabled: true,
-  maxRunsPerTicket: 5,
-});
-
+/** Defaults for scheduled cleanup steps that do not start a chat. */
 const STEPS_ACTION: AutomationAction = {
   projectKey: null,
   modelSelection: null,
@@ -174,7 +165,7 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<BoardTemplate> = [
     id: "builtin:ship",
     name: "Ship with agents",
     description:
-      "Agents implement, review, merge, and open pull requests; you test in Ready. Done tickets settle after a week.",
+      "Delivery columns with scheduled cleanup. Choose a workflow on each ticket; Done tickets settle after a week.",
     builtIn: true,
     columns: [
       { name: "Backlog", color: null },
@@ -189,26 +180,6 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<BoardTemplate> = [
       { name: "Cancelled", color: "red" },
     ],
     automations: [
-      chatHook(
-        "In Progress",
-        "Implement",
-        "Implement {{ticket.key}}: {{ticket.title}}. Read the ticket with get_ticket, including the latest handoff. Build it, run the project's checks and tests, and commit on the ticket branch. When every acceptance criterion is met, leave a handoff comment saying what you did and how to verify it, then move the ticket to Review. If you are stuck or need a decision, use request_human.",
-      ),
-      chatHook(
-        "Review",
-        "Review",
-        "Review {{ticket.key}}: {{ticket.title}} with fresh eyes. Read the ticket with get_ticket and the changes on its branch. Run the checks and tests, check each acceptance criterion, and check off the ones that pass. If everything passes, move the ticket to Ready. Otherwise leave a handoff comment listing what failed and move it back to In Progress.",
-      ),
-      chatHook(
-        "Close",
-        "Close",
-        "Close {{ticket.key}}: {{ticket.title}}. In each of the ticket's worktrees, merge the latest start branch into the ticket branch, fix any conflicts, run the checks and tests again, and commit. Skip repos in a local checkout (the project folder, not a ticket worktree): there is nothing to merge. When everything is merged and passes, move the ticket to Push. If a conflict needs a decision, use request_human.",
-      ),
-      chatHook(
-        "Push",
-        "Push",
-        "Push {{ticket.key}}: {{ticket.title}}. For each repo the ticket changed in its worktrees, push the ticket branch and open a pull request against its start branch, describing what changed and how it was tested. Leave repos in a local checkout alone and mention them. Comment on the ticket with a link to every pull request, then call remove_ticket_workspace (the branches stay) and move the ticket to Done.",
-      ),
       {
         title: "Settle old Done tickets",
         prompt: "",

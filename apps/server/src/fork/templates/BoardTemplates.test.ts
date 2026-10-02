@@ -64,23 +64,10 @@ describe("BoardTemplates", () => {
         "Settled",
         "Cancelled",
       ]);
-      const columnName = (id: string | null) =>
-        board.columns.find((column) => column.id === id)?.name;
       const commands = (yield* Ref.get(created)).flatMap((command) =>
         command.type === "automation.create" ? [command] : [],
       );
-      expect(
-        commands.flatMap(({ title, trigger }) =>
-          trigger.type === "board" && trigger.boardId === boardId
-            ? [[title, columnName(trigger.columnId)]]
-            : [],
-        ),
-      ).toEqual([
-        ["Implement", "In Progress"],
-        ["Review", "Review"],
-        ["Close", "Close"],
-        ["Push", "Push"],
-      ]);
+      expect(commands.filter((command) => command.trigger.type === "board")).toHaveLength(0);
       const settle = commands.find((command) => command.trigger.type === "schedule")!;
       expect(settle.title).toBe("Settle old Done tickets (Atlas)");
       expect(settle.action.steps).toEqual([

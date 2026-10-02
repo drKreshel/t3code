@@ -1,11 +1,13 @@
 /**
- * `t3-code` MCP tools for automations (fork): scheduled chats and board
- * column hooks. Writes go through AutomationEngine, like the UI's.
+ * `t3-code` MCP tools for scheduled automations and ticket workflow presets.
+ * Writes go through AutomationEngine, like the UI's.
  */
 import {
   AutomationCheckout,
   AutomationRunStatus,
   AutomationsCommandError,
+  AutomationAction,
+  ModelSelection,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -33,7 +35,7 @@ export const AutomationSummary = Schema.Struct({
   title: Schema.String,
   enabled: Schema.Boolean,
   trigger: Schema.String.annotate({
-    description: "Like 'cron 0 9 * * 1-5 (Europe/Berlin)' or 'ticket enters WEB › In progress'.",
+    description: "Like 'cron 0 9 * * 1-5 (Europe/Berlin)'.",
   }),
   prompt: Schema.String,
   project: Schema.NullOr(Schema.String),
@@ -50,9 +52,100 @@ export type AutomationSummary = typeof AutomationSummary.Type;
 
 const Changed = Schema.Struct({ id: Schema.String, title: Schema.String });
 
+const WorkflowRef = TrimmedNonEmptyString.annotate({
+  description: "Workflow preset id or exact title.",
+});
+const ListWorkflowsTool = Tool.make("list_workflows", {
+  description:
+    "List reusable ticket workflow presets. Instructions are copied onto tickets when selected; column moves do not execute them.",
+  success: Schema.Struct({
+    workflows: Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        title: Schema.String,
+        instructions: Schema.String,
+        action: AutomationAction,
+      }),
+    ),
+  }),
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const CreateWorkflowTool = Tool.make("create_workflow", {
+  description:
+    "Create a reusable ticket workflow preset. Write the complete process as instructions, including delegation, models, handoffs, stopping conditions and any human approvals. Creating a preset does not start work. Use orchestrator_capabilities for model ids.",
+  parameters: Schema.Struct({
+    title: TrimmedNonEmptyString,
+    instructions: TrimmedNonEmptyString,
+    modelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+    checkout: Schema.optional(Schema.Literals(["local", "ticket"])),
+  }),
+  success: Changed,
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+  .annotate(Tool.Idempotent, false);
+
+const UpdateWorkflowTool = Tool.make("update_workflow", {
+  description:
+    "Edit a workflow preset. Assigned tickets keep their existing instruction copies until explicitly reassigned. enabled=false retires the preset while preserving tickets and history.",
+  parameters: Schema.Struct({
+    workflow: WorkflowRef,
+    title: Schema.optional(TrimmedNonEmptyString),
+    instructions: Schema.optional(TrimmedNonEmptyString),
+    modelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+    checkout: Schema.optional(Schema.Literals(["local", "ticket"])),
+    enabled: Schema.optional(Schema.Boolean),
+  }),
+  success: Changed,
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+  .annotate(Tool.Idempotent, true);
+
+const StartWorkflowTool = Tool.make("start_workflow", {
+  description:
+    "Explicitly start or resume a ticket's selected workflow. Resumes its existing workflow chat, prevents duplicate execution, and clears its pause flag. Defaults to this chat's linked ticket. Read the ticket and dependencies before starting. Column moves never start work.",
+  parameters: Schema.Struct({ ticket: Schema.optional(TrimmedNonEmptyString) }),
+  success: Schema.Struct({
+    ticket: Schema.String,
+    threadKey: Schema.NullOr(Schema.String),
+    runId: Schema.String,
+  }),
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+  .annotate(Tool.Idempotent, false);
+
+const PauseWorkflowTool = Tool.make("pause_workflow", {
+  description:
+    "Pause a ticket workflow's current turn and hold its queued messages. Defaults to this chat's linked ticket. Resume with start_workflow.",
+  parameters: Schema.Struct({ ticket: Schema.optional(TrimmedNonEmptyString) }),
+  success: Schema.Struct({ ticket: Schema.String }),
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+  .annotate(Tool.Idempotent, true);
+
 const ListAutomationsTool = Tool.make("list_automations", {
   description:
-    "List T3 Code automations: scheduled chats and board hooks (a chat started when a ticket enters a column), with their trigger, next run, and last run.",
+    "List scheduled T3 Code automations with their next run and last result. Use list_workflows for ticket instruction presets.",
   success: Schema.Struct({ automations: Schema.Array(AutomationSummary) }),
   failure,
   dependencies,
@@ -64,12 +157,8 @@ const ListAutomationsTool = Tool.make("list_automations", {
   .annotate(Tool.OpenWorld, false);
 
 const CreateAutomationTool = Tool.make("create_automation", {
-  description: [
-    "Create an automation that starts a new chat with the prompt. Give exactly one trigger:",
-    "- cron (five fields: minute hour day-of-month month day-of-week, e.g. '0 9 * * 1-5' for weekdays at 9:00) or at (an ISO date-time, runs once), read in timezone;",
-    "- board + column: runs when a ticket enters that column, linked to the ticket. board '*' means every board; then column is matched by name on each board. Its prompt can use {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.criteria}}, {{ticket.handoff}}, {{ticket.url}}, {{board.name}}, {{run.number}}.",
-    "Scheduled automations need a project: set useThisChatsProject. Board hooks default to the ticket's, then the board's project.",
-  ].join("\n"),
+  description:
+    "Create a scheduled automation. Give cron (five fields) or at (an ISO date-time), and optionally timezone. Chat runs need useThisChatsProject. For ticket execution use workflow presets and start_workflow.",
   parameters: Schema.Struct({
     title: TrimmedNonEmptyString,
     prompt: TrimmedNonEmptyString,
@@ -80,14 +169,6 @@ const CreateAutomationTool = Tool.make("create_automation", {
         description: "IANA zone like Europe/Berlin. Defaults to the server's zone.",
       }),
     ),
-    board: Schema.optional(
-      TrimmedNonEmptyString.annotate({ description: "Board key like WEB, or * for every board." }),
-    ),
-    column: Schema.optional(
-      TrimmedNonEmptyString.annotate({
-        description: "Column name or type, like In progress or active.",
-      }),
-    ),
     useThisChatsProject: Schema.optional(Schema.Boolean),
     checkout: Schema.optional(
       AutomationCheckout.annotate({
@@ -95,7 +176,6 @@ const CreateAutomationTool = Tool.make("create_automation", {
           "local (the project's checkout, default) or worktree (a new worktree per run).",
       }),
     ),
-    maxRunsPerTicket: Schema.optional(Schema.Int),
     enabled: Schema.optional(Schema.Boolean),
   }),
   success: Changed,
@@ -144,7 +224,7 @@ const DeleteAutomationTool = Tool.make("delete_automation", {
   .annotate(Tool.OpenWorld, false);
 
 const RunAutomationTool = Tool.make("run_automation", {
-  description: "Run an automation now. A board hook needs the ticket to run for.",
+  description: "Run a scheduled automation now. Use start_workflow to run a ticket workflow.",
   parameters: Schema.Struct({
     automation: AutomationRef,
     ticket: Schema.optional(
@@ -162,6 +242,11 @@ const RunAutomationTool = Tool.make("run_automation", {
   .annotate(Tool.OpenWorld, false);
 
 export const AutomationsToolkit = Toolkit.make(
+  ListWorkflowsTool,
+  CreateWorkflowTool,
+  UpdateWorkflowTool,
+  StartWorkflowTool,
+  PauseWorkflowTool,
   ListAutomationsTool,
   CreateAutomationTool,
   UpdateAutomationTool,
