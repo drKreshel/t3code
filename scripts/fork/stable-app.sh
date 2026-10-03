@@ -97,7 +97,16 @@ cmd_backup() {
   for file in state.sqlite statev2.sqlite fork.sqlite; do
     if [ -f "$DATA_DIR/$file" ]; then
       # VACUUM INTO is a consistent snapshot even while a server has the file open.
-      sqlite3 -readonly "$DATA_DIR/$file" "VACUUM INTO '$dir/$file'" || return 1
+      local source="$DATA_DIR/$file"
+      # A closed, checkpointed WAL database needs no journal/lock files. Avoid
+      # creating those beside the source during the stopped-app backup.
+      if ! stable_app_running && [ ! -s "$DATA_DIR/$file-wal" ]; then
+        source="file:$source?mode=ro&immutable=1"
+      fi
+      if ! sqlite3 -readonly "$source" "VACUUM INTO '$dir/$file'"; then
+        log "Backup failed for $file; nothing was installed."
+        return 1
+      fi
     fi
   done
   for file in settings.json client-settings.json keybindings.json; do
@@ -190,7 +199,10 @@ cmd_restart() {
     fi
   fi
   local result="Updated and reopened."
-  if ! (cmd_install); then
+  local installed=false
+  if (cmd_install); then
+    installed=true
+  else
     result="Update failed; the previous app was kept. See $RESTART_LOG"
     # Install moves the old app aside before unpacking; put it back if needed.
     if [ ! -d "$APP_PATH" ] && [ -d "$PREVIOUS_APP_DIR/$APP_NAME" ]; then
@@ -198,7 +210,13 @@ cmd_restart() {
     fi
   fi
   # Reopen before notifying: getting the app back is the part that matters.
-  reopen_app || result="Installed, but T3 Code did not reopen. Open it from Applications."
+  if ! reopen_app; then
+    if [ "$installed" = true ]; then
+      result="Installed, but T3 Code did not reopen. Open it from Applications."
+    else
+      result="Update failed; the previous app was kept. Open it from Applications. See $RESTART_LOG"
+    fi
+  fi
   log "$result"
   notify "$result"
 }
@@ -210,7 +228,8 @@ reopen_app() {
   local attempt
   for attempt in 1 2 3; do
     log "Reopening T3 Code (attempt $attempt)"
-    open "$APP_PATH" || log "open exited with status $?"
+    # Launch Services can still remember the instance that has just quit.
+    open -n "$APP_PATH" || log "open exited with status $?"
     sleep 5
     if stable_app_running; then
       log "T3 Code is running"
