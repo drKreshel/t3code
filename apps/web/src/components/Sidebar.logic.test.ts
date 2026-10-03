@@ -1241,6 +1241,18 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Awaiting Input", pulse: false });
   });
 
+  it("shows needs you on a blocked chat without an animated status", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          hasPendingUserInput: true,
+          blockingReason: "Choose an account.",
+        },
+      }),
+    ).toMatchObject({ label: "Needs you", pulse: false });
+  });
+
   it("falls back to working when the thread is actively running without blockers", () => {
     expect(
       resolveThreadStatusPill({

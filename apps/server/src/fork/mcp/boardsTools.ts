@@ -359,18 +359,17 @@ const AddCommentTool = Tool.make("add_comment", {
 
 const RequestHumanTool = Tool.make("request_human", {
   description:
-    "Flag a ticket for the user with the reason, where it stands. Use when stuck or when you need a decision or answer from the user. Leave a handoff and stop; workflow execution resumes explicitly. Ordinary review belongs in the workflow instructions.",
+    "Mark this chat Needs you when you are completely blocked from continuing without the user. Explain the blocker and the decision or action needed. The user can reply or Resume in this chat to continue the same session. For ordinary questions, use the provider's question tool. Leave a ticket handoff when linked, then stop.",
   parameters: Schema.Struct({
-    ticket: OptionalTicketRef,
     reason: TrimmedNonEmptyString.annotate({
-      description: "One sentence on what you need from the user.",
+      description: "What blocks progress and what the user needs to decide or do.",
     }),
   }),
-  success: TicketChanged,
+  success: Schema.Struct({ threadId: Schema.String, path: Schema.String }),
   failure,
   dependencies,
 })
-  .annotate(Tool.Title, "Ask the user about a ticket")
+  .annotate(Tool.Title, "Request help in this chat")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)

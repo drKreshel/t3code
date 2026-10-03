@@ -580,7 +580,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   // so checking a thread on any device clears it everywhere.
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const statusLabel =
-    STATUS_LABEL_BY_STATUS[status] ??
+    (status === "input" && thread.blockingReason
+      ? { label: "Needs you", className: "text-warning-foreground" }
+      : STATUS_LABEL_BY_STATUS[status]) ??
     (isUnread ? { label: "Done", className: "text-adaptive-emerald-700-300" } : undefined);
   // The timestamp is precomputed on the list item (same stamps the settled
   // tail sorts by) so a minute tick only re-renders rows that draw it.

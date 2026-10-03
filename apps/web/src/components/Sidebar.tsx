@@ -1301,9 +1301,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             }
           : status === "input"
             ? {
-                label: "Input",
+                label: thread.blockingReason ? "Needs you" : "Input",
                 icon: "input" as const,
-                className: "text-indigo-600 dark:text-indigo-300",
+                className: thread.blockingReason
+                  ? "text-warning-foreground"
+                  : "text-indigo-600 dark:text-indigo-300",
               }
             : status === "limited"
               ? {

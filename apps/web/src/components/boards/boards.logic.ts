@@ -52,6 +52,8 @@ export function ticketLabel(ticket: Ticket, index: BoardsIndex): string {
 
 /** What a linked chat is waiting on, from its thread shell. */
 export interface LinkedThreadAttention {
+  readonly threadKey?: string;
+  readonly blockingReason?: string | undefined;
   readonly hasPendingApprovals?: boolean;
   readonly hasPendingUserInput?: boolean;
   /** Set when the chat's session stopped with an error (limits, model down, crash). */
@@ -65,8 +67,27 @@ export interface LinkedThreadAttention {
  */
 export interface TicketAttention {
   readonly level: "warning" | "error";
-  readonly kind: "flag" | "approval" | "input" | "session";
+  readonly kind: "flag" | "blocked" | "approval" | "input" | "session";
   readonly reason: string;
+  readonly threadKey?: string;
+}
+
+export function threadAttention(thread: LinkedThreadAttention): TicketAttention | null {
+  const target = thread.threadKey === undefined ? {} : { threadKey: thread.threadKey };
+  if (thread.blockingReason)
+    return { ...target, level: "warning", kind: "blocked", reason: thread.blockingReason };
+  if (thread.sessionError)
+    return { ...target, level: "error", kind: "session", reason: thread.sessionError };
+  if (thread.hasPendingApprovals)
+    return {
+      ...target,
+      level: "warning",
+      kind: "approval",
+      reason: "A chat is waiting for your approval",
+    };
+  if (thread.hasPendingUserInput)
+    return { ...target, level: "warning", kind: "input", reason: "A chat asked you a question" };
+  return null;
 }
 
 export function ticketAttention(
@@ -74,17 +95,24 @@ export function ticketAttention(
   linkedThreads: ReadonlyArray<LinkedThreadAttention>,
 ): TicketAttention | null {
   if (ticket.archivedAt !== null) return null;
-  const sessionError = linkedThreads.find((thread) => thread.sessionError)?.sessionError;
   if (ticket.flag?.level === "error") {
-    return { level: "error", kind: "flag", reason: ticket.flag.reason };
+    const threadKey = ticket.flag.by.startsWith("thread:")
+      ? ticket.flag.by.slice(7)
+      : ticket.workflowThreadKey;
+    return {
+      level: "error",
+      kind: "flag",
+      reason: ticket.flag.reason,
+      ...(threadKey ? { threadKey } : {}),
+    };
   }
-  if (sessionError) return { level: "error", kind: "session", reason: sessionError };
-  if (linkedThreads.some((thread) => thread.hasPendingApprovals)) {
-    return { level: "warning", kind: "approval", reason: "A chat is waiting for your approval" };
-  }
-  if (linkedThreads.some((thread) => thread.hasPendingUserInput)) {
-    return { level: "warning", kind: "input", reason: "A chat asked you a question" };
-  }
+  const attention = linkedThreads
+    .flatMap((thread) => {
+      const value = threadAttention(thread);
+      return value ? [value] : [];
+    })
+    .toSorted((a, b) => Number(b.level === "error") - Number(a.level === "error"))[0];
+  if (attention) return attention;
   if (ticket.flag) return { level: "warning", kind: "flag", reason: ticket.flag.reason };
   return null;
 }

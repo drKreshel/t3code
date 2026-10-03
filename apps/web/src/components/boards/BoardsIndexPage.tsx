@@ -1,4 +1,5 @@
 import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
+import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
 import type { Board } from "@t3tools/contracts";
 import { ArchiveRestoreIcon, SquareKanbanIcon, PlusIcon } from "lucide-react";
@@ -98,21 +99,46 @@ function NeedsYouInbox({ views }: { readonly views: ReadonlyArray<TicketView> })
         </Badge>
       </h2>
       <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border/60">
-        {views.map((view) => (
-          <li key={view.ticket.id}>
-            <Link
-              className="flex min-w-0 items-center gap-3 px-3 py-2 text-sm hover:bg-accent/50"
-              to="/boards/$boardKey/$ticketNumber"
-              params={{ boardKey: view.board.key, ticketNumber: String(view.ticket.number) }}
-            >
+        {views.map((view) => {
+          const ref = view.attention?.threadKey
+            ? parseScopedThreadKey(view.attention.threadKey)
+            : null;
+          const thread = ref
+            ? view.threads.find(
+                (chat) => chat.environmentId === ref.environmentId && chat.id === ref.threadId,
+              )
+            : null;
+          const content = (
+            <>
               <span className="shrink-0 font-mono text-xs text-muted-foreground">{view.label}</span>
-              <span className="min-w-0 truncate">{view.ticket.title}</span>
+              <span className="min-w-0 truncate">{thread?.title ?? view.ticket.title}</span>
               <span className="ml-auto min-w-0 shrink truncate text-xs text-warning-foreground">
                 {view.attention?.reason}
               </span>
-            </Link>
-          </li>
-        ))}
+            </>
+          );
+          return (
+            <li key={`${view.ticket.id}:${view.attention?.threadKey ?? "ticket"}`}>
+              {ref ? (
+                <Link
+                  className="flex min-w-0 items-center gap-3 px-3 py-2 text-sm hover:bg-accent/50"
+                  to="/$environmentId/$threadId"
+                  params={ref}
+                >
+                  {content}
+                </Link>
+              ) : (
+                <Link
+                  className="flex min-w-0 items-center gap-3 px-3 py-2 text-sm hover:bg-accent/50"
+                  to="/boards/$boardKey/$ticketNumber"
+                  params={{ boardKey: view.board.key, ticketNumber: String(view.ticket.number) }}
+                >
+                  {content}
+                </Link>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

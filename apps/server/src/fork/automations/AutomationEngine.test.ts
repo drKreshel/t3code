@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   type AutomationAction,
   type BoardsSnapshot,
+  CommandId,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   type OrchestrationV2ServerCommand,
@@ -65,6 +66,7 @@ type TurnState =
 const makeHarness = Effect.gen(function* () {
   const commands = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
   const turnStates = yield* Ref.make<ReadonlyMap<string, TurnState>>(new Map());
+  const blockers = yield* Ref.make<ReadonlyMap<string, string>>(new Map());
   const project = {
     id: PROJECT_ID,
     title: "Atlas",
@@ -76,6 +78,10 @@ const makeHarness = Effect.gen(function* () {
       dispatch: (command) =>
         Effect.gen(function* () {
           yield* Ref.update(commands, (list) => [...list, command]);
+          if (command.type === "thread.request-human")
+            yield* Ref.update(blockers, (entries) =>
+              new Map(entries).set(command.threadId, command.reason),
+            );
           if (command.type === "thread.create")
             yield* Ref.update(turnStates, (states) =>
               new Map(states).set(command.threadId, "completed"),
@@ -92,13 +98,17 @@ const makeHarness = Effect.gen(function* () {
         }),
       streamDomainEvents: Stream.empty,
       getThreadShell: (threadId) =>
-        Ref.get(turnStates).pipe(
-          Effect.map((states) => {
+        Effect.all([Ref.get(turnStates), Ref.get(blockers)]).pipe(
+          Effect.map(([states, pending]) => {
             const state = states.get(threadId);
             return state === undefined
               ? null
               : ({
                   id: threadId,
+                  archivedAt: null,
+                  pendingRuntimeRequest: pending.has(threadId)
+                    ? { blockingReason: pending.get(threadId) }
+                    : null,
                   activeRunId: ["running", "preparing", "queued", "starting", "waiting"].includes(
                     state,
                   )
@@ -282,7 +292,7 @@ describe("AutomationEngine", () => {
         (yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey,
       );
       yield* call("pause_workflow", {});
-      expect((yield* harness.boards.snapshot).tickets[0]?.flag?.level).toBe("warning");
+      expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
     }).pipe(Effect.provide(TestLayer)),
   );
   it.effect("starts explicitly, resumes the same chat, and reads the latest ticket handoff", () =>
@@ -360,21 +370,91 @@ describe("AutomationEngine", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("pauses with a warning, holds the queue, and resumes without a new session", () =>
+  it.effect("requires the user's response in the blocked workflow chat before resuming", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
       const { ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Pause me");
+      const ticketId = yield* ticket("Needs a decision");
       yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      yield* harness.engine.dispatch({ type: "ticket.pauseWorkflow", ticketId });
-      expect(
-        (yield* Ref.get(harness.commands)).find((command) => command.type === "run.interrupt"),
-      ).toMatchObject({ holdQueue: true });
-      expect((yield* harness.boards.snapshot).tickets[0]?.flag?.level).toBe("warning");
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      const threadId = (yield* harness.threadIdsStarted)[0]!;
+      yield* harness.endTurn(threadId, "completed");
+      yield* Effect.flatMap(OrchestratorV2, (orchestrator) =>
+        orchestrator.dispatch({
+          type: "thread.request-human",
+          commandId: CommandId.make("workflow:blocker"),
+          threadId,
+          reason: "Choose an account.",
+        }),
+      ).pipe(Effect.provide(harness.fakes));
+      const error = yield* harness.engine
+        .dispatch({ type: "ticket.startWorkflow", ticketId })
+        .pipe(Effect.flip);
+      expect(error.message).toBe(
+        "The workflow chat needs your decision. Open it to reply or Resume.",
+      );
       expect(yield* harness.threadIdsStarted).toHaveLength(1);
-      expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
+      expect(
+        (yield* Ref.get(harness.commands)).filter((command) => command.type === "message.dispatch"),
+      ).toHaveLength(1);
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "moves a legacy blocker to its originating chat once and preserves ticket progress",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const { ticket } = yield* setupBoard(harness);
+        const ticketId = yield* ticket("Blocked migration");
+        yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+        const threadKey = (yield* harness.boards.snapshot).tickets[0]!.workflowThreadKey!;
+        const columnId = (yield* harness.boards.snapshot).tickets[0]!.columnId;
+        yield* harness.boards.dispatch(
+          {
+            type: "ticket.flag",
+            ticketId,
+            level: "warning",
+            reason: "Choose the account.",
+          },
+          `thread:${threadKey}`,
+        );
+        yield* harness.engine.tick;
+        yield* harness.engine.tick;
+        expect((yield* harness.boards.snapshot).tickets[0]).toMatchObject({
+          columnId,
+          flag: null,
+          workflowThreadKey: threadKey,
+        });
+        expect(
+          (yield* Ref.get(harness.commands)).filter(
+            (command) => command.type === "thread.request-human",
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            threadId: threadKey.slice(threadKey.indexOf(":") + 1),
+            reason: "Choose the account.",
+          }),
+        ]);
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "pauses without requesting help, holds the queue, and resumes without a new session",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const { ticket } = yield* setupBoard(harness);
+        const ticketId = yield* ticket("Pause me");
+        yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+        yield* harness.engine.dispatch({ type: "ticket.pauseWorkflow", ticketId });
+        expect(
+          (yield* Ref.get(harness.commands)).find((command) => command.type === "run.interrupt"),
+        ).toMatchObject({ holdQueue: true });
+        expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
+        yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+        expect(yield* harness.threadIdsStarted).toHaveLength(1);
+        expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
+      }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect("keeps instruction snapshots and assigned tickets usable after retiring a preset", () =>

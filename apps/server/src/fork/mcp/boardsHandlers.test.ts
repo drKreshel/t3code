@@ -48,6 +48,7 @@ const thread = {
 
 const snapshotQuery = Layer.mergeAll(
   Layer.mock(OrchestratorV2)({
+    dispatch: () => Effect.succeed({ sequence: 1, storedEvents: [] }),
     getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? thread : null),
   }),
   Layer.mock(ProjectStoreV2)({
@@ -204,7 +205,7 @@ describe("boards toolkit handlers", () => {
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 
-  it.effect("flags a ticket in place and reports requirements by column", () =>
+  it.effect("requests help in this chat and keeps ticket progress and requirements intact", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;
       yield* call("create_board", { name: "Api", key: "API" });
@@ -216,15 +217,14 @@ describe("boards toolkit handlers", () => {
       expect(moved.column).toBe("In progress");
 
       const escalated = yield* call("request_human", {
-        ticket: "API-2",
         reason: "Which auth scheme?",
       });
-      expect(escalated.column).toBe("In progress");
+      expect(escalated).toEqual({ threadId: THREAD_ID, path: `/${ENVIRONMENT_ID}/${THREAD_ID}` });
       const listed = yield* call("list_tickets", { board: "API", column: "In progress" });
       expect(listed.tickets).toMatchObject([
         {
           key: "API-2",
-          flag: { level: "warning", reason: "Which auth scheme?" },
+          flag: null,
           requires: ["API-1 (Backlog)"],
         },
       ]);

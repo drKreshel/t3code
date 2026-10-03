@@ -1318,6 +1318,7 @@ export function threadShellFromProjection(
       .filter((request) => request.status === "pending")
       .toSorted(
         (left, right) =>
+          Number(right.blockingReason !== undefined) - Number(left.blockingReason !== undefined) ||
           DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt),
       )[0] ?? null;
   const latestUserMessage =
@@ -1381,6 +1382,11 @@ export function threadShellFromProjection(
             id: pendingRuntimeRequest.id,
             kind: pendingRuntimeRequest.kind,
             createdAt: pendingRuntimeRequest.createdAt,
+            ...(pendingRuntimeRequest.blockingReason === undefined
+              ? {}
+              : {
+                  blockingReason: pendingRuntimeRequest.blockingReason,
+                }),
           },
     // Thread detail owns message bodies. Keeping them out of shell rows makes
     // initial hydration and streaming updates independent of transcript size.
@@ -1612,6 +1618,11 @@ function shellFromState(input: {
             id: input.state.pendingRuntimeRequest.id,
             kind: input.state.pendingRuntimeRequest.kind,
             createdAt: input.state.pendingRuntimeRequest.createdAt,
+            ...(input.state.pendingRuntimeRequest.blockingReason === undefined
+              ? {}
+              : {
+                  blockingReason: input.state.pendingRuntimeRequest.blockingReason,
+                }),
           },
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
@@ -4832,7 +4843,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 FROM orchestration_v2_projection_runtime_requests request
                 WHERE request.thread_id = t.thread_id
                   AND request.status = 'pending'
-                ORDER BY request.created_at DESC, request.runtime_request_id DESC
+                ORDER BY (json_extract(request.payload_json, '$.blockingReason') IS NOT NULL) DESC,
+                  request.created_at DESC, request.runtime_request_id DESC
                 LIMIT 1
               ) AS pending_request_payload_json,
               (

@@ -60,6 +60,21 @@ const projection: OrchestrationV2ThreadProjection = {
 };
 
 describe("pending v2 questions", () => {
+  it("presents blockers through the same answerable chat request on every client", () => {
+    const blocked = {
+      ...projection,
+      runtimeRequests: projection.runtimeRequests.map((request) => ({
+        ...request,
+        blockingReason: "Choose an account before I can continue.",
+      })),
+    };
+    expect(derivePendingThreadRequests(blocked).userInputs[0]).toMatchObject({
+      blockingReason: "Choose an account before I can continue.",
+      responseCapability: "message",
+      dismissible: true,
+    });
+    expect(derivePendingThreadRequests(projection).userInputs[0]?.blockingReason).toBeUndefined();
+  });
   it("keeps message responses available after the originating runtime exits", () => {
     expect(projection.providerSessions).toEqual([]);
     expect(derivePendingThreadRequests(projection).userInputs).toEqual([
@@ -99,6 +114,33 @@ describe("pending v2 questions", () => {
       ),
     };
     expect(derivePendingThreadRequests(live).userInputs[0]?.dismissible).toBe(false);
+  });
+
+  it("puts a blocker before ordinary questions without changing the source projection", () => {
+    const blockedId = RuntimeRequestId.make("blocked-priority");
+    const source = {
+      ...projection,
+      runtimeRequests: [
+        ...projection.runtimeRequests,
+        {
+          ...projection.runtimeRequests[0]!,
+          id: blockedId,
+          blockingReason: "Choose an account.",
+        },
+      ],
+      turnItems: [
+        ...projection.turnItems,
+        ...projection.turnItems.map((item) =>
+          item.type === "user_input_request"
+            ? { ...item, id: TurnItemId.make("blocked-priority-item"), requestId: blockedId }
+            : item,
+        ),
+      ],
+    };
+    expect(
+      derivePendingThreadRequests(source).userInputs.map((request) => request.requestId),
+    ).toEqual([blockedId, requestId]);
+    expect(source.runtimeRequests.map((request) => request.id)).toEqual([requestId, blockedId]);
   });
 
   it("removes answered requests from the composer while retaining their answers in projection data", () => {

@@ -5,7 +5,7 @@ import {
   derivePendingUserInputProgress,
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, HandIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
@@ -188,7 +188,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         }
         data-pending-user-input-toggle={isCollapsed ? "collapsed" : "expanded"}
       >
-        <ComposerBanner.Icon />
+        <ComposerBanner.Icon>{prompt.blockingReason ? <HandIcon /> : null}</ComposerBanner.Icon>
         <ComposerBanner.Content>
           <span className="shrink-0 font-medium text-muted-foreground">
             {activeQuestion.header}
@@ -211,8 +211,16 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             // the disclosure. Dismiss closes the question without a reply.
             <ComposerBanner.Dismiss
               render={<span role="button" tabIndex={0} />}
-              aria-label="Dismiss question without answering"
-              title="Dismiss question without answering"
+              aria-label={
+                prompt.blockingReason
+                  ? "Resolve blocker without continuing"
+                  : "Dismiss question without answering"
+              }
+              title={
+                prompt.blockingReason
+                  ? "Resolve blocker without continuing"
+                  : "Dismiss question without answering"
+              }
               disabled={isResponding}
               data-pending-user-input-dismiss
               onClick={(event) => {
@@ -234,6 +242,12 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
         <ComposerBanner.Scroll>
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">
             <p className="text-sm text-foreground/85">{activeQuestion.question}</p>
+            {prompt.blockingReason ? (
+              <p className="text-xs text-muted-foreground">
+                The agent is blocked. Reply below to continue, or choose Resume after resolving the
+                blocker.
+              </p>
+            ) : null}
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}

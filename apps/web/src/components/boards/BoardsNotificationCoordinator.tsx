@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { HandIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 
@@ -40,11 +41,17 @@ export function BoardsNotificationCoordinator() {
       const failed = ticket.flag?.level === "error";
       const title = failed ? `${label} hit an error` : `${label} needs you`;
       const body = ticket.flag?.reason ?? ticket.title;
+      const threadKey = ticket.flag?.by.startsWith("thread:")
+        ? ticket.flag.by.slice(7)
+        : ticket.workflowThreadKey;
+      const ref = threadKey ? parseScopedThreadKey(threadKey) : null;
       const open = () =>
-        void navigate({
-          to: "/boards/$boardKey/$ticketNumber",
-          params: { boardKey: board.key, ticketNumber: String(ticket.number) },
-        });
+        ref
+          ? void navigate({ to: "/$environmentId/$threadId", params: ref })
+          : void navigate({
+              to: "/boards/$boardKey/$ticketNumber",
+              params: { boardKey: board.key, ticketNumber: String(ticket.number) },
+            });
       if (hasNotificationSound(mode)) {
         void playNotificationSound("input", () =>
           hasNotificationSound(getClientSettings().notificationMode),
@@ -62,7 +69,7 @@ export function BoardsNotificationCoordinator() {
             leadingIcon: <HandIcon aria-hidden className="size-4 text-warning-foreground" />,
           },
           actionProps: {
-            children: "Open ticket",
+            children: ref ? "Open chat" : "Open ticket",
             onClick: () => {
               toastManager.close(toastId);
               open();

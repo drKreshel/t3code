@@ -1,6 +1,7 @@
 import {
   type Board,
   BoardsCommandError,
+  CommandId,
   type TicketWorkspace,
   type BoardsCommand,
   type BoardsSnapshot,
@@ -16,6 +17,7 @@ import * as Stream from "effect/Stream";
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
+import { randomUuidV4 } from "../../orchestration-v2/RandomUuid.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
@@ -509,15 +511,20 @@ const make = Effect.gen(function* () {
 
     request_human: (input) =>
       Effect.gen(function* () {
-        const snapshot = yield* boards.snapshot;
-        const ticket = yield* resolveTicket(snapshot, input.ticket);
-        yield* dispatch({
-          type: "ticket.flag",
-          ticketId: ticket.id,
-          level: "warning",
-          reason: input.reason,
-        });
-        return yield* changed(ticket.id);
+        const { scope } = yield* caller;
+        const id = yield* randomUuidV4;
+        yield* threads
+          .dispatch({
+            type: "thread.request-human",
+            commandId: CommandId.make(`request-human:${id}`),
+            threadId: scope.threadId,
+            reason: input.reason,
+          })
+          .pipe(Effect.mapError(storage("Could not request help in this chat.")));
+        return {
+          threadId: scope.threadId,
+          path: `/${scope.environmentId}/${scope.threadId}`,
+        };
       }),
 
     link_thread_to_ticket: ({ ticket: ref }) =>

@@ -590,6 +590,7 @@ export function buildBulkUnpinContextMenuItem(input: {
 
 export interface ThreadStatusPill {
   label:
+    | "Needs you"
     | "Working"
     | "Connecting"
     | "Completed"
@@ -603,6 +604,7 @@ export interface ThreadStatusPill {
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
+  "Needs you": 6,
   "Pending Approval": 5,
   "Awaiting Input": 4,
   Working: 3,
@@ -617,6 +619,7 @@ type ThreadStatusInput = Pick<
   | "hasActionableProposedPlan"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
+  | "blockingReason"
   | "interactionMode"
   | "latestRun"
   | "runtime"
@@ -1181,9 +1184,11 @@ export function resolveThreadStatusPill(input: {
 
   if (thread.hasPendingUserInput) {
     return {
-      label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+      label: thread.blockingReason ? "Needs you" : "Awaiting Input",
+      colorClass: thread.blockingReason
+        ? "text-warning-foreground"
+        : "text-indigo-600 dark:text-indigo-300/90",
+      dotClass: thread.blockingReason ? "bg-warning" : "bg-indigo-500 dark:bg-indigo-300/90",
       pulse: false,
     };
   }

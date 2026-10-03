@@ -975,6 +975,7 @@ function TicketAttentionBanner({
   const dispatch = useBoardsDispatch();
   const attention = view.attention!;
   const error = attention.level === "error";
+  const ref = attention.threadKey ? parseScopedThreadKey(attention.threadKey) : null;
   return (
     <div
       className={cn(
@@ -985,8 +986,18 @@ function TicketAttentionBanner({
       )}
     >
       <span className="min-w-0 flex-1">
-        {error ? "Error" : "Needs you"}: {attention.reason}
+        {error ? "Error" : ref ? "Chat needs attention" : "Workflow needs attention"}:{" "}
+        {attention.reason}
       </span>
+      {ref ? (
+        <Button
+          size="xs"
+          variant="outline"
+          render={<Link to="/$environmentId/$threadId" params={ref} />}
+        >
+          Open chat
+        </Button>
+      ) : null}
       {attention.kind === "flag" && !readOnly ? (
         <Button
           size="xs"

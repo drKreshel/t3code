@@ -42,7 +42,7 @@ export function workflowPrompt(instructions: string, resumed: boolean): string {
     resumed
       ? "Resume this ticket's workflow from its latest handoff."
       : "Start this ticket's workflow.",
-    "Read get_ticket before acting. The ticket is the shared work history: record decisions, verification, findings, blockers, and handoffs there, with links to relevant chats. Column moves record progress; they do not launch agents. You own execution and may delegate according to the instructions. Give delegated agents the ticket key and workspace, link their sessions to the ticket, and require a handoff comment. Use request_human when you need a decision. A completed chat turn does not by itself mean the ticket is done.",
+    "Read get_ticket before acting. The ticket is the shared work history: record decisions, verification, findings, blockers, and handoffs there, with links to relevant chats. Column moves record progress; they do not launch agents. You own execution and may delegate according to the instructions. Give delegated agents the ticket key and workspace, link their sessions to the ticket, and require a handoff comment. Use request_human only when completely blocked from continuing without the user; it marks this chat Needs you. The user can reply or Resume here to continue. Use the provider question tool for ordinary questions. A completed chat turn does not by itself mean the ticket is done.",
     instructions,
   ].join("\n\n");
 }

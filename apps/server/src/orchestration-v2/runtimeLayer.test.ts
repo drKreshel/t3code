@@ -952,6 +952,163 @@ it.layer(TestLayer)("OrchestrationV2LayerLive", (it) => {
     }),
   );
 
+  it.effect("keeps a blocker on its chat, deduplicates it, and continues with one user reply", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("blocked-chat");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("blocked:create"),
+        threadId,
+        projectId: ProjectId.make("blocked-project"),
+        title: "Blocked chat",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const blocker = {
+        type: "thread.request-human" as const,
+        commandId: CommandId.make("blocked:request"),
+        threadId,
+        reason: "Which account should I use?",
+      };
+      yield* orchestrator.dispatch(blocker);
+      yield* orchestrator.dispatch(blocker);
+      yield* orchestrator.dispatch({ ...blocker, commandId: CommandId.make("blocked:repeat") });
+      const blocked = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(blocked.runtimeRequests.length, 1);
+      assert.equal(blocked.providerSessions.length, 0);
+      assert.equal(blocked.runs.length, 0);
+      assert.equal(
+        (yield* orchestrator.getThreadShell(threadId))?.pendingRuntimeRequest?.blockingReason,
+        blocker.reason,
+      );
+      const requestId = blocked.runtimeRequests[0]!.id;
+      const reply = {
+        type: "runtime-request.respond" as const,
+        commandId: CommandId.make("blocked:reply"),
+        threadId,
+        requestId,
+        answers: { decision: "Use the staging account." },
+      };
+      yield* orchestrator.dispatch(reply);
+      yield* orchestrator.dispatch(reply);
+      const resumed = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(resumed.runtimeRequests[0]?.status, "resolved");
+      assert.equal(resumed.runs.length, 1);
+      assert.equal(resumed.messages.length, 1);
+      assert.equal(
+        resumed.messages[0]?.text,
+        "Which account should I use?\nUse the staging account.",
+      );
+      assert.isNull((yield* orchestrator.getThreadShell(threadId))?.pendingRuntimeRequest);
+
+      yield* orchestrator.dispatch({ ...blocker, commandId: CommandId.make("blocked:again") });
+      const pending = (yield* orchestrator.getThreadProjection(threadId)).runtimeRequests.find(
+        (request) => request.status === "pending",
+      )!;
+      yield* orchestrator.dispatch({
+        type: "thread.user-input.dismiss",
+        commandId: CommandId.make("blocked:dismiss"),
+        threadId,
+        requestId: pending.id,
+      });
+      assert.isNull((yield* orchestrator.getThreadShell(threadId))?.pendingRuntimeRequest);
+      assert.equal((yield* orchestrator.getThreadProjection(threadId)).messages.length, 1);
+    }),
+  );
+
+  it.effect("keeps queued work stopped until the chat blocker is resolved", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("blocked-queue-chat");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("blocked-queue:create"),
+        threadId,
+        projectId: ProjectId.make("blocked-queue-project"),
+        title: "Blocked queue",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+        createdBy: "user",
+        creationSource: "web",
+      });
+      for (const id of ["active", "queued"])
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`blocked-queue:${id}`),
+          threadId,
+          messageId: MessageId.make(`blocked-queue:${id}`),
+          text: id,
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "queue_after_active" },
+        });
+      yield* orchestrator.dispatch({
+        type: "thread.request-human",
+        commandId: CommandId.make("blocked-queue:request"),
+        threadId,
+        reason: "Choose an account before continuing.",
+      });
+      const before = yield* orchestrator.getThreadProjection(threadId);
+      const active = before.runs.find((run) => run.status === "starting")!;
+      const queued = before.runs.find((run) => run.status === "queued")!;
+      const now = yield* DateTime.now;
+      yield* eventSink.commitCommand({
+        commandId: CommandId.make("blocked-queue:turn-ended"),
+        threadId,
+        commandType: "provider-runtime.reconcile",
+        acceptedAt: now,
+        effects: [],
+        events: [
+          {
+            id: EventId.make("blocked-queue:turn-ended"),
+            type: "run.updated",
+            threadId,
+            runId: active.id,
+            occurredAt: now,
+            payload: { ...active, status: "cancelled", completedAt: now },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "queue.resume",
+        commandId: CommandId.make("blocked-queue:resume-blocked"),
+        threadId,
+      });
+      assert.equal(
+        (yield* orchestrator.getThreadProjection(threadId)).runs.find((run) => run.id === queued.id)
+          ?.status,
+        "queued",
+      );
+      yield* orchestrator.dispatch({
+        type: "thread.user-input.dismiss",
+        commandId: CommandId.make("blocked-queue:resolve"),
+        threadId,
+        requestId: before.runtimeRequests[0]!.id,
+      });
+      yield* orchestrator.dispatch({
+        type: "queue.resume",
+        commandId: CommandId.make("blocked-queue:resume-resolved"),
+        threadId,
+      });
+      assert.equal(
+        (yield* orchestrator.getThreadProjection(threadId)).runs.find((run) => run.id === queued.id)
+          ?.status,
+        "starting",
+      );
+    }),
+  );
+
   it.effect("answers an async question after its provider exits and commits the answer once", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

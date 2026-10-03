@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import {
   CircleAlertIcon,
   CircleCheckIcon,
+  HandIcon,
   MessageCircleQuestionIcon,
   ShieldQuestionIcon,
 } from "lucide-react";
@@ -123,7 +124,7 @@ function EnvironmentNotifications({
       const prior = previous.current.get(thread.id);
       const attention =
         status === "input" || status === "approval" || status === "failed" || status === "limited"
-          ? `${thread.latestRun?.runId ?? ""}:${status}`
+          ? `${thread.latestRun?.runId ?? ""}:${status}:${rawThread.pendingRuntimeRequest?.id ?? ""}`
           : null;
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
       // Waiting only on commands (a dev server) is done; subagents and monitors wake the agent.
@@ -152,7 +153,9 @@ function EnvironmentNotifications({
               ? "Usage limit reached"
               : status === "failed"
                 ? "Thread failed"
-                : "Input needed";
+                : thread.blockingReason
+                  ? "Needs you"
+                  : "Input needed";
       if (hasNotificationSound(mode)) {
         void playNotificationSound(kind, () =>
           hasNotificationSound(getClientSettings().notificationMode),
@@ -167,7 +170,7 @@ function EnvironmentNotifications({
         const toastId = toastManager.add({
           type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
           title,
-          description: thread.title,
+          description: thread.blockingReason ?? thread.title,
           data: {
             hideCopyButton: true,
             leadingIcon:
@@ -177,6 +180,8 @@ function EnvironmentNotifications({
                 <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
               ) : status === "failed" ? (
                 <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
+              ) : thread.blockingReason ? (
+                <HandIcon aria-hidden className="size-4 text-warning-foreground" />
               ) : (
                 <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
               ),
@@ -203,7 +208,7 @@ function EnvironmentNotifications({
         continue;
       try {
         const notification = new Notification(title, {
-          body: thread.title,
+          body: thread.blockingReason ?? thread.title,
           tag: `${environmentId}:${thread.id}`,
           silent: true,
         });

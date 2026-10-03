@@ -10,6 +10,7 @@ import {
   ticketAttention,
   ticketKey,
   ticketRequirements,
+  threadAttention,
   type BoardsIndex,
   type TicketAttention,
   type TicketRequirement,
@@ -36,7 +37,7 @@ export type BoardsModel =
       readonly archivedBoards: ReadonlyArray<Board>;
       readonly index: BoardsIndex;
       readonly viewById: ReadonlyMap<string, TicketView>;
-      /** Tickets waiting on Kreshel across all boards, oldest first. */
+      /** Chats needing attention across boards, plus failures before a chat was created. */
       readonly needsYou: ReadonlyArray<TicketView>;
     };
 
@@ -76,6 +77,8 @@ export function useBoardsModel(): BoardsModel {
             ? ticketAttention(
                 ticket,
                 threads.map((thread) => ({
+                  threadKey: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                  blockingReason: thread.blockingReason,
                   hasPendingApprovals: thread.hasPendingApprovals,
                   hasPendingUserInput: thread.hasPendingUserInput,
                   sessionError:
@@ -98,7 +101,23 @@ export function useBoardsModel(): BoardsModel {
       index,
       viewById,
       needsYou: [...viewById.values()]
-        .filter((view) => view.attention !== null)
+        .flatMap((view) => {
+          if (view.ticket.archivedAt !== null || view.board.archivedAt !== null) return [];
+          const chats = view.threads.flatMap((thread) => {
+            const attention = threadAttention({
+              threadKey: scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+              blockingReason: thread.blockingReason,
+              hasPendingApprovals: thread.hasPendingApprovals,
+              hasPendingUserInput: thread.hasPendingUserInput,
+              sessionError:
+                thread.runtime?.status === "failed"
+                  ? (thread.runtime.lastError ?? "The chat stopped with an error")
+                  : null,
+            });
+            return attention ? [{ ...view, attention }] : [];
+          });
+          return chats.length > 0 ? chats : view.attention ? [view] : [];
+        })
         // Errors first, then oldest first.
         .toSorted(
           (a, b) =>
@@ -109,7 +128,7 @@ export function useBoardsModel(): BoardsModel {
   }, [shells, state]);
 }
 
-/** How many tickets need Kreshel, for the sidebar's Boards button. */
+/** Attention in linked chats still lights up the sidebar's Boards button. */
 export function useBoardsNeedsYouCount(): number {
   const model = useBoardsModel();
   return model.status === "ready" ? model.needsYou.length : 0;

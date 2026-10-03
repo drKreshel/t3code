@@ -22,6 +22,7 @@ import {
 } from "@t3tools/client-runtime/state/composer-dispatch";
 
 interface PendingActionState {
+  blocking?: boolean;
   questionIndex: number;
   isLastQuestion: boolean;
   canAdvance: boolean;
@@ -61,10 +62,12 @@ const formatPendingPrimaryActionLabel = (input: {
   isLastQuestion: boolean;
   isResponding: boolean;
   questionIndex: number;
+  blocking?: boolean;
 }) => {
   if (input.isResponding) {
     return "Submitting...";
   }
+  if (input.blocking) return input.compact ? "Continue" : "Reply and continue";
   if (input.compact) {
     return input.isLastQuestion ? "Submit" : "Next";
   }
@@ -192,6 +195,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             isLastQuestion: pendingAction.isLastQuestion,
             isResponding: pendingAction.isResponding,
             questionIndex: pendingAction.questionIndex,
+            blocking: pendingAction.blocking === true,
           })}
         </button>
       </div>

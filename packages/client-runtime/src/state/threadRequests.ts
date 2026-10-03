@@ -34,6 +34,7 @@ export interface ThreadPendingUserInput {
   readonly responseCapability: OrchestrationV2RuntimeRequest["responseCapability"]["type"];
   readonly responseMode?: "message";
   readonly dismissible: boolean;
+  readonly blockingReason?: string;
 }
 
 export interface PendingThreadRequests {
@@ -65,6 +66,7 @@ export function derivePendingThreadRequests(
           multiSelect: question.multiSelect ?? false,
         })),
         responseCapability,
+        ...(request.blockingReason === undefined ? {} : { blockingReason: request.blockingReason }),
         dismissible: item.responseMode === "message" || responseCapability === "message",
         ...(item.responseMode === "message" || responseCapability === "message"
           ? { responseMode: "message" as const }
@@ -90,7 +92,12 @@ export function derivePendingThreadRequests(
     });
   }
 
-  return { approvals, userInputs };
+  return {
+    approvals,
+    userInputs: userInputs.sort(
+      (a, b) => Number(b.blockingReason !== undefined) - Number(a.blockingReason !== undefined),
+    ),
+  };
 }
 
 /** Older V2 answers were saved on requests without updating their timeline items. */

@@ -938,6 +938,8 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
   resolvedAt: Schema.NullOr(Schema.DateTimeUtc),
   decision: Schema.optional(ProviderApprovalDecision),
   answers: Schema.optional(ProviderUserInputAnswers),
+  /** An app-owned request raised when the agent cannot continue without the user. */
+  blockingReason: Schema.optional(TrimmedNonEmptyString),
 });
 export type OrchestrationV2RuntimeRequest = typeof OrchestrationV2RuntimeRequest.Type;
 
@@ -1650,6 +1652,7 @@ export const OrchestrationV2PendingRuntimeRequestSummary = Schema.Struct({
   id: RuntimeRequestId,
   kind: OrchestrationV2RuntimeRequest.fields.kind,
   createdAt: Schema.DateTimeUtc,
+  blockingReason: OrchestrationV2RuntimeRequest.fields.blockingReason,
 });
 export type OrchestrationV2PendingRuntimeRequestSummary =
   typeof OrchestrationV2PendingRuntimeRequestSummary.Type;
@@ -2837,6 +2840,12 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
  * send them.
  */
 const OrchestrationV2InternalCommand = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("thread.request-human"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    reason: TrimmedNonEmptyString,
+  }),
   /** Records that the provider rollback `requestId` failed for good. */
   Schema.Struct({
     type: Schema.Literal("checkpoint.rollback.fail"),

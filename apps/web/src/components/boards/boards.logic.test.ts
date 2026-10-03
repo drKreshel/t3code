@@ -8,6 +8,7 @@ import {
   recentBoardsByActivity,
   suggestBoardKey,
   ticketAttention,
+  threadAttention,
   ticketsByColumn,
   ticketRequirements,
   ticketsNewlyFlagged,
@@ -74,6 +75,27 @@ describe("ticketRequirements", () => {
 });
 
 describe("ticketAttention", () => {
+  it("targets the specific blocked chat while questions retain their own attention kind", () => {
+    expect(
+      threadAttention({
+        threadKey: "env:blocked",
+        hasPendingUserInput: true,
+        blockingReason: "Which account?",
+      }),
+    ).toEqual({
+      threadKey: "env:blocked",
+      level: "warning",
+      kind: "blocked",
+      reason: "Which account?",
+    });
+    expect(
+      ticketAttention(ticket("t"), [
+        { threadKey: "env:working" },
+        { threadKey: "env:question", hasPendingUserInput: true },
+      ]),
+    ).toMatchObject({ threadKey: "env:question", kind: "input" });
+    expect(threadAttention({ threadKey: "env:blocked" })).toBeNull();
+  });
   const flag = (level: "warning" | "error", reason: string) => ({
     level,
     reason,

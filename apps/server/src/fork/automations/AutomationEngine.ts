@@ -501,8 +501,33 @@ const make = (options: { readonly background: boolean }) =>
         }
       });
 
+    /** Carry existing ticket blockers into the chat that raised them. */
+    const migrateTicketBlockers = Effect.gen(function* () {
+      for (const ticket of (yield* boards.snapshot).tickets) {
+        const flag = ticket.flag;
+        if (flag?.level !== "warning" || ticket.archivedAt !== null) continue;
+        if (flag.reason === "Workflow paused. Resume when ready.") {
+          yield* boards.dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, "system");
+          continue;
+        }
+        const key = flag.by.startsWith("thread:") ? flag.by.slice(7) : ticket.workflowThreadKey;
+        if (!key?.startsWith(`${environmentId}:`)) continue;
+        const threadId = ThreadId.make(key.slice(key.indexOf(":") + 1));
+        const shell = yield* orchestration.getThreadShell(threadId);
+        if (!shell || shell.archivedAt !== null) continue;
+        yield* orchestration.dispatch({
+          type: "thread.request-human",
+          commandId: CommandId.make(`legacy-ticket-blocker:${ticket.id}:${flag.at}`),
+          threadId,
+          reason: flag.reason,
+        });
+        yield* boards.dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, "system");
+      }
+    });
+
     /** One scheduler pass: fire due schedules, record missed ones. */
     const tick = Effect.gen(function* () {
+      yield* migrateTicketBlockers;
       const now = yield* DateTime.now;
       for (const automation of yield* store.list) {
         if (!automation.enabled || automation.trigger.type !== "schedule") continue;
@@ -535,6 +560,7 @@ const make = (options: { readonly background: boolean }) =>
 
     /** Runs left `running` while the server was off may have finished meanwhile. */
     const reconcile = Effect.gen(function* () {
+      yield* migrateTicketBlockers;
       for (const run of yield* store.runsWithStatus("running")) {
         if (run.threadKey !== null) yield* settleThread(run.threadKey, null);
       }
@@ -711,6 +737,11 @@ const make = (options: { readonly background: boolean }) =>
                 const shell = yield* orchestration
                   .getThreadShell(id)
                   .pipe(Effect.mapError(() => invalid("Could not read the ticket's sessions.")));
+                if (shell?.pendingRuntimeRequest?.blockingReason) {
+                  return yield* invalid(
+                    "The workflow chat needs your decision. Open it to reply or Resume.",
+                  );
+                }
                 if (
                   shell &&
                   (shell.activeRunId != null ||
@@ -793,17 +824,6 @@ const make = (options: { readonly background: boolean }) =>
                     ticketId: ticket.id,
                     threadKey: key,
                     event: "paused",
-                  },
-                  "user",
-                )
-                .pipe(Effect.mapError((error) => invalid(error.message)));
-              yield* boards
-                .dispatch(
-                  {
-                    type: "ticket.flag",
-                    ticketId: ticket.id,
-                    level: "warning",
-                    reason: "Workflow paused. Resume when ready.",
                   },
                   "user",
                 )

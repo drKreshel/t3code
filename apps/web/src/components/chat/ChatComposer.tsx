@@ -1352,6 +1352,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
+    blocking?: boolean;
     questionIndex: number;
     isLastQuestion: boolean;
     canAdvance: boolean;
@@ -2910,6 +2911,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () =>
       activePendingProgress
         ? {
+            blocking: activePendingUserInput?.blockingReason !== undefined,
             questionIndex: activePendingProgress.questionIndex,
             isLastQuestion: activePendingProgress.isLastQuestion,
             canAdvance:
@@ -2922,6 +2924,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         : null,
     [
       activePendingIsResponding,
+      activePendingUserInput?.blockingReason,
       activePendingProgress,
       activePendingResolvedAnswers,
       attachmentBlockReason,

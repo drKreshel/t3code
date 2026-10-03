@@ -526,13 +526,8 @@ function TicketCard({
       {ticket.workflow ? (
         <p className="truncate text-xs text-muted-foreground">{ticket.workflow.title}</p>
       ) : null}
-      {view.attention || view.requirements.length > 0 || ticket.criteria.length > 0 || project ? (
+      {view.requirements.length > 0 || ticket.criteria.length > 0 || project ? (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          {view.attention ? (
-            <Badge variant={view.attention.level === "error" ? "error" : "warning"} size="sm">
-              {view.attention.level === "error" ? "Error" : "Needs you"}
-            </Badge>
-          ) : null}
           {view.requirements.length > 0 ? (
             <Badge variant="outline" size="sm">
               <LinkIcon />
@@ -549,7 +544,7 @@ function TicketCard({
           {project ? <span className="ml-auto truncate">{project.title}</span> : null}
         </div>
       ) : null}
-      {view.attention ? (
+      {view.attention && !view.attention.threadKey ? (
         <p
           className={cn(
             "line-clamp-2 text-xs",
@@ -573,7 +568,7 @@ function TicketCard({
                 <Link
                   to="/$environmentId/$threadId"
                   params={{ environmentId: thread.environmentId, threadId: thread.id }}
-                  title={thread.title}
+                  title={thread.blockingReason ?? thread.title}
                   draggable={false}
                   tabIndex={overlay ? -1 : undefined}
                   className="pointer-events-auto flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-1 text-xs hover:bg-accent/50 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"

@@ -103,6 +103,7 @@ export interface EnvironmentThreadShell {
   readonly latestUserMessageAt: string | null;
   readonly hasPendingApprovals: boolean;
   readonly hasPendingUserInput: boolean;
+  readonly blockingReason?: string;
   readonly hasActionableProposedPlan: boolean;
   readonly pendingBackgroundTasks: ReadonlyArray<
     NonNullable<OrchestrationV2ThreadShell["pendingBackgroundTasks"]>[number]
@@ -241,6 +242,11 @@ export function presentThreadShell(
       thread.pendingRuntimeRequest.kind !== "user_input" &&
       thread.pendingRuntimeRequest.kind !== "auth_refresh",
     hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
+    ...(thread.pendingRuntimeRequest?.blockingReason === undefined
+      ? {}
+      : {
+          blockingReason: thread.pendingRuntimeRequest.blockingReason,
+        }),
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],
     providerInstanceHistory: thread.providerInstanceHistory ?? [],

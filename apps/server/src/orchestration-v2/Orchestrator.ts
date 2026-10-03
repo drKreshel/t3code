@@ -112,6 +112,7 @@ import {
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
+import { humanRequestEvents } from "./HumanRequest.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -358,6 +359,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "queued-run.edit":
     case "runtime-request.respond":
     case "thread.user-input.dismiss":
+    case "thread.request-human":
     case "checkpoint.rollback":
     case "checkpoint.rollback.fail":
     case "thread.background-work.settle":
@@ -1122,6 +1124,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null ||
         projection.runs.some(isBlockingRun) ||
+        projection.runtimeRequests.some(
+          (request) => request.status === "pending" && request.blockingReason !== undefined,
+        ) ||
         projection.runs.some((run) => run.status === "queued" && run.queueHeld === true)
       ) {
         return;
@@ -7270,7 +7275,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
 
   const loadProjectionForCommand = <K extends ProjectionRecordField>(
-    command: OrchestrationV2Command,
+    command: OrchestrationV2ServerCommand,
     fields: ReadonlyArray<K>,
     filter?: ProjectionRecordFilter,
   ) =>
@@ -9165,6 +9170,34 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.user-input.dismiss":
         yield* dispatchThreadUserInputDismiss(command, events, effects);
         break;
+      case "thread.request-human": {
+        const projection = yield* loadProjectionForCommand(command, ["runtimeRequests"]);
+        if (
+          projection.thread.archivedAt !== null ||
+          projection.thread.deletedAt !== null ||
+          isProviderNativeSubagentThread(projection.thread)
+        ) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Open an active chat before requesting help.",
+          });
+        }
+        // Repeating the same blocker must not stack unanswered prompts.
+        if (
+          projection.runtimeRequests.some(
+            (request) => request.status === "pending" && request.blockingReason === command.reason,
+          )
+        )
+          break;
+        for (const event of humanRequestEvents(
+          command,
+          yield* DateTime.now,
+          yield* nextTurnItemOrdinal(projection),
+        ))
+          yield* emit(events, command)(event);
+        break;
+      }
       case "run.interrupt":
         cancelUnsettledEffects = yield* dispatchRunInterrupt(command, events, effects);
         break;
@@ -9339,9 +9372,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const plan = yield* dispatchOnce(command).pipe(
       Effect.flatMap((planned) =>
-        // A settle that finds the provider already ended everything has
-        // nothing to record, which is its expected outcome, not a failure.
-        planned.events.length > 0 || command.type === "thread.background-work.settle"
+        // Settling completed work or repeating a pending blocker can be a no-op.
+        planned.events.length > 0 ||
+        command.type === "thread.background-work.settle" ||
+        command.type === "thread.request-human"
           ? Effect.succeed(planned)
           : Effect.fail(
               new OrchestratorDispatchError({
