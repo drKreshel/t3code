@@ -94,7 +94,7 @@ cmd_backup() {
   dir="$BACKUP_ROOT/$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$dir"
   local file
-  for file in state.sqlite statev2.sqlite; do
+  for file in state.sqlite statev2.sqlite fork.sqlite; do
     if [ -f "$DATA_DIR/$file" ]; then
       # VACUUM INTO is a consistent snapshot even while a server has the file open.
       sqlite3 -readonly "$DATA_DIR/$file" "VACUUM INTO '$dir/$file'" || return 1
