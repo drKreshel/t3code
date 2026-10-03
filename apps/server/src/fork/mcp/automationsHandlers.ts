@@ -1,4 +1,5 @@
 import {
+  anyBoardColumnName,
   type Automation,
   AutomationsCommandError,
   type AutomationSchedule,
@@ -16,7 +17,7 @@ import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { AutomationEngine } from "../automations/AutomationEngine.ts";
-import { anyBoardColumnName, serverTimezone } from "../automations/automationLogic.ts";
+import { serverTimezone } from "../automations/automationLogic.ts";
 import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";

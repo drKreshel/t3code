@@ -381,7 +381,6 @@ function AutomationForm({
           {does === "steps" ? (
             <Field label="Steps">
               <StepsEditor
-                trigger="schedule"
                 rows={stepRows}
                 onChange={setStepRows}
                 columnNames={columnNameOptions}

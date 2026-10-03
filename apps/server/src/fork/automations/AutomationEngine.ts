@@ -38,7 +38,7 @@ import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { forkParked } from "../../serverActivation.ts";
 import * as ServerSettings from "../../serverSettings.ts";
-import { type BoardEvent, BoardsService } from "../boards/BoardsService.ts";
+import { BoardsService } from "../boards/BoardsService.ts";
 import {
   decideSchedule,
   nextScheduledAt,
@@ -59,7 +59,6 @@ export class AutomationEngine extends Context.Service<
       command: AutomationsCommand,
     ) => Effect.Effect<AutomationsCommandResult, AutomationsCommandError>;
     /** What the background loops call per event; tests call them directly. */
-    readonly handleBoardEvent: (event: BoardEvent) => Effect.Effect<void>;
     readonly handleDomainEvent: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
     readonly tick: Effect.Effect<void>;
   }
@@ -134,67 +133,37 @@ const make = (options: { readonly background: boolean }) =>
         ),
       );
 
-    /** Applies built-in steps in order; the first failure stops the rest. */
-    const runSteps = (
-      automation: StoredAutomation,
-      ticket: Ticket | undefined,
-      snapshot: BoardsSnapshot,
-    ) =>
+    /** Scheduled cleanup steps run in order; the first failure stops the rest. */
+    const runSteps = (automation: StoredAutomation, snapshot: BoardsSnapshot) =>
       Effect.gen(function* () {
         const actor = actorOf(automation);
         const asStepError = (error: { readonly message: string }) =>
           new RunStartError({ message: error.message });
         for (const step of automation.action.steps ?? []) {
-          if (step.type === "moveStale") {
-            const cutoff =
-              DateTime.toEpochMillis(yield* DateTime.now) -
-              step.olderThanDays * 24 * 60 * 60 * 1000;
-            for (const board of snapshot.boards) {
-              if (board.archivedAt !== null) continue;
-              if (step.boardId && step.boardId !== board.id) continue;
-              const named = (name: string) =>
-                board.columns.find(
-                  (column) => column.name.trim().toLowerCase() === name.trim().toLowerCase(),
-                );
-              const from = named(step.from);
-              const to = named(step.to);
-              if (!from || !to || from.id === to.id) continue;
-              for (const stale of snapshot.tickets) {
-                if (stale.columnId !== from.id || stale.archivedAt !== null) continue;
-                if (DateTime.toEpochMillis(DateTime.makeUnsafe(stale.updatedAt)) > cutoff) continue;
-                yield* boards
-                  .dispatch({ type: "ticket.move", ticketId: stale.id, columnId: to.id }, actor)
-                  .pipe(Effect.mapError(asStepError));
-              }
-            }
-            continue;
+          if (step.type !== "moveStale" || automation.trigger.type !== "schedule") {
+            return yield* new RunStartError({
+              message: "Ticket actions belong in workflow instructions.",
+            });
           }
-          if (!ticket) {
-            return yield* new RunStartError({ message: "This step needs a ticket to act on." });
-          }
-          switch (step.type) {
-            case "moveTo": {
-              const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
-              const column = board?.columns.find(
-                (candidate) =>
-                  candidate.name.trim().toLowerCase() === step.column.trim().toLowerCase(),
+          const cutoff =
+            DateTime.toEpochMillis(yield* DateTime.now) - step.olderThanDays * 24 * 60 * 60 * 1000;
+          for (const board of snapshot.boards) {
+            if (board.archivedAt !== null) continue;
+            if (step.boardId && step.boardId !== board.id) continue;
+            const named = (name: string) =>
+              board.columns.find(
+                (column) => column.name.trim().toLowerCase() === name.trim().toLowerCase(),
               );
-              if (!column) {
-                return yield* new RunStartError({
-                  message: `The board has no column named "${step.column}".`,
-                });
-              }
+            const from = named(step.from);
+            const to = named(step.to);
+            if (!from || !to || from.id === to.id) continue;
+            for (const stale of snapshot.tickets) {
+              if (stale.columnId !== from.id || stale.archivedAt !== null) continue;
+              if (DateTime.toEpochMillis(DateTime.makeUnsafe(stale.updatedAt)) > cutoff) continue;
               yield* boards
-                .dispatch({ type: "ticket.move", ticketId: ticket.id, columnId: column.id }, actor)
+                .dispatch({ type: "ticket.move", ticketId: stale.id, columnId: to.id }, actor)
                 .pipe(Effect.mapError(asStepError));
-              break;
             }
-            case "removeWorkspace":
-              if (Option.isNone(workspaces)) break;
-              yield* workspaces.value
-                .dispatch({ type: "workspace.remove", ticketId: ticket.id })
-                .pipe(Effect.mapError(asStepError));
-              break;
           }
         }
       });
@@ -214,7 +183,7 @@ const make = (options: { readonly background: boolean }) =>
         if (automation.action.steps && automation.action.steps.length > 0) {
           const startedAt = yield* nowIso;
           yield* store.updateRun(runId, { status: "running", startedAt });
-          yield* runSteps(automation, ticket, snapshot);
+          yield* runSteps(automation, snapshot);
           yield* store.updateRun(runId, { status: "succeeded", finishedAt: yield* nowIso });
           return;
         }
@@ -577,9 +546,6 @@ const make = (options: { readonly background: boolean }) =>
         Effect.catchCause((cause) => Effect.logWarning(`Automation ${label} failed`, { cause })),
       );
 
-    // Column moves and flag resolution only update the board. Execution is explicit.
-    const handleBoardEvent = (_event: BoardEvent) => Effect.void;
-
     const handleDomainEvent = (event: OrchestrationV2DomainEvent) => {
       if (event.type === "thread.created" && event.payload.lineage.parentThreadId !== null) {
         const parentKey = `${environmentId}:${event.payload.lineage.parentThreadId}`;
@@ -889,7 +855,6 @@ const make = (options: { readonly background: boolean }) =>
 
     return AutomationEngine.of({
       dispatch,
-      handleBoardEvent,
       handleDomainEvent,
       tick: scheduledTick,
     });

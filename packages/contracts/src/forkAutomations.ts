@@ -64,9 +64,9 @@ export type AutomationCheckout = typeof AutomationCheckout.Type;
  * a schedule. Workflows express their actions in instructions.
  */
 export const AutomationStep = Schema.Union([
-  /** Moves the ticket to the column with this name on its board. */
+  /** @deprecated Legacy template action, converted to workflow instructions on import. */
   Schema.Struct({ type: Schema.Literal("moveTo"), column: TrimmedNonEmptyString }),
-  /** Removes the ticket's worktrees (branches stay); refused while work is unsaved. */
+  /** @deprecated Legacy template action, converted to workflow instructions on import. */
   Schema.Struct({ type: Schema.Literal("removeWorkspace") }),
   /**
    * Moves tickets that sat in `from` longer than the given days into `to`, on

@@ -19,12 +19,11 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 
 import { AutomationEngine } from "./automations/AutomationEngine.ts";
 import { AutomationsStore } from "./automations/AutomationsStore.ts";
-import { type BoardEvent, BoardsService } from "./boards/BoardsService.ts";
+import { BoardsService } from "./boards/BoardsService.ts";
 import { BoardTemplates } from "./templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "./workspaces/TicketWorkspaces.ts";
 
@@ -65,7 +64,6 @@ export const unavailableBoards: BoardsService["Service"] = {
   stream: Stream.fail(unavailable),
   ticketDetailStream: () => Stream.fail(unavailable),
   dispatch: () => Effect.fail(unavailable),
-  subscribeEvents: PubSub.unbounded<BoardEvent>().pipe(Effect.flatMap(PubSub.subscribe)),
 };
 
 export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcObservers) =>

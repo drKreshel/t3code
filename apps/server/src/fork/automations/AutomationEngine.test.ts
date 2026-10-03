@@ -17,7 +17,6 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -152,19 +151,9 @@ const makeHarness = Effect.gen(function* () {
       } as unknown as OrchestrationV2DomainEvent);
     });
 
-  /** Dispatches a board command as `actor` and feeds the events it causes to the engine. */
+  /** Dispatches through the same board service used by clients and tools. */
   const boardDispatch = (command: Parameters<typeof boards.dispatch>[0], actor = "user") =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const subscription = yield* boards.subscribeEvents;
-        const result = yield* boards.dispatch(command, actor);
-        // Events are published before dispatch returns, so they are all queued here.
-        const queued = yield* PubSub.remaining(subscription);
-        const emitted = queued > 0 ? yield* PubSub.takeUpTo(subscription, queued) : [];
-        for (const event of emitted) yield* engine.handleBoardEvent(event);
-        return result;
-      }),
-    );
+    boards.dispatch(command, actor);
 
   return {
     engine,
@@ -192,16 +181,16 @@ const setupBoard = (harness: Effect.Success<typeof makeHarness>) =>
     const snapshot: BoardsSnapshot = yield* harness.boards.snapshot;
     const column = (name: string) =>
       snapshot.boards[0]!.columns.find((candidate) => candidate.name === name)!.id;
-    const hookId = (yield* harness.engine.dispatch({
+    const presetId = (yield* harness.engine.dispatch({
       type: "automation.create",
       title: "Implement",
       prompt: "Implement {{ticket.key}}: {{ticket.title}}. Latest handoff: {{ticket.handoff}}",
       trigger: { type: "workflow" },
       action,
     })).id!;
-    const preset = yield* harness.store.get(hookId);
+    const preset = yield* harness.store.get(presetId);
     const workflow = {
-      presetId: hookId,
+      presetId: presetId,
       title: preset.title,
       prompt: preset.prompt,
       action: preset.action,
@@ -213,7 +202,7 @@ const setupBoard = (harness: Effect.Success<typeof makeHarness>) =>
           "user",
         )
         .pipe(Effect.map((result) => result.id!));
-    return { boardId, column, hookId, ticket };
+    return { boardId, column, presetId, ticket };
   });
 
 describe("AutomationEngine", () => {
@@ -391,21 +380,21 @@ describe("AutomationEngine", () => {
   it.effect("keeps instruction snapshots and assigned tickets usable after retiring a preset", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const { ticket, hookId } = yield* setupBoard(harness);
+      const { ticket, presetId } = yield* setupBoard(harness);
       const ticketId = yield* ticket("Keep instructions");
       yield* harness.engine.dispatch({
         type: "automation.update",
-        automationId: hookId,
+        automationId: presetId,
         prompt: "Replacement process",
       });
-      yield* harness.engine.dispatch({ type: "automation.delete", automationId: hookId });
+      yield* harness.engine.dispatch({ type: "automation.delete", automationId: presetId });
       yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
       const message = (yield* Ref.get(harness.commands)).find(
         (command) => command.type === "message.dispatch",
       );
       expect(message?.text).toContain("Implement ATLAS-1: Keep instructions");
       expect(message?.text).not.toContain("Replacement process");
-      expect((yield* harness.store.get(hookId)).enabled).toBe(false);
+      expect((yield* harness.store.get(presetId)).enabled).toBe(false);
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -488,6 +477,32 @@ describe("AutomationEngine", () => {
         reason: "Needs a decision",
       });
       yield* harness.boardDispatch({ type: "ticket.resolveFlag", ticketId });
+      expect(yield* harness.threadIdsStarted).toHaveLength(0);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("rejects legacy ticket steps on schedules", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      for (const step of [
+        { type: "moveTo", column: "Done" },
+        { type: "removeWorkspace" },
+      ] as const) {
+        const error = yield* harness.engine
+          .dispatch({
+            type: "automation.create",
+            title: "Legacy ticket action",
+            prompt: "",
+            trigger: {
+              type: "schedule",
+              schedule: { kind: "cron", cron: "0 3 * * *" },
+              timezone: "UTC",
+            },
+            action: { ...action, checkout: "local", steps: [step] },
+          })
+          .pipe(Effect.flip);
+        expect(error.message).toMatch(/workflow instructions/);
+      }
       expect(yield* harness.threadIdsStarted).toHaveLength(0);
     }).pipe(Effect.provide(TestLayer)),
   );

@@ -19,7 +19,6 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
@@ -151,16 +150,8 @@ describe("AutomationEngine with real orchestration", () => {
           "user",
         )).id!;
 
-        // Move the ticket and hand the board events to the engine, as the server does.
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const subscription = yield* boards.subscribeEvents;
-            yield* boards.dispatch({ type: "ticket.move", ticketId, columnId: active }, "user");
-            const queued = yield* PubSub.remaining(subscription);
-            const emitted = queued > 0 ? yield* PubSub.takeUpTo(subscription, queued) : [];
-            for (const event of emitted) yield* engine.handleBoardEvent(event);
-          }),
-        );
+        // Changing columns does not start a session; only an explicit Start does.
+        yield* boards.dispatch({ type: "ticket.move", ticketId, columnId: active }, "user");
 
         expect((yield* orchestration.getShellSnapshot()).threads).toHaveLength(0);
         yield* engine.dispatch({ type: "ticket.startWorkflow", ticketId });

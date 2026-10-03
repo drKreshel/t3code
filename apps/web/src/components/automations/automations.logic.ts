@@ -1,5 +1,5 @@
 import { anyBoardColumnName } from "@t3tools/contracts";
-import type { Automation, AutomationSchedule, AutomationTrigger, Board } from "@t3tools/contracts";
+import type { AutomationSchedule, AutomationTrigger, Board } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 
 /** RPC defects can arrive as strings rather than declared command errors. */
@@ -153,36 +153,7 @@ export function describeTrigger(
   return `When a ticket enters ${boardColumnLabel(trigger.boardId, trigger.columnId)}`;
 }
 
-/**
- * Hooks that watch each column of one board, by column id: the board's own,
- * plus any-board hooks naming the column.
- */
-export function hooksByColumn(
-  automations: ReadonlyArray<Automation>,
-  board: Pick<Board, "id" | "columns">,
-): Map<string, Automation[]> {
-  const byColumn = new Map<string, Automation[]>();
-  const add = (columnId: string, automation: Automation) => {
-    const list = byColumn.get(columnId);
-    if (list) list.push(automation);
-    else byColumn.set(columnId, [automation]);
-  };
-  for (const automation of automations) {
-    const { trigger } = automation;
-    if (trigger.type !== "board") continue;
-    if (trigger.boardId === null) {
-      const name = anyBoardColumnName(trigger)?.trim().toLowerCase();
-      for (const column of board.columns) {
-        if (name && column.name.trim().toLowerCase() === name) add(column.id, automation);
-      }
-    } else if (trigger.boardId === board.id && trigger.columnId !== null) {
-      add(trigger.columnId, automation);
-    }
-  }
-  return byColumn;
-}
-
-/** Every column name used on live boards, for any-board hooks to pick from. */
+/** Every column name used on live boards, for scheduled cleanup steps. */
 export function columnNamesAcrossBoards(
   boards: ReadonlyArray<Pick<Board, "archivedAt" | "columns">>,
 ): string[] {

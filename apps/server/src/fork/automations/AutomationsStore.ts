@@ -1,5 +1,5 @@
 /**
- * Storage for automations, their runs, and hook state, in `fork.sqlite`. Every
+ * Storage for scheduled automations, workflow presets, and their runs in `fork.sqlite`. Every
  * write publishes a change; subscribers reload the whole snapshot, which stays
  * small (automations plus the most recent runs).
  */
@@ -86,10 +86,6 @@ export class AutomationsStore extends Context.Service<
     readonly runningRunForThread: (
       threadKey: string,
     ) => Effect.Effect<Option.Option<AutomationRun>, StoreError>;
-    readonly boardPaused: (boardId: string) => Effect.Effect<boolean, StoreError>;
-    readonly setBoardPaused: (boardId: string, paused: boolean) => Effect.Effect<void, StoreError>;
-    readonly ticketResetAt: (ticketId: string) => Effect.Effect<string | null, StoreError>;
-    readonly resetTicket: (ticketId: string, at: string) => Effect.Effect<void, StoreError>;
     readonly snapshot: Effect.Effect<AutomationsSnapshot, StoreError>;
     readonly stream: Stream.Stream<AutomationsSnapshot, StoreError>;
   }
@@ -303,32 +299,6 @@ const make = Effect.gen(function* () {
       `,
     ).pipe(Effect.map((rows) => Option.map(Option.fromNullishOr(rows[0]), toRun)));
 
-  const boardPaused = (boardId: string) =>
-    storage(
-      sql<{ readonly paused: number }>`
-        SELECT paused FROM fork_board_hook_state WHERE board_id = ${boardId}
-      `,
-    ).pipe(Effect.map((rows) => rows[0]?.paused === 1));
-
-  const setBoardPaused = (boardId: string, paused: boolean) =>
-    write(sql`
-      INSERT INTO fork_board_hook_state (board_id, paused) VALUES (${boardId}, ${paused ? 1 : 0})
-      ON CONFLICT (board_id) DO UPDATE SET paused = excluded.paused
-    `);
-
-  const ticketResetAt = (ticketId: string) =>
-    storage(
-      sql<{ readonly reset_at: string }>`
-        SELECT reset_at FROM fork_ticket_hook_state WHERE ticket_id = ${ticketId}
-      `,
-    ).pipe(Effect.map((rows) => rows[0]?.reset_at ?? null));
-
-  const resetTicket = (ticketId: string, at: string) =>
-    write(sql`
-      INSERT INTO fork_ticket_hook_state (ticket_id, reset_at) VALUES (${ticketId}, ${at})
-      ON CONFLICT (ticket_id) DO UPDATE SET reset_at = excluded.reset_at
-    `);
-
   const snapshot = Effect.gen(function* () {
     const automations = yield* list;
     const runs = yield* storage(
@@ -336,15 +306,11 @@ const make = Effect.gen(function* () {
         SELECT * FROM fork_automation_runs ORDER BY created_at DESC LIMIT ${SNAPSHOT_RUN_LIMIT}
       `,
     );
-    const boardHooks = yield* storage(
-      sql<{ readonly board_id: string; readonly paused: number }>`
-        SELECT * FROM fork_board_hook_state
-      `,
-    );
     return {
       automations: automations.map(({ lastFiredAt: _lastFiredAt, ...automation }) => automation),
       runs: runs.map(toRun),
-      boardHooks: boardHooks.map((row) => ({ boardId: row.board_id, paused: row.paused === 1 })),
+      // Retained in the wire contract for older clients; column hooks no longer run.
+      boardHooks: [],
     } satisfies AutomationsSnapshot;
   });
 
@@ -381,10 +347,6 @@ const make = Effect.gen(function* () {
     runsWithStatus,
     runsForTicket,
     runningRunForThread,
-    boardPaused,
-    setBoardPaused,
-    ticketResetAt,
-    resetTicket,
     snapshot,
     stream,
   });

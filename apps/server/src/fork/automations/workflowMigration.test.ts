@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { AutomationTrigger, TicketWorkflow } from "@t3tools/contracts";
+import { AutomationAction, AutomationTrigger, TicketWorkflow } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -12,6 +12,9 @@ import { migrateColumnWorkflows } from "./workflowMigration.ts";
 const TestLayer = ForkDatabaseMemory.pipe(Layer.provide(NodeServices.layer));
 const decodeWorkflow = Schema.decodeUnknownSync(Schema.fromJsonString(TicketWorkflow));
 const decodeTrigger = Schema.decodeUnknownSync(Schema.fromJsonString(AutomationTrigger));
+const ActionJson = Schema.fromJsonString(AutomationAction);
+const encodeAction = Schema.encodeSync(ActionJson);
+const decodeAction = Schema.decodeUnknownSync(ActionJson);
 
 describe("workflow migration", () => {
   it.effect(
@@ -84,6 +87,34 @@ describe("workflow migration", () => {
           "builtin:review-only",
         ]),
       );
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("turns legacy ticket steps into instructions instead of executable actions", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const action = encodeAction({
+        projectKey: null,
+        modelSelection: null,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        checkout: "ticket",
+        steps: [{ type: "moveTo", column: "Done" }, { type: "removeWorkspace" }],
+      });
+      yield* sql`INSERT INTO fork_automations (id,title,prompt,trigger_json,action_json,created_at,updated_at)
+        VALUES ('old-steps','Close','','{"type":"board","boardId":null,"columnId":null,"columnName":"Close"}',${action},'2026-10-01','2026-10-01')`;
+      yield* migrateColumnWorkflows;
+      const [preset] = yield* sql<{
+        prompt: string;
+        action_json: string;
+        trigger_json: string;
+      }>`SELECT * FROM fork_automations WHERE id = 'old-steps'`;
+      expect(decodeTrigger(preset!.trigger_json).type).toBe("workflow");
+      expect(preset!.prompt).toContain("Move the ticket to Done.");
+      expect(preset!.prompt).toContain(
+        "Remove the ticket workspace once its work is saved and delivered.",
+      );
+      expect(decodeAction(preset!.action_json)).not.toHaveProperty("steps");
     }).pipe(Effect.provide(TestLayer)),
   );
 });

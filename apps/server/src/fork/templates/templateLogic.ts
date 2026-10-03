@@ -22,7 +22,7 @@ const scheduleTitle = (title: string, board: Board) => `${title} (${board.name})
 
 type CreateAutomation = Extract<AutomationsCommand, { readonly type: "automation.create" }>;
 
-/** The automations a template makes for a new board. Hooks on missing columns are skipped. */
+/** Saved legacy hooks become presets; schedules are scoped to the new board. */
 export function automationsForBoard(
   template: BoardTemplate,
   board: Board,
@@ -84,8 +84,8 @@ function tidiesBoard(automation: Automation, boardId: string): boolean {
 }
 
 /**
- * A board's columns, hooks, and tidying schedules, as template parts. Hooks
- * drop their project so each board's own project applies.
+ * A board's columns and tidying schedules, as template parts. Legacy hooks
+ * can round-trip older templates and become workflow presets when imported.
  */
 export function templatePartsOf(
   board: Board,

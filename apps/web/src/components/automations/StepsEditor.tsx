@@ -5,64 +5,37 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
-type StepType = AutomationStep["type"];
+type CleanupStep = Extract<AutomationStep, { readonly type: "moveStale" }>;
 
 /** A step with a key for its row; steps themselves carry no ids. */
 export interface StepRow {
   readonly id: number;
-  readonly step: AutomationStep;
+  readonly step: CleanupStep;
 }
 
 let nextRowId = 0;
-/** Rows for steps loaded from an automation or a template. */
+/** Rows for scheduled cleanup; legacy ticket actions are migrated to workflow instructions. */
 export function toStepRows(steps: ReadonlyArray<AutomationStep>): StepRow[] {
-  return steps.map((step) => ({ id: nextRowId++, step }));
-}
-
-const STEP_LABEL: Record<StepType, string> = {
-  moveTo: "Move to column",
-  removeWorkspace: "Clean up worktrees",
-  moveStale: "Move old tickets",
-};
-
-/** Ticket steps act on the ticket a board hook fired for; schedules sweep boards. */
-const STEPS_FOR: Record<"board" | "schedule", ReadonlyArray<StepType>> = {
-  board: ["moveTo", "removeWorkspace"],
-  schedule: ["moveStale"],
-};
-
-function newStep(type: StepType, columnNames: ReadonlyArray<string>): AutomationStep {
-  switch (type) {
-    case "moveTo":
-      return { type, column: columnNames[0] ?? "Done" };
-    case "removeWorkspace":
-      return { type };
-    case "moveStale":
-      return { type, from: "Done", to: "Settled", olderThanDays: 7 };
-  }
+  return steps.flatMap((step) => (step.type === "moveStale" ? [{ id: nextRowId++, step }] : []));
 }
 
 /**
- * Built-in steps an automation runs instead of a chat, in order. They apply
- * instantly and cost no tokens; the first that fails stops the rest and flags
- * the ticket.
+ * Scheduled cleanup runs instead of a chat. It costs no tokens; the first
+ * failure stops the remaining steps.
  */
 export function StepsEditor({
-  trigger,
   rows,
   onChange,
   columnNames,
   boardNameOf,
 }: {
-  readonly trigger: "board" | "schedule";
   readonly rows: ReadonlyArray<StepRow>;
   readonly onChange: (rows: StepRow[]) => void;
   /** Column names to offer for moves. */
   readonly columnNames: ReadonlyArray<string>;
   readonly boardNameOf: (boardId: string) => string;
 }) {
-  const allowed = STEPS_FOR[trigger];
-  const replace = (id: number, step: AutomationStep) =>
+  const replace = (id: number, step: CleanupStep) =>
     onChange(rows.map((row) => (row.id === id ? { id, step } : row)));
   const remove = (id: number) => onChange(rows.filter((row) => row.id !== id));
   return (
@@ -76,26 +49,7 @@ export function StepsEditor({
               <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">
                 {index + 1}.
               </span>
-              <Select
-                value={step.type}
-                onValueChange={(value) => {
-                  // The picker can report an empty value; only a known step replaces this one.
-                  if (typeof value === "string" && value in STEP_LABEL && value !== step.type) {
-                    replace(id, newStep(value as StepType, columnNames));
-                  }
-                }}
-              >
-                <SelectTrigger size="sm" className="w-44" aria-label={`Step ${index + 1}`}>
-                  <SelectValue>{STEP_LABEL[step.type]}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup alignItemWithTrigger={false}>
-                  {allowed.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {STEP_LABEL[type]}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
+              <span className="text-xs">Move old tickets</span>
               <StepFields
                 step={step}
                 columnNames={columnNames}
@@ -119,7 +73,12 @@ export function StepsEditor({
         className="self-start"
         size="xs"
         variant="ghost"
-        onClick={() => onChange([...rows, ...toStepRows([newStep(allowed[0]!, columnNames)])])}
+        onClick={() =>
+          onChange([
+            ...rows,
+            ...toStepRows([{ type: "moveStale", from: "Done", to: "Settled", olderThanDays: 7 }]),
+          ])
+        }
       >
         <PlusIcon />
         Add step
@@ -162,58 +121,40 @@ function StepFields({
   boardNameOf,
   onChange,
 }: {
-  readonly step: AutomationStep;
+  readonly step: CleanupStep;
   readonly columnNames: ReadonlyArray<string>;
   readonly boardNameOf: (boardId: string) => string;
-  readonly onChange: (step: AutomationStep) => void;
+  readonly onChange: (step: CleanupStep) => void;
 }) {
-  switch (step.type) {
-    case "moveTo":
-      return (
-        <ColumnSelect
-          label="Column"
-          value={step.column}
-          columnNames={columnNames}
-          onChange={(column) => onChange({ ...step, column })}
-        />
-      );
-    case "moveStale":
-      return (
-        <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          from
-          <ColumnSelect
-            label="From column"
-            value={step.from}
-            columnNames={columnNames}
-            onChange={(from) => onChange({ ...step, from })}
-          />
-          to
-          <ColumnSelect
-            label="To column"
-            value={step.to}
-            columnNames={columnNames}
-            onChange={(to) => onChange({ ...step, to })}
-          />
-          after
-          <Input
-            size="sm"
-            type="number"
-            min={1}
-            className="w-16"
-            aria-label="Days"
-            value={step.olderThanDays}
-            onChange={(event) =>
-              onChange({ ...step, olderThanDays: Math.max(1, Number(event.target.value) || 1) })
-            }
-          />
-          days, on {step.boardId ? boardNameOf(step.boardId) : "every board"}
-        </span>
-      );
-    case "removeWorkspace":
-      return (
-        <span className="text-xs text-muted-foreground">
-          Only when everything is committed and pushed; branches are kept.
-        </span>
-      );
-  }
+  return (
+    <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      from
+      <ColumnSelect
+        label="From column"
+        value={step.from}
+        columnNames={columnNames}
+        onChange={(from) => onChange({ ...step, from })}
+      />
+      to
+      <ColumnSelect
+        label="To column"
+        value={step.to}
+        columnNames={columnNames}
+        onChange={(to) => onChange({ ...step, to })}
+      />
+      after
+      <Input
+        size="sm"
+        type="number"
+        min={1}
+        className="w-16"
+        aria-label="Days"
+        value={step.olderThanDays}
+        onChange={(event) =>
+          onChange({ ...step, olderThanDays: Math.max(1, Number(event.target.value) || 1) })
+        }
+      />
+      days, on {step.boardId ? boardNameOf(step.boardId) : "every board"}
+    </span>
+  );
 }

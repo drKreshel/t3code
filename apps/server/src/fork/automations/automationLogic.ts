@@ -1,11 +1,5 @@
 /** Pure pieces of the automation engine: schedules and prompt variables. */
-import type {
-  AutomationAction,
-  AutomationTrigger,
-  BoardsSnapshot,
-  Ticket,
-} from "@t3tools/contracts";
-import { anyBoardColumnName } from "@t3tools/contracts";
+import type { AutomationAction, AutomationTrigger, Ticket } from "@t3tools/contracts";
 import * as Cron from "effect/Cron";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
@@ -23,7 +17,7 @@ export function scheduleProblem(trigger: AutomationTrigger): string | null {
 
 /**
  * When a schedule fires next after `after` (its last firing, or its creation).
- * Null for board triggers, a one-off that already fired, or an invalid cron.
+ * Null for workflow presets, legacy board triggers, a one-off that already fired, or an invalid cron.
  */
 export function nextScheduledAt(
   trigger: AutomationTrigger,
@@ -90,39 +84,8 @@ export function renderPrompt(template: string, context: PromptContext): string {
 }
 
 /**
- * Whether a board trigger applies to a ticket where it sits now. A board
- * trigger names its column; an any-board trigger (`boardId` null) matches
- * columns by name on whichever board the ticket is on.
- */
-export function boardTriggerMatches(
-  trigger: AutomationTrigger,
-  snapshot: BoardsSnapshot,
-  ticket: Ticket,
-): boolean {
-  if (trigger.type !== "board") return false;
-  if (trigger.boardId !== null) {
-    return trigger.boardId === ticket.boardId && trigger.columnId === ticket.columnId;
-  }
-  const name = anyBoardColumnName(trigger);
-  if (name === null) return false;
-  const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
-  const column = board?.columns.find((candidate) => candidate.id === ticket.columnId);
-  return column !== undefined && column.name.trim().toLowerCase() === name.trim().toLowerCase();
-}
-
-/** Why a board trigger is incomplete, or null. */
-export function boardTriggerProblem(trigger: AutomationTrigger): string | null {
-  if (trigger.type !== "board") return null;
-  if (trigger.boardId !== null) {
-    return trigger.columnId ? null : "Pick the column the hook watches.";
-  }
-  return anyBoardColumnName(trigger) ? null : "Name the column the hook watches on every board.";
-}
-
-/**
- * Why an automation's action does not fit its trigger, or null. Chat
- * automations need a prompt; ticket steps need a board trigger; sweeping
- * steps belong to schedules.
+ * Why an automation's action does not fit its trigger, or null. Workflows
+ * use instructions; schedules can start chats or sweep old tickets.
  */
 export function stepsProblem(
   trigger: AutomationTrigger,
@@ -142,14 +105,12 @@ export function stepsProblem(
   for (const step of steps) {
     if (step.type === "moveStale") {
       if (trigger.type !== "schedule") return "Moving stale tickets runs on a schedule.";
-    } else if (trigger.type !== "board") {
-      return "Steps that act on a ticket run when a ticket enters a column.";
+    } else {
+      return "Ticket actions belong in workflow instructions.";
     }
   }
   return null;
 }
-
-export { anyBoardColumnName };
 
 /** The zone the server runs in; T3 Code's server is usually the user's own machine. */
 export const serverTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
