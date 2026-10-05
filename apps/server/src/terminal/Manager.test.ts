@@ -1342,6 +1342,32 @@ it.layer(
     }),
   );
 
+  it.effect("reads live output with a fresh subprocess check, then saved output after close", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
+        // The poll would leave the cached flag false; read must check now.
+        subprocessPollIntervalMs: 60_000,
+        subprocessInspector: () =>
+          Effect.succeed({ hasRunningSubprocess: true, childCommand: "node", processIds: [1] }),
+      });
+      const target = { threadId: "thread-1", terminalId: "agent-dev" };
+      yield* manager.open(openInput(target));
+      ptyAdapter.processes[0]!.emitData("server ready\n");
+      yield* waitFor(
+        Effect.map(getEvents, (events) => events.some((event) => event.type === "output")),
+      );
+
+      const live = yield* manager.read(target);
+      expect(live.summary?.hasRunningSubprocess).toBe(true);
+      expect(live.history).toContain("server ready");
+
+      yield* manager.close(target);
+      const closed = yield* manager.read(target);
+      expect(closed.summary).toBeNull();
+      expect(closed.history).toContain("server ready");
+    }),
+  );
+
   it.effect("backs off the spawned fallback when the resource monitor snapshot fails", () =>
     Effect.gen(function* () {
       const fallbackCalls: Array<number> = [];

@@ -53,6 +53,8 @@ import { AutomationsToolkitHandlersLive } from "../fork/mcp/automationsHandlers.
 import { AutomationsToolkit } from "../fork/mcp/automationsTools.ts";
 import { BoardsToolkitHandlersLive } from "../fork/mcp/boardsHandlers.ts";
 import { BoardsToolkit } from "../fork/mcp/boardsTools.ts";
+import { AgentTerminalToolkitHandlersLive } from "../fork/mcp/terminalHandlers.ts";
+import { AgentTerminalToolkit } from "../fork/mcp/terminalTools.ts";
 import {
   DeviceScreenshotToolkitHandlersLive,
   DeviceStandardToolkitHandlersLive,
@@ -699,10 +701,11 @@ export const PullRequestsToolkitRegistrationLive = McpServer.toolkit(PullRequest
   Layer.provide(PullRequestsToolkitHandlersLive),
 );
 
-// Fork: boards, tickets, and automations.
+// Fork: boards, tickets, automations, and agent terminals.
 export const BoardsToolkitRegistrationLive = Layer.mergeAll(
   McpServer.toolkit(BoardsToolkit).pipe(Layer.provide(BoardsToolkitHandlersLive)),
   McpServer.toolkit(AutomationsToolkit).pipe(Layer.provide(AutomationsToolkitHandlersLive)),
+  McpServer.toolkit(AgentTerminalToolkit).pipe(Layer.provide(AgentTerminalToolkitHandlersLive)),
 );
 
 const DeviceStandardToolkitRegistrationLive = McpServer.toolkit(DeviceStandardToolkit).pipe(

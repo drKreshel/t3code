@@ -213,6 +213,20 @@ export class TerminalManager extends Context.Service<
     }) => Effect.Effect<void>;
 
     /**
+     * Read one terminal's summary and output history without attaching. A
+     * closed terminal returns its persisted history and a null summary. The
+     * running-subprocess flag is checked now instead of taken from the last
+     * poll. Used by agents reading the terminals they started.
+     */
+    readonly read: (input: {
+      readonly threadId: string;
+      readonly terminalId: string;
+    }) => Effect.Effect<
+      { readonly summary: TerminalSummary | null; readonly history: string },
+      TerminalError
+    >;
+
+    /**
      * Subscribe to terminal runtime events with a direct callback.
      *
      * Returns an unsubscribe function.
@@ -3169,6 +3183,34 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       ),
     );
 
+  const read: TerminalManager["Service"]["read"] = (input) =>
+    withThreadLock(
+      input.threadId,
+      Effect.gen(function* () {
+        const existing = yield* getSession(input.threadId, input.terminalId);
+        if (Option.isNone(existing)) {
+          yield* flushPersist(input.threadId, input.terminalId);
+          const history = yield* readHistory(input.threadId, input.terminalId);
+          return { summary: null, history: history.value() };
+        }
+        const session = existing.value;
+        const pid = session.pid;
+        const hasRunningSubprocess =
+          session.status === "running" && pid !== null
+            ? yield* acquireSubprocessInspector.pipe(
+                Effect.flatMap(({ inspector }) => inspector(pid)),
+                Effect.map((result) => result.hasRunningSubprocess),
+                // Fall back to the last poll when the process table cannot be read.
+                Effect.orElseSucceed(() => session.hasRunningSubprocess),
+              )
+            : false;
+        return {
+          summary: { ...summary(session), hasRunningSubprocess },
+          history: session.history.value(),
+        };
+      }),
+    );
+
   return TerminalManager.of({
     open,
     attachStream,
@@ -3178,6 +3220,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     restart,
     close,
     closeIdle,
+    read,
     subscribe,
     subscribeMetadata,
   });
