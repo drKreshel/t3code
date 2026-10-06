@@ -280,6 +280,25 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       `ALTER TABLE fork_board_templates DROP COLUMN automations_json`,
     ],
   },
+  {
+    // Chat pins: one note and a few pinned artifacts per thread.
+    version: 12,
+    statements: [
+      `CREATE TABLE fork_thread_notes (
+        thread_id TEXT PRIMARY KEY,
+        text TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE fork_thread_pins (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        target TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (thread_id, target)
+      )`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

@@ -44,6 +44,7 @@ import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { TicketWorkspaceSection } from "./WorkspaceSettings";
+import { TicketPins } from "./TicketPins";
 import { describeTicketEvent } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { columnDotClass, PRIORITIES, PRIORITY_LABEL } from "./boardsPresentation";
@@ -788,6 +789,7 @@ function TicketProperties({
 
   return (
     <aside className="flex flex-col gap-5 lg:sticky lg:top-6 lg:self-start">
+      <TicketPins threads={view.threads} />
       <PropertyRow label="Column">
         <Select
           value={ticket.columnId}

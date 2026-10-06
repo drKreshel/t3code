@@ -22,7 +22,10 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { Button } from "../ui/button";
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useThreadPins } from "../../state/threadPins";
+import { hasThreadPins, ThreadPinsSection } from "./ThreadPinsSection";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -85,6 +88,12 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   // Same rule as the composer strip: a lone remote machine still gets a row,
   // shown as a static label because there is nothing to pick.
   const canPickEnvironment = props.availableEnvironments.length > 1;
+  // Fork: the chat's note and pins lead the card. Drafts have none.
+  const threadRef = useMemo(
+    () => (props.draftId ? null : scopeThreadRef(props.environmentId, props.threadId)),
+    [props.draftId, props.environmentId, props.threadId],
+  );
+  const pins = useThreadPins(threadRef);
   const showEnvironment = shouldShowEnvironmentIndicator({
     activeEnvironment:
       props.availableEnvironments.find((env) => env.environmentId === props.environmentId) ?? null,
@@ -122,10 +131,13 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     >
       {(density) => (
         <>
+          {threadRef && hasThreadPins(pins) ? (
+            <ThreadPinsSection threadRef={threadRef} pins={pins} />
+          ) : null}
           <ThreadDetailsSection
             headingId="thread-details-workspace-heading"
             title="Workspace"
-            separated={false}
+            separated={hasThreadPins(pins)}
             showHeading={false}
           >
             {props.versionMismatch ? (

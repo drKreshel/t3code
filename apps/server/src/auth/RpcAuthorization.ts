@@ -6,6 +6,7 @@ import {
   FORK_BOARDS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
+  FORK_THREAD_PINS_WS_METHODS,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthRelayReadScope,
@@ -227,6 +228,8 @@ export const RPC_REQUIRED_SCOPES = {
   [FORK_SKILLS_WS_METHODS.read]: AuthOrchestrationReadScope,
   [FORK_SKILLS_WS_METHODS.save]: AuthOrchestrationOperateScope,
   [FORK_SKILLS_WS_METHODS.saveSettings]: AuthOrchestrationOperateScope,
+  [FORK_THREAD_PINS_WS_METHODS.subscribe]: AuthOrchestrationReadScope,
+  [FORK_THREAD_PINS_WS_METHODS.dispatch]: AuthOrchestrationOperateScope,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {

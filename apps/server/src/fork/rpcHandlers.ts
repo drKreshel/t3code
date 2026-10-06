@@ -15,7 +15,10 @@ import {
   FORK_BOARDS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
+  FORK_THREAD_PINS_WS_METHODS,
   type TemplatesCommand,
+  type ThreadPinsCommand,
+  ThreadPinsError,
   type ThreadId,
   type WorkspacesCommand,
   WorkspacesCommandError,
@@ -27,6 +30,7 @@ import * as Stream from "effect/Stream";
 import { makeThreadAgentContext } from "./agentContext/AgentContext.ts";
 import { BoardsService } from "./boards/BoardsService.ts";
 import { SkillsService } from "./skills/SkillsService.ts";
+import { ThreadPinsService } from "./threadPins/ThreadPinsService.ts";
 import { BoardTemplates } from "./templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "./workspaces/TicketWorkspaces.ts";
 
@@ -58,6 +62,12 @@ const workspacesUnavailable = new WorkspacesCommandError({
   message: "Ticket workspaces are not available on this server.",
 });
 
+const pinsUnavailable = new ThreadPinsError({
+  code: "storage",
+  message: "Chat pins are not available on this server.",
+});
+const PINS_TRACE = { "rpc.aggregate": "fork-thread-pins" } as const;
+
 const unavailable = new BoardsCommandError({
   code: "storage",
   message: "Boards are not available on this server.",
@@ -80,6 +90,7 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
     const templates = yield* Effect.serviceOption(BoardTemplates);
     const threadAgentContext = yield* makeThreadAgentContext;
     const skills = yield* Effect.serviceOption(SkillsService);
+    const pins = yield* Effect.serviceOption(ThreadPinsService);
     const withSkills = <A>(
       run: (service: SkillsService["Service"]) => Effect.Effect<A, SkillsError>,
     ): Effect.Effect<A, SkillsError> =>
@@ -152,6 +163,24 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
             onSome: (service) => service.listRepos(input.projectKey),
           }),
           WORKSPACES_TRACE,
+        ),
+      [FORK_THREAD_PINS_WS_METHODS.subscribe]: (input: { readonly threadId: ThreadId }) =>
+        observeRpcStream(
+          FORK_THREAD_PINS_WS_METHODS.subscribe,
+          Option.match(pins, {
+            onNone: () => Stream.fail(pinsUnavailable),
+            onSome: (service) => service.stream(input.threadId),
+          }),
+          PINS_TRACE,
+        ),
+      [FORK_THREAD_PINS_WS_METHODS.dispatch]: (command: ThreadPinsCommand) =>
+        observeRpcEffect(
+          FORK_THREAD_PINS_WS_METHODS.dispatch,
+          Option.match(pins, {
+            onNone: () => Effect.fail(pinsUnavailable),
+            onSome: (service) => service.dispatch(command),
+          }),
+          PINS_TRACE,
         ),
       [FORK_TEMPLATES_WS_METHODS.subscribe]: () =>
         observeRpcStream(

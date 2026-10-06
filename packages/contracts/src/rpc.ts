@@ -29,6 +29,7 @@ import {
   ForkWorkspacesListReposRpc,
   ForkWorkspacesSubscribeRpc,
 } from "./forkWorkspaces.ts";
+import { ForkThreadPinsDispatchRpc, ForkThreadPinsSubscribeRpc } from "./forkThreadPins.ts";
 import {
   CodexAuthCallbackInput,
   CodexAuthCallbackState,
@@ -1940,4 +1941,6 @@ export const WsRpcGroup = RpcGroup.make(
   ForkSkillsReadRpc,
   ForkSkillsSaveRpc,
   ForkSkillsSaveSettingsRpc,
+  ForkThreadPinsSubscribeRpc,
+  ForkThreadPinsDispatchRpc,
 ).middleware(RpcScopeAuthorization);
