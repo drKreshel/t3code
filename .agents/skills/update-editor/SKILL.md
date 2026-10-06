@@ -37,22 +37,26 @@ Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sq
 
 - `upstream` is the official `pingdotgg/t3code` (pull only); `origin` is the fork `drKreshel/t3code`.
 - `main` is the fork's stable line: upstream plus merged fork features.
-- Commit finished work and upstream merges on the right branch with conventional messages. Ask before pushing to `origin`; never push to `upstream`.
+- Commit finished work and upstream merges on the right branch with conventional messages. Ask before pushing feature work to `origin`; an upstream update pushes `main` on its own (below). Never push to `upstream`.
 - Keep fork changes merge-friendly: logic in new files, thin hooks into upstream files.
 
 ## Update from upstream, all in one go
 
-When asked to update, pull upstream, or ship: do every step below without stopping unless something is unsafe.
+When asked to update, pull upstream, or ship: finish every step below unattended. Kreshel expects to come back to an updated, reopened app, so fix forward instead of giving up.
 
 Preserve folder and board data using the [update-t3 preservation guidance](../update-t3/SKILL.md). Record their existing state before updating. Verify that backups cover the active Electron profile and the current server/fork persistence, including board data. Prepare any required migration before installing, then compare folders and boards after reopening. Keep their names, structure, ordering, chat assignments, tickets, links, and hooks unchanged unless the user requested a change. An empty sidebar or board after an update is a migration failure to recover, not a successful update. If restart ends this turn, report verification as pending until it is actually checked.
 
 1. In the dev checkout, check `git status` and running dev processes. Carry uncommitted work along (stash it or commit it on its branch) rather than discarding it. Switch to `main`.
 2. `git fetch upstream` and summarize `git log --oneline main..upstream/main`. If there is nothing new and `main` is already installed (`scripts/fork/stable-app.sh status`), say so and stop.
-3. `git merge upstream/main`. Resolve conflicts keeping both upstream's change and the fork feature's intent; if a conflict cannot be resolved safely, stop and show it.
-4. Verify only what the merge touched: `pnpm exec tsc --noEmit` in `apps/web` (and the server package if server files conflicted), plus `pnpm exec vp test run` for the fork's tests (`apps/web/src/components/SidebarFolders.logic.test.ts`) and tests of conflicted files.
-5. Commit the merge (keep git's default merge message), and ask whether to push `main` to `origin`.
-6. `scripts/fork/stable-app.sh build` (a few minutes; the app keeps running).
+3. `git merge upstream/main`. Resolve conflicts in the spirit of both sides: keep upstream's change and the fork feature's intent, and adapt fork code to upstream's renamed services, new APIs, and dependency upgrades.
+4. Verify only what the merge touched: `pnpm exec tsc --noEmit` in `apps/web` (and the server package if server files changed), plus `pnpm exec vp test run` for the fork's tests (`apps/web/src/components/SidebarFolders.logic.test.ts`) and tests of conflicted files. A failure is work to do, not a stop: fix the fork code (for example imports broken by a library upgrade) and rerun until green.
+5. Commit the merge (keep git's default merge message; put follow-up fixes in the merge or in `fix(fork): ...` commits) and push `main` to `origin`.
+6. `scripts/fork/stable-app.sh build` (a few minutes; the app keeps running). If it fails, fix the cause, commit, push, and build again.
 7. Write the final summary for Kreshel first, then run `scripts/fork/stable-app.sh restart` as the very last action. It detaches from the app, waits 15 seconds so the reply can finish, quits T3 Code, backs up chats and folders, installs the build, and reopens the app. The chat ends when the app quits; everything is back after reopen. Progress and errors go to `~/.t3/backups/restart.log`, and a macOS notification reports the result.
+
+The summary lists the touching points: each place where upstream and a fork feature met, how it was merged, and any fork code adapted to upstream. Keep it to what Kreshel should know or check, not a commit log.
+
+Stop and ask only when the features themselves collide, not the code: upstream ships a feature that supersedes or competes with a fork feature (for example its own automations or folders), or merging would change how a fork feature behaves for Kreshel. Then leave `main` clean at its last good commit (abort the merge), keep the stable app running, and call `request_human` with a short markdown summary and options for each way forward. Do the same as a last resort when checks or the build still fail after real attempts to fix them.
 
 ## Ship to stable
 
