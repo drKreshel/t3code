@@ -8,7 +8,6 @@ import {
   ProjectId,
   ThreadId,
   type Ticket,
-  type TicketWorkflow,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -19,7 +18,6 @@ import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { randomUuidV4 } from "../../orchestration-v2/RandomUuid.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
-import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
 import { BoardTemplates } from "../templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
@@ -76,28 +74,6 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
   const templates = yield* Effect.serviceOption(BoardTemplates);
-  const automations = yield* Effect.serviceOption(AutomationsStore);
-  const workflowOf = (ref: string) =>
-    Effect.gen(function* () {
-      if (Option.isNone(automations)) return yield* notFound("Workflow presets are unavailable.");
-      const presets = yield* automations.value.list.pipe(
-        Effect.mapError(storage("Could not read workflows.")),
-      );
-      const preset = presets.find(
-        (candidate) =>
-          candidate.trigger.type === "workflow" &&
-          candidate.enabled &&
-          (candidate.id === ref || candidate.title.toLowerCase() === ref.trim().toLowerCase()),
-      );
-      if (!preset)
-        return yield* notFound(`No workflow preset "${ref}". Use list_workflows to choose one.`);
-      return {
-        presetId: preset.id,
-        title: preset.title,
-        prompt: preset.prompt,
-        action: preset.action,
-      } satisfies TicketWorkflow;
-    });
   const workspaceOf = (ticketId: string): Effect.Effect<TicketWorkspace | null> =>
     Option.match(workspaces, {
       onNone: () => Effect.succeed(null),
@@ -273,8 +249,6 @@ const make = Effect.gen(function* () {
           priority: ticket.priority,
           project: yield* projectTitle(ticket.projectKey ?? board.defaultProjectKey),
           folder: ticket.folder ?? null,
-          workflow: ticket.workflow ?? null,
-          workflowThreadKey: ticket.workflowThreadKey ?? null,
           history: Option.isSome(detail)
             ? detail.value.events.map(({ kind, payload, actor, createdAt }) => ({
                 kind,
@@ -374,12 +348,6 @@ const make = Effect.gen(function* () {
           unwrap(findTicket(snapshot, ref)).pipe(Effect.map((ticket) => ticket.id)),
         );
         const projectKey = input.useThisChatsProject === true ? yield* callerProjectKey : undefined;
-        const preset = input.workflow !== undefined ? yield* workflowOf(input.workflow) : undefined;
-        if (input.workflowInstructions !== undefined && !preset)
-          return yield* notFound("Select a workflow before supplying its instructions.");
-        const workflow = preset
-          ? { ...preset, prompt: input.workflowInstructions ?? preset.prompt }
-          : undefined;
         const result = yield* dispatch({
           type: "ticket.create",
           boardId: board.id,
@@ -389,7 +357,6 @@ const make = Effect.gen(function* () {
           ...(input.priority !== undefined ? { priority: input.priority } : {}),
           ...(projectKey !== undefined ? { projectKey } : {}),
           ...(input.folder !== undefined ? { folder: input.folder } : {}),
-          ...(workflow !== undefined ? { workflow } : {}),
           ...(input.criteria ? { criteria: input.criteria } : {}),
           ...(requires.length > 0 ? { requires } : {}),
         });
@@ -408,24 +375,11 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, input.ticket);
-        const selected =
-          input.workflow === undefined
-            ? ticket.workflow
-            : input.workflow === null
-              ? null
-              : yield* workflowOf(input.workflow);
-        if (input.workflowInstructions !== undefined && !selected)
-          return yield* notFound("Select a workflow before supplying its instructions.");
-        const workflow = selected
-          ? { ...selected, prompt: input.workflowInstructions ?? selected.prompt }
-          : null;
         if (
           input.title !== undefined ||
           input.description !== undefined ||
           input.priority !== undefined ||
-          input.folder !== undefined ||
-          input.workflow !== undefined ||
-          input.workflowInstructions !== undefined
+          input.folder !== undefined
         ) {
           yield* dispatch({
             type: "ticket.update",
@@ -434,9 +388,6 @@ const make = Effect.gen(function* () {
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.priority !== undefined ? { priority: input.priority } : {}),
             ...(input.folder !== undefined ? { folder: input.folder } : {}),
-            ...(input.workflow !== undefined || input.workflowInstructions !== undefined
-              ? { workflow }
-              : {}),
           });
         }
         // Resolve every criterion before writing, so a bad reference changes nothing.

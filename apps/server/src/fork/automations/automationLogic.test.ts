@@ -1,4 +1,4 @@
-import type { AutomationTrigger, Ticket } from "@t3tools/contracts";
+import type { AutomationAction, AutomationTrigger } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -6,8 +6,8 @@ import {
   decideSchedule,
   MISSED_GRACE_MS,
   nextScheduledAt,
-  renderPrompt,
   scheduleProblem,
+  stepsProblem,
 } from "./automationLogic.ts";
 
 const at = (input: string | number) => DateTime.makeUnsafe(input);
@@ -58,32 +58,26 @@ describe("scheduleProblem", () => {
   });
 });
 
-describe("renderPrompt", () => {
-  const ticket = {
-    id: "t",
-    number: 12,
-    title: "Fix login",
-    description: "Cookie expires early.",
-    criteria: [
-      { id: "b", text: "Stays signed in", checked: false, position: 2 },
-      { id: "a", text: "Repro written", checked: true, position: 1 },
-    ],
-  } as unknown as Ticket;
+describe("stepsProblem", () => {
+  const action: AutomationAction = {
+    projectKey: null,
+    modelSelection: null,
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    checkout: "local",
+  };
 
-  it("fills ticket and run variables and leaves unknown ones visible", () => {
-    const text = renderPrompt(
-      "Test {{ticket.key}} ({{ticket.url}}), run {{run.number}}:\n{{ticket.criteria}}\n{{ticket.oops}}",
-      {
-        ticket: { key: "WEB-12", ticket, boardName: "Web", handoff: null },
-        runNumber: 2,
-      },
-    );
-    expect(text).toBe(
-      "Test WEB-12 (/boards/WEB/12), run 2:\n- [x] Repro written\n- [ ] Stays signed in\n{{ticket.oops}}",
-    );
-  });
-
-  it("keeps ticket variables when there is no ticket", () => {
-    expect(renderPrompt("Weekly: {{ticket.key}}", { runNumber: 1 })).toBe("Weekly: {{ticket.key}}");
+  it("needs a prompt for a chat run but not for built-in steps", () => {
+    expect(stepsProblem(action, "Summarize the week")).toBeNull();
+    expect(stepsProblem(action, "  ")).toMatch(/Write the prompt/);
+    expect(
+      stepsProblem(
+        {
+          ...action,
+          steps: [{ type: "moveStale", from: "Done", to: "Settled", olderThanDays: 7 }],
+        },
+        "",
+      ),
+    ).toBeNull();
   });
 });

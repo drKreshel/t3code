@@ -54,12 +54,11 @@ import {
 } from "./automations.logic";
 import { type StepRow, StepsEditor, toStepRows } from "./StepsEditor";
 
-/** Prefill for a new scheduled automation or workflow preset. */
+/** Prefill for a new scheduled automation. */
 export interface AutomationDraft {
   readonly title?: string;
   readonly prompt?: string;
   readonly repeat?: RepeatKind;
-  readonly trigger?: "schedule" | "workflow";
   /** Built-in steps instead of a chat. */
   readonly steps?: ReadonlyArray<AutomationStep>;
 }
@@ -76,16 +75,12 @@ const REPEAT_LABEL: Record<RepeatKind, string> = {
 const REPEATS = Object.keys(REPEAT_LABEL) as RepeatKind[];
 
 const CHECKOUT_LABEL: Record<AutomationCheckout, string> = {
-  ticket: "The ticket's own worktrees",
   local: "The project folder (shared)",
   worktree: "A fresh worktree each run",
 };
 
 /** Select values that are not ids. */
 const INHERIT_PROJECT = "__inherit__";
-
-const WORKFLOW_PROMPT_HINT =
-  "Variables: {{ticket.key}}, {{ticket.title}}, {{ticket.description}}, {{ticket.criteria}}, {{ticket.handoff}}, {{board.name}}, {{run.number}}.";
 
 const browserTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
@@ -224,8 +219,6 @@ function AutomationForm({
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const initialTrigger = automation?.trigger;
-  const isWorkflow = initialTrigger?.type === "workflow" || draft?.trigger === "workflow";
-  const kind = isWorkflow ? "workflow" : "schedule";
 
   const [title, setTitle] = useState(automation?.title ?? draft?.title ?? "");
   const [prompt, setPrompt] = useState(automation?.prompt ?? draft?.prompt ?? "");
@@ -234,13 +227,11 @@ function AutomationForm({
   const [stepRows, setStepRows] = useState<StepRow[]>(() => toStepRows(initialSteps));
   const steps = stepRows.map((row) => row.step);
   const [schedule, setSchedule] = useState<ScheduleForm>(
-    initialTrigger?.type === "schedule"
+    initialTrigger
       ? scheduleToForm(initialTrigger.schedule)
       : { ...DEFAULT_SCHEDULE_FORM, ...(draft?.repeat ? { repeat: draft.repeat } : {}) },
   );
-  const [timezone, setTimezone] = useState(
-    initialTrigger?.type === "schedule" ? initialTrigger.timezone : browserTimezone(),
-  );
+  const [timezone, setTimezone] = useState(initialTrigger?.timezone ?? browserTimezone());
   const [projectKey, setProjectKey] = useState<string | null>(
     automation?.action.projectKey ?? null,
   );
@@ -250,9 +241,8 @@ function AutomationForm({
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
     automation?.action.runtimeMode ?? "full-access",
   );
-  // Workflow sessions share the ticket's workspace by default.
   const [checkout, setCheckout] = useState<AutomationCheckout>(
-    automation?.action.checkout ?? (isWorkflow ? "ticket" : "local"),
+    automation?.action.checkout ?? "local",
   );
   const [enabled, setEnabled] = useState(automation?.enabled ?? true);
   const [submitting, setSubmitting] = useState(false);
@@ -275,8 +265,7 @@ function AutomationForm({
     [primaryEnvironmentId, projects],
   );
   const projectLabel =
-    projectOptions.find((option) => option.key === projectKey)?.title ??
-    (isWorkflow ? "Inherit from the ticket, then the board" : "Choose a project");
+    projectOptions.find((option) => option.key === projectKey)?.title ?? "Choose a project";
 
   const updateSchedule = (patch: Partial<ScheduleForm>) =>
     setSchedule((current) => ({ ...current, ...patch }));
@@ -285,21 +274,16 @@ function AutomationForm({
     event.preventDefault();
     if (submitting) return;
     setError(null);
-    let trigger: AutomationTrigger;
-    if (kind === "schedule") {
-      const compiled = formToSchedule(schedule);
-      if (!compiled.ok) return setError(compiled.message);
-      if (does === "chat" && projectKey === null) {
-        return setError("A scheduled automation needs a project.");
-      }
-      trigger = {
-        type: "schedule",
-        schedule: compiled.schedule,
-        timezone: timezone.trim() || "UTC",
-      };
-    } else {
-      trigger = { type: "workflow" };
+    const compiled = formToSchedule(schedule);
+    if (!compiled.ok) return setError(compiled.message);
+    if (does === "chat" && projectKey === null) {
+      return setError("A scheduled automation needs a project.");
     }
+    const trigger: AutomationTrigger = {
+      type: "schedule",
+      schedule: compiled.schedule,
+      timezone: timezone.trim() || "UTC",
+    };
     if (!title.trim()) return setError("Give it a title.");
     if (does === "chat" && !prompt.trim())
       return setError("Write the prompt the chat starts with.");
@@ -319,7 +303,6 @@ function AutomationForm({
       trigger,
       action,
       enabled,
-      maxRunsPerTicket: automation?.maxRunsPerTicket ?? 5,
     };
     const result = await dispatch(
       automation
@@ -333,20 +316,8 @@ function AutomationForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>
-          {isWorkflow
-            ? automation
-              ? "Edit workflow preset"
-              : "New workflow preset"
-            : automation
-              ? "Edit automation"
-              : "New automation"}
-        </DialogTitle>
-        <DialogDescription>
-          {isWorkflow
-            ? "Select this preset on a ticket, then Start or Resume. Tickets keep an editable copy of these instructions."
-            : "Starts a chat or performs cleanup on a schedule."}
-        </DialogDescription>
+        <DialogTitle>{automation ? "Edit automation" : "New automation"}</DialogTitle>
+        <DialogDescription>Starts a chat or performs cleanup on a schedule.</DialogDescription>
       </DialogHeader>
       <DialogPanel>
         <form id={formId} className="space-y-4" onSubmit={(event) => void submit(event)}>
@@ -359,25 +330,23 @@ function AutomationForm({
                 setTitle(event.target.value);
                 setError(null);
               }}
-              placeholder={isWorkflow ? "Feature workflow" : "Weekly dependency audit"}
+              placeholder="Weekly dependency audit"
             />
           </Field>
-          {!isWorkflow ? (
-            <Field label="Does">
-              <ToggleGroup
-                aria-label="What it does"
-                variant="segmented"
-                value={[does]}
-                onValueChange={(next) => {
-                  const value = next[0];
-                  if (value === "chat" || value === "steps") setDoes(value);
-                }}
-              >
-                <Toggle value="chat">Start a chat</Toggle>
-                <Toggle value="steps">Run steps (no chat)</Toggle>
-              </ToggleGroup>
-            </Field>
-          ) : null}
+          <Field label="Does">
+            <ToggleGroup
+              aria-label="What it does"
+              variant="segmented"
+              value={[does]}
+              onValueChange={(next) => {
+                const value = next[0];
+                if (value === "chat" || value === "steps") setDoes(value);
+              }}
+            >
+              <Toggle value="chat">Start a chat</Toggle>
+              <Toggle value="steps">Run steps (no chat)</Toggle>
+            </ToggleGroup>
+          </Field>
           {does === "steps" ? (
             <Field label="Steps">
               <StepsEditor
@@ -391,11 +360,7 @@ function AutomationForm({
             </Field>
           ) : null}
           {does === "chat" ? (
-            <Field
-              label={isWorkflow ? "Instructions" : "Prompt"}
-              htmlFor="automation-prompt"
-              hint={isWorkflow ? WORKFLOW_PROMPT_HINT : undefined}
-            >
+            <Field label="Prompt" htmlFor="automation-prompt">
               <Textarea
                 id="automation-prompt"
                 rows={5}
@@ -404,124 +369,118 @@ function AutomationForm({
                   setPrompt(event.target.value);
                   setError(null);
                 }}
-                placeholder={
-                  isWorkflow
-                    ? "Test {{ticket.key}} and check off its acceptance criteria…"
-                    : "Check for outdated dependencies and open a PR…"
-                }
+                placeholder="Check for outdated dependencies and open a PR…"
               />
             </Field>
           ) : null}
 
-          {kind === "schedule" ? (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Repeat">
-                <Select
-                  value={schedule.repeat}
-                  onValueChange={(value) => updateSchedule({ repeat: value as RepeatKind })}
-                >
-                  <SelectTrigger aria-label="Repeat">
-                    <SelectValue>{REPEAT_LABEL[schedule.repeat]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup alignItemWithTrigger={false}>
-                    {REPEATS.map((repeat) => (
-                      <SelectItem key={repeat} value={repeat}>
-                        {REPEAT_LABEL[repeat]}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Repeat">
+              <Select
+                value={schedule.repeat}
+                onValueChange={(value) => updateSchedule({ repeat: value as RepeatKind })}
+              >
+                <SelectTrigger aria-label="Repeat">
+                  <SelectValue>{REPEAT_LABEL[schedule.repeat]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup alignItemWithTrigger={false}>
+                  {REPEATS.map((repeat) => (
+                    <SelectItem key={repeat} value={repeat}>
+                      {REPEAT_LABEL[repeat]}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </Field>
+            {schedule.repeat === "once" ? (
+              <Field label="At" htmlFor="automation-once">
+                <Input
+                  id="automation-once"
+                  type="datetime-local"
+                  value={schedule.onceAt}
+                  onChange={(event) => updateSchedule({ onceAt: event.target.value })}
+                />
               </Field>
-              {schedule.repeat === "once" ? (
-                <Field label="At" htmlFor="automation-once">
-                  <Input
-                    id="automation-once"
-                    type="datetime-local"
-                    value={schedule.onceAt}
-                    onChange={(event) => updateSchedule({ onceAt: event.target.value })}
-                  />
+            ) : schedule.repeat === "hourly" ? (
+              <Field label="Minute past the hour" htmlFor="automation-minute">
+                <Input
+                  id="automation-minute"
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={schedule.minute}
+                  onChange={(event) =>
+                    updateSchedule({
+                      minute: Math.min(59, Math.max(0, Number(event.target.value))),
+                    })
+                  }
+                />
+              </Field>
+            ) : schedule.repeat === "custom" ? (
+              <Field label="Cron" htmlFor="automation-cron">
+                <Input
+                  id="automation-cron"
+                  value={schedule.cron}
+                  onChange={(event) => updateSchedule({ cron: event.target.value })}
+                  placeholder="0 9 * * 1-5"
+                />
+              </Field>
+            ) : (
+              <Field label="At" htmlFor="automation-time">
+                <Input
+                  id="automation-time"
+                  type="time"
+                  value={schedule.time}
+                  onChange={(event) => updateSchedule({ time: event.target.value })}
+                />
+              </Field>
+            )}
+            {schedule.repeat === "weekly" ? (
+              <div className="sm:col-span-2">
+                <Field label="On">
+                  <ToggleGroup
+                    aria-label="Days"
+                    variant="segmented"
+                    multiple
+                    value={schedule.days.map(String)}
+                    onValueChange={(next) => updateSchedule({ days: next.map(Number) })}
+                  >
+                    {WEEKDAY_LABELS.map((label, day) => (
+                      <Toggle key={label} value={String(day)}>
+                        {label}
+                      </Toggle>
+                    ))}
+                  </ToggleGroup>
                 </Field>
-              ) : schedule.repeat === "hourly" ? (
-                <Field label="Minute past the hour" htmlFor="automation-minute">
-                  <Input
-                    id="automation-minute"
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={schedule.minute}
-                    onChange={(event) =>
-                      updateSchedule({
-                        minute: Math.min(59, Math.max(0, Number(event.target.value))),
-                      })
-                    }
-                  />
-                </Field>
-              ) : schedule.repeat === "custom" ? (
-                <Field label="Cron" htmlFor="automation-cron">
-                  <Input
-                    id="automation-cron"
-                    value={schedule.cron}
-                    onChange={(event) => updateSchedule({ cron: event.target.value })}
-                    placeholder="0 9 * * 1-5"
-                  />
-                </Field>
-              ) : (
-                <Field label="At" htmlFor="automation-time">
-                  <Input
-                    id="automation-time"
-                    type="time"
-                    value={schedule.time}
-                    onChange={(event) => updateSchedule({ time: event.target.value })}
-                  />
-                </Field>
-              )}
-              {schedule.repeat === "weekly" ? (
-                <div className="sm:col-span-2">
-                  <Field label="On">
-                    <ToggleGroup
-                      aria-label="Days"
-                      variant="segmented"
-                      multiple
-                      value={schedule.days.map(String)}
-                      onValueChange={(next) => updateSchedule({ days: next.map(Number) })}
-                    >
-                      {WEEKDAY_LABELS.map((label, day) => (
-                        <Toggle key={label} value={String(day)}>
-                          {label}
-                        </Toggle>
-                      ))}
-                    </ToggleGroup>
-                  </Field>
-                </div>
-              ) : null}
-              {schedule.repeat === "monthly" ? (
-                <Field label="Day of the month" htmlFor="automation-day">
-                  <Input
-                    id="automation-day"
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={schedule.dayOfMonth}
-                    onChange={(event) =>
-                      updateSchedule({
-                        dayOfMonth: Math.min(31, Math.max(1, Number(event.target.value))),
-                      })
-                    }
-                  />
-                </Field>
-              ) : null}
-              {schedule.repeat !== "once" ? (
-                <Field label="Time zone" htmlFor="automation-timezone">
-                  <Input
-                    id="automation-timezone"
-                    value={timezone}
-                    onChange={(event) => setTimezone(event.target.value)}
-                    placeholder="Europe/Berlin"
-                  />
-                </Field>
-              ) : null}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+            {schedule.repeat === "monthly" ? (
+              <Field label="Day of the month" htmlFor="automation-day">
+                <Input
+                  id="automation-day"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={schedule.dayOfMonth}
+                  onChange={(event) =>
+                    updateSchedule({
+                      dayOfMonth: Math.min(31, Math.max(1, Number(event.target.value))),
+                    })
+                  }
+                />
+              </Field>
+            ) : null}
+            {schedule.repeat !== "once" ? (
+              <Field label="Time zone" htmlFor="automation-timezone">
+                <Input
+                  id="automation-timezone"
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                  placeholder="Europe/Berlin"
+                />
+              </Field>
+            ) : null}
+          </div>
 
           {does === "chat" ? (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -536,11 +495,6 @@ function AutomationForm({
                     <SelectValue>{projectLabel}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup alignItemWithTrigger={false}>
-                    {isWorkflow ? (
-                      <SelectItem value={INHERIT_PROJECT}>
-                        Inherit from the ticket, then the board
-                      </SelectItem>
-                    ) : null}
                     {projectOptions.map((option) => (
                       <SelectItem key={option.key} value={option.key}>
                         {option.title}
@@ -569,16 +523,11 @@ function AutomationForm({
                     <SelectValue>{CHECKOUT_LABEL[checkout]}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup alignItemWithTrigger={false}>
-                    {(Object.keys(CHECKOUT_LABEL) as AutomationCheckout[])
-                      // A schedule has no ticket to share a workspace with.
-                      .filter((option) =>
-                        isWorkflow ? option !== "worktree" : option !== "ticket",
-                      )
-                      .map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {CHECKOUT_LABEL[option]}
-                        </SelectItem>
-                      ))}
+                    {(Object.keys(CHECKOUT_LABEL) as AutomationCheckout[]).map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {CHECKOUT_LABEL[option]}
+                      </SelectItem>
+                    ))}
                   </SelectPopup>
                 </Select>
               </Field>
@@ -605,7 +554,7 @@ function AutomationForm({
             <p className="text-xs text-muted-foreground">
               {does === "chat"
                 ? "Full access runs do not stop to ask; pick Supervised to approve each command."
-                : "Steps run instantly without a chat; the first that fails stops and flags the ticket."}
+                : "Steps run instantly without a chat; the first that fails stops the rest."}
             </p>
             <label className="flex shrink-0 items-center gap-2 text-sm">
               <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enabled" />
@@ -620,7 +569,7 @@ function AutomationForm({
           Cancel
         </Button>
         <Button type="submit" form={formId} disabled={submitting}>
-          {automation ? "Save" : isWorkflow ? "Create workflow" : "Create automation"}
+          {automation ? "Save" : "Create automation"}
         </Button>
       </DialogFooter>
     </>

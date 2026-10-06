@@ -8,7 +8,6 @@ import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { TicketWorkflow } from "./forkAutomations.ts";
 
 export const FORK_BOARDS_WS_METHODS = {
   subscribe: "fork.boards.subscribe",
@@ -17,9 +16,8 @@ export const FORK_BOARDS_WS_METHODS = {
 } as const;
 
 /**
- * A ticket waiting on a person. `warning` (yellow): an agent asked for help or
- * execution was paused. `error` (red): a run failed. Resolving a flag does not
- * resume execution; Start / Resume is explicit.
+ * A ticket waiting on a person. `warning` (yellow): an agent asked for help.
+ * `error` (red): something failed. Resolving a flag does not start any work.
  */
 export const TicketFlag = Schema.Struct({
   level: Schema.Literals(["warning", "error"]),
@@ -41,7 +39,7 @@ export const TicketFolderPath = TrimmedNonEmptyString.check(
 /** Two to five capital letters or digits, starting with a letter: `WEB`, `API2`. */
 export const BoardKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Z][A-Z0-9]{1,4}$/));
 
-/** A column records progress; moving a ticket does not execute its workflow. */
+/** A column records progress; moving a ticket never starts an agent. */
 export const BoardColumn = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -92,14 +90,11 @@ export const Ticket = Schema.Struct({
   projectKey: Schema.NullOr(Schema.String),
   /** Creates this folder hierarchy in each client and files linked chats there. */
   folder: Schema.optional(Schema.NullOr(TicketFolderPath)),
-  workflow: Schema.optional(Schema.NullOr(TicketWorkflow)),
-  /** The durable chat that owns execution; resumed instead of replaced. */
-  workflowThreadKey: Schema.optional(Schema.NullOr(Schema.String)),
   position: Schema.Number,
   flag: Schema.NullOr(TicketFlag),
   /**
    * Tickets this one depends on. A link only: T3 attaches no rule to it; people,
-   * agents, and workflow instructions read the required tickets' columns and decide.
+   * and agents read the required tickets' columns and decide.
    */
   requires: Schema.Array(TrimmedNonEmptyString),
   criteria: Schema.Array(TicketCriterion),
@@ -191,7 +186,6 @@ export const BoardsCommand = Schema.Union([
     priority: Schema.optional(TicketPriority),
     projectKey: Schema.optional(Schema.NullOr(Schema.String)),
     folder: Schema.optional(Schema.NullOr(TicketFolderPath)),
-    workflow: Schema.optional(Schema.NullOr(TicketWorkflow)),
     criteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     requires: Schema.optional(Schema.Array(Id)),
   }),
@@ -202,13 +196,6 @@ export const BoardsCommand = Schema.Union([
     priority: Schema.optional(TicketPriority),
     projectKey: Schema.optional(Schema.NullOr(Schema.String)),
     folder: Schema.optional(Schema.NullOr(TicketFolderPath)),
-    workflow: Schema.optional(Schema.NullOr(TicketWorkflow)),
-  }),
-  command("ticket.workflowSession", {
-    ticketId: Id,
-    threadKey: Schema.NullOr(TrimmedNonEmptyString),
-    event: Schema.Literals(["started", "resumed", "paused", "finished", "failed"]),
-    reason: Schema.optional(Schema.String),
   }),
   command("ticket.move", {
     ticketId: Id,

@@ -3,7 +3,6 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   type AutomationAction,
   type BoardsSnapshot,
-  CommandId,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   type OrchestrationV2ServerCommand,
@@ -105,6 +104,7 @@ const makeHarness = Effect.gen(function* () {
               ? null
               : ({
                   id: threadId,
+                  projectId: PROJECT_ID,
                   archivedAt: null,
                   pendingRuntimeRequest: pending.has(threadId)
                     ? { blockingReason: pending.get(threadId) }
@@ -161,10 +161,6 @@ const makeHarness = Effect.gen(function* () {
       } as unknown as OrchestrationV2DomainEvent);
     });
 
-  /** Dispatches through the same board service used by clients and tools. */
-  const boardDispatch = (command: Parameters<typeof boards.dispatch>[0], actor = "user") =>
-    boards.dispatch(command, actor);
-
   return {
     engine,
     boards,
@@ -173,7 +169,6 @@ const makeHarness = Effect.gen(function* () {
     turnStates,
     threadIdsStarted,
     endTurn,
-    boardDispatch,
     fakes,
   };
 });
@@ -191,42 +186,38 @@ const setupBoard = (harness: Effect.Success<typeof makeHarness>) =>
     const snapshot: BoardsSnapshot = yield* harness.boards.snapshot;
     const column = (name: string) =>
       snapshot.boards[0]!.columns.find((candidate) => candidate.name === name)!.id;
-    const presetId = (yield* harness.engine.dispatch({
-      type: "automation.create",
-      title: "Implement",
-      prompt: "Implement {{ticket.key}}: {{ticket.title}}. Latest handoff: {{ticket.handoff}}",
-      trigger: { type: "workflow" },
-      action,
-    })).id!;
-    const preset = yield* harness.store.get(presetId);
-    const workflow = {
-      presetId: presetId,
-      title: preset.title,
-      prompt: preset.prompt,
-      action: preset.action,
-    };
-    const ticket = (title: string, requires?: string[]) =>
+    const ticket = (title: string) =>
       harness.boards
-        .dispatch(
-          { type: "ticket.create", boardId, title, workflow, ...(requires ? { requires } : {}) },
-          "user",
-        )
+        .dispatch({ type: "ticket.create", boardId, title }, "user")
         .pipe(Effect.map((result) => result.id!));
-    return { boardId, column, presetId, ticket };
+    const linkChat = (ticketId: string, threadId: ThreadId) =>
+      harness.boards.dispatch(
+        { type: "thread.link", ticketId, threadKey: `${ENVIRONMENT_ID}:${threadId}` },
+        "user",
+      );
+    return { boardId, column, ticket, linkChat };
   });
 
+const weekly = {
+  type: "schedule" as const,
+  schedule: { kind: "cron" as const, cron: "0 9 * * 1" },
+  timezone: "Europe/Berlin",
+};
+
 describe("AutomationEngine", () => {
-  it.effect("creates and edits presets through MCP, then starts and pauses a linked ticket", () =>
+  it.effect("creates, edits, and runs a schedule through MCP, then reports its last run", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const { boardId } = yield* setupBoard(harness);
+      const caller = ThreadId.make("caller");
+      yield* Ref.update(harness.turnStates, (states) => new Map(states).set(caller, "completed"));
       const toolkit = yield* AutomationsToolkit.pipe(
         Effect.provide(AutomationsToolkitHandlersLive.pipe(Layer.provide(harness.fakes))),
         Effect.provideService(AutomationEngine, harness.engine),
+        Effect.provideService(AutomationsStore, harness.store),
       );
       const invocation: McpInvocationContext.McpInvocationScope = {
         environmentId: ENVIRONMENT_ID,
-        threadId: ThreadId.make("caller"),
+        threadId: caller,
         providerSessionId: "test",
         providerInstanceId: ProviderInstanceId.make("codex"),
         capabilities: new Set(["orchestration"]),
@@ -246,366 +237,199 @@ describe("AutomationEngine", () => {
           Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
           Effect.provide(harness.fakes),
         );
-      const modelSelection = {
-        instanceId: ProviderInstanceId.make("custom-provider"),
-        model: "custom-model",
-      };
-      const preset = yield* call("create_workflow", {
-        title: "Small review",
-        instructions: "Review and record findings.",
-        modelSelection,
-        checkout: "local",
+      const created = yield* call("create_automation", {
+        title: "Weekly audit",
+        prompt: "Audit the repo.",
+        cron: "0 9 * * 1",
+        timezone: "Europe/Berlin",
+        useThisChatsProject: true,
       });
-      const listed = (yield* call("list_workflows", {})).workflows.find(
-        (workflow) => workflow.id === preset.id,
-      )!;
-      expect(listed.action.modelSelection).toEqual(modelSelection);
-      yield* call("update_workflow", {
-        workflow: preset.id,
-        instructions: "Review the changed queries.",
-        modelSelection: null,
+      yield* call("update_automation", {
+        automation: "weekly audit",
+        prompt: "Audit the changed queries.",
+        cron: "0 10 * * 1",
       });
-      const saved = yield* harness.store.get(preset.id);
-      expect(saved.prompt).toBe("Review the changed queries.");
-      expect(saved.action.modelSelection).toBeNull();
-      const ticketId = (yield* harness.boards.dispatch(
-        {
-          type: "ticket.create",
-          boardId,
-          title: "Queries",
-          workflow: {
-            presetId: saved.id,
-            title: saved.title,
-            prompt: saved.prompt,
-            action: saved.action,
-          },
-        },
-        "user",
-      )).id!;
-      yield* harness.boards.dispatch(
-        { type: "thread.link", ticketId, threadKey: `${ENVIRONMENT_ID}:${invocation.threadId}` },
-        "user",
-      );
-      const started = yield* call("start_workflow", {});
-      expect(started.ticket).toBe("ATLAS-1");
-      expect(started.threadKey).toBe(
-        (yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey,
-      );
-      yield* call("pause_workflow", {});
-      expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
-    }).pipe(Effect.provide(TestLayer)),
-  );
-  it.effect("starts explicitly, resumes the same chat, and reads the latest ticket handoff", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket, column } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Meter notes");
-      yield* harness.boardDispatch({ type: "ticket.move", ticketId, columnId: column("Review") });
-      expect(yield* harness.threadIdsStarted).toEqual([]);
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
+      const saved = yield* harness.store.get(created.id);
+      expect(saved.prompt).toBe("Audit the changed queries.");
+      expect(saved.action.projectKey).toBe(PROJECT_KEY);
+      yield* call("run_automation", { automation: created.id });
       const [threadId] = yield* harness.threadIdsStarted;
-      expect((yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey).toBe(
-        `${ENVIRONMENT_ID}:${threadId}`,
-      );
-      yield* harness.endTurn(threadId!, "completed");
-      yield* harness.boards.dispatch(
-        {
-          type: "comment.add",
-          ticketId,
-          body: "Review found one layout issue. Fix that next.",
-          isHandoff: true,
-        },
-        "user",
-      );
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      expect(yield* harness.threadIdsStarted).toEqual([threadId]);
-      const messages = (yield* Ref.get(harness.commands)).filter(
-        (command) => command.type === "message.dispatch",
-      );
-      expect(messages).toHaveLength(2);
-      expect(messages[1]?.threadId).toBe(threadId);
-      expect(messages[1]?.text).toContain("Review found one layout issue.");
-      const detail = yield* Stream.runHead(harness.boards.ticketDetailStream(ticketId));
-      expect(Option.isSome(detail) && detail.value.events.map((event) => event.kind)).toEqual(
-        expect.arrayContaining(["workflow.started", "workflow.finished", "workflow.resumed"]),
-      );
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("serializes simultaneous starts and refuses a second execution", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("One owner");
-      const results = yield* Effect.all(
-        [
-          harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId }).pipe(Effect.result),
-          harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId }).pipe(Effect.result),
-        ],
-        { concurrency: 2 },
-      );
-      expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
-      expect(yield* harness.threadIdsStarted).toHaveLength(1);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("waits for preparation and approvals, and detects active manual sessions", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Manual work");
-      const manual = ThreadId.make("manual");
-      yield* harness.boards.dispatch(
-        { type: "thread.link", ticketId, threadKey: `${ENVIRONMENT_ID}:${manual}` },
-        "user",
-      );
-      for (const state of ["preparing", "waiting", "running"] as const) {
-        yield* Ref.update(harness.turnStates, (states) => new Map(states).set(manual, state));
-        const error = yield* harness.engine
-          .dispatch({ type: "ticket.startWorkflow", ticketId })
-          .pipe(Effect.flip);
-        expect(error.message).toMatch(/already working/);
-      }
-      expect(yield* harness.threadIdsStarted).toHaveLength(0);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("requires the user's response in the blocked workflow chat before resuming", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Needs a decision");
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      const threadId = (yield* harness.threadIdsStarted)[0]!;
-      yield* harness.endTurn(threadId, "completed");
-      yield* Effect.flatMap(OrchestratorV2, (orchestrator) =>
-        orchestrator.dispatch({
-          type: "thread.request-human",
-          commandId: CommandId.make("workflow:blocker"),
-          threadId,
-          reason: "Choose an account.",
-        }),
-      ).pipe(Effect.provide(harness.fakes));
-      const error = yield* harness.engine
-        .dispatch({ type: "ticket.startWorkflow", ticketId })
-        .pipe(Effect.flip);
-      expect(error.message).toBe(
-        "The workflow chat needs your decision. Open it to reply or Resume.",
-      );
-      expect(yield* harness.threadIdsStarted).toHaveLength(1);
-      expect(
-        (yield* Ref.get(harness.commands)).filter((command) => command.type === "message.dispatch"),
-      ).toHaveLength(1);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect(
-    "moves a legacy blocker to its originating chat once and preserves ticket progress",
-    () =>
-      Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        const { ticket } = yield* setupBoard(harness);
-        const ticketId = yield* ticket("Blocked migration");
-        yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-        const threadKey = (yield* harness.boards.snapshot).tickets[0]!.workflowThreadKey!;
-        const columnId = (yield* harness.boards.snapshot).tickets[0]!.columnId;
-        yield* harness.boards.dispatch(
-          {
-            type: "ticket.flag",
-            ticketId,
-            level: "warning",
-            reason: "Choose the account.",
-          },
-          `thread:${threadKey}`,
-        );
-        yield* harness.engine.tick;
-        yield* harness.engine.tick;
-        expect((yield* harness.boards.snapshot).tickets[0]).toMatchObject({
-          columnId,
-          flag: null,
-          workflowThreadKey: threadKey,
-        });
-        expect(
-          (yield* Ref.get(harness.commands)).filter(
-            (command) => command.type === "thread.request-human",
-          ),
-        ).toEqual([
-          expect.objectContaining({
-            threadId: threadKey.slice(threadKey.indexOf(":") + 1),
-            reason: "Choose the account.",
-          }),
-        ]);
-      }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect(
-    "pauses without requesting help, holds the queue, and resumes without a new session",
-    () =>
-      Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        const { ticket } = yield* setupBoard(harness);
-        const ticketId = yield* ticket("Pause me");
-        yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-        yield* harness.engine.dispatch({ type: "ticket.pauseWorkflow", ticketId });
-        expect(
-          (yield* Ref.get(harness.commands)).find((command) => command.type === "run.interrupt"),
-        ).toMatchObject({ holdQueue: true });
-        expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
-        yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-        expect(yield* harness.threadIdsStarted).toHaveLength(1);
-        expect((yield* harness.boards.snapshot).tickets[0]?.flag).toBeNull();
-      }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("keeps instruction snapshots and assigned tickets usable after retiring a preset", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket, presetId } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Keep instructions");
-      yield* harness.engine.dispatch({
-        type: "automation.update",
-        automationId: presetId,
-        prompt: "Replacement process",
-      });
-      yield* harness.engine.dispatch({ type: "automation.delete", automationId: presetId });
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
       const message = (yield* Ref.get(harness.commands)).find(
         (command) => command.type === "message.dispatch",
       );
-      expect(message?.text).toContain("Implement ATLAS-1: Keep instructions");
-      expect(message?.text).not.toContain("Replacement process");
-      expect((yield* harness.store.get(presetId)).enabled).toBe(false);
+      expect(message).toMatchObject({ threadId, text: "Audit the changed queries." });
+      yield* harness.endTurn(threadId!, "completed");
+      const listed = (yield* call("list_automations", {})).automations;
+      expect(listed).toEqual([
+        expect.objectContaining({
+          id: created.id,
+          trigger: "cron 0 10 * * 1 (Europe/Berlin)",
+          project: "Atlas",
+          lastRun: expect.objectContaining({ status: "succeeded", reason: null }),
+        }),
+      ]);
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("links delegated child chats to the same ticket without launching extra work", () =>
+  it.effect("settles each scheduled chat run by how its turn ended", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const { ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Delegated review");
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      const [parent] = yield* harness.threadIdsStarted;
-      const child = ThreadId.make("review-child");
+      const automationId = (yield* harness.engine.dispatch({
+        type: "automation.create",
+        title: "Weekly audit",
+        prompt: "Audit the repo.",
+        trigger: weekly,
+        action: { ...action, projectKey: PROJECT_KEY },
+      })).id!;
+      const runEndingAs = (state: TurnState) =>
+        Effect.gen(function* () {
+          yield* harness.engine.dispatch({ type: "automation.runNow", automationId });
+          const threadId = (yield* harness.threadIdsStarted).at(-1)!;
+          const threadKey = `${ENVIRONMENT_ID}:${threadId}`;
+          const running = (yield* harness.store.snapshot).runs.find(
+            (run) => run.threadKey === threadKey,
+          );
+          expect(running?.status).toBe("running");
+          yield* harness.endTurn(threadId, state);
+          return (yield* harness.store.snapshot).runs.find((run) => run.threadKey === threadKey);
+        });
+      expect(yield* runEndingAs("completed")).toMatchObject({ status: "succeeded", reason: null });
+      expect(yield* runEndingAs("error")).toMatchObject({
+        status: "failed",
+        reason: "The chat's turn failed.",
+      });
+      expect(yield* runEndingAs("interrupted")).toMatchObject({
+        status: "failed",
+        reason: "The chat was stopped.",
+      });
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("deleting a chat fails its running run and unlinks it from its ticket", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket, linkChat } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Audit follow-up");
+      const automationId = (yield* harness.engine.dispatch({
+        type: "automation.create",
+        title: "Weekly audit",
+        prompt: "Audit the repo.",
+        trigger: weekly,
+        action: { ...action, projectKey: PROJECT_KEY },
+      })).id!;
+      yield* harness.engine.dispatch({ type: "automation.runNow", automationId });
+      const [threadId] = yield* harness.threadIdsStarted;
+      yield* linkChat(ticketId, threadId!);
+      yield* Ref.update(harness.turnStates, (states) => {
+        const next = new Map(states);
+        next.delete(threadId!);
+        return next;
+      });
       yield* harness.engine.handleDomainEvent({
-        type: "thread.created",
-        threadId: child,
-        payload: { lineage: { parentThreadId: parent } },
+        type: "thread.deleted",
+        threadId,
       } as unknown as OrchestrationV2DomainEvent);
+      expect((yield* harness.store.snapshot).runs[0]).toMatchObject({
+        status: "failed",
+        reason: "The chat was deleted.",
+      });
+      expect((yield* harness.boards.snapshot).tickets[0]?.threadKeys).toEqual([]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("moves a legacy ticket blocker to the chat that raised it, once", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket, linkChat } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Blocked migration");
+      const worker = ThreadId.make("worker");
+      const threadKey = `${ENVIRONMENT_ID}:${worker}`;
+      yield* Ref.update(harness.turnStates, (states) => new Map(states).set(worker, "completed"));
+      yield* linkChat(ticketId, worker);
+      const columnId = (yield* harness.boards.snapshot).tickets[0]!.columnId;
+      yield* harness.boards.dispatch(
+        { type: "ticket.flag", ticketId, level: "warning", reason: "Choose the account." },
+        `thread:${threadKey}`,
+      );
+      yield* harness.engine.tick;
+      yield* harness.engine.tick;
+      expect((yield* harness.boards.snapshot).tickets[0]).toMatchObject({
+        columnId,
+        flag: null,
+        threadKeys: [threadKey],
+      });
+      expect(
+        (yield* Ref.get(harness.commands)).filter(
+          (command) => command.type === "thread.request-human",
+        ),
+      ).toEqual([expect.objectContaining({ threadId: worker, reason: "Choose the account." })]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("links delegated child chats to the parent's ticket without launching extra work", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const { ticket, linkChat } = yield* setupBoard(harness);
+      const ticketId = yield* ticket("Delegated review");
+      const parent = ThreadId.make("parent");
+      yield* linkChat(ticketId, parent);
+      const delegate = (child: string, parentThreadId: ThreadId) =>
+        harness.engine.handleDomainEvent({
+          type: "thread.created",
+          threadId: ThreadId.make(child),
+          payload: { lineage: { parentThreadId } },
+        } as unknown as OrchestrationV2DomainEvent);
+      yield* delegate("review-child", parent);
+      // A child of an unlinked chat stays unlinked.
+      yield* delegate("stray-child", ThreadId.make("unlinked-parent"));
       expect((yield* harness.boards.snapshot).tickets[0]?.threadKeys).toEqual([
         `${ENVIRONMENT_ID}:${parent}`,
-        `${ENVIRONMENT_ID}:${child}`,
+        `${ENVIRONMENT_ID}:review-child`,
       ]);
-      expect(yield* harness.threadIdsStarted).toHaveLength(1);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("replaces a deleted owner session and retains its ticket history", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Recover owner");
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      const [owner] = yield* harness.threadIdsStarted;
-      yield* Ref.update(harness.turnStates, (states) => {
-        const next = new Map(states);
-        next.delete(owner!);
-        return next;
-      });
-      yield* harness.engine.handleDomainEvent({
-        type: "thread.deleted",
-        threadId: owner,
-      } as unknown as OrchestrationV2DomainEvent);
-      expect((yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey).toBeNull();
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      expect(yield* harness.threadIdsStarted).toHaveLength(2);
-      const secondOwner = (yield* harness.threadIdsStarted)[1]!;
-      yield* harness.endTurn(secondOwner, "completed");
-      yield* Ref.update(harness.turnStates, (states) => {
-        const next = new Map(states);
-        next.delete(secondOwner);
-        return next;
-      });
-      yield* harness.engine.handleDomainEvent({
-        type: "thread.deleted",
-        threadId: secondOwner,
-      } as unknown as OrchestrationV2DomainEvent);
-      expect((yield* harness.boards.snapshot).tickets[0]?.workflowThreadKey).toBeNull();
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      expect(yield* harness.threadIdsStarted).toHaveLength(3);
-    }).pipe(Effect.provide(TestLayer)),
-  );
-
-  it.effect("refuses column hooks and does not start work when a human flag is resolved", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket, boardId, column } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Explicit only");
-      const error = yield* harness.engine
-        .dispatch({
-          type: "automation.create",
-          title: "Old hook",
-          prompt: "Do work",
-          trigger: { type: "board", boardId, columnId: column("Review") },
-          action,
-        })
-        .pipe(Effect.flip);
-      expect(error.message).toMatch(/replaced by ticket workflows/);
-      yield* harness.boardDispatch({
-        type: "ticket.flag",
-        ticketId,
-        level: "warning",
-        reason: "Needs a decision",
-      });
-      yield* harness.boardDispatch({ type: "ticket.resolveFlag", ticketId });
       expect(yield* harness.threadIdsStarted).toHaveLength(0);
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("rejects legacy ticket steps on schedules", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      for (const step of [
-        { type: "moveTo", column: "Done" },
-        { type: "removeWorkspace" },
-      ] as const) {
-        const error = yield* harness.engine
-          .dispatch({
-            type: "automation.create",
-            title: "Legacy ticket action",
-            prompt: "",
-            trigger: {
-              type: "schedule",
-              schedule: { kind: "cron", cron: "0 3 * * *" },
-              timezone: "UTC",
-            },
-            action: { ...action, checkout: "local", steps: [step] },
-          })
-          .pipe(Effect.flip);
-        expect(error.message).toMatch(/workflow instructions/);
-      }
-      expect(yield* harness.threadIdsStarted).toHaveLength(0);
-    }).pipe(Effect.provide(TestLayer)),
+  it.effect(
+    "links chats a ticket chat starts or briefs, but never moves another ticket's chat",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const { ticket, linkChat } = yield* setupBoard(harness);
+        const ticketId = yield* ticket("Feature");
+        const otherTicketId = yield* ticket("Other feature");
+        const parent = ThreadId.make("parent");
+        yield* linkChat(ticketId, parent);
+        yield* linkChat(otherTicketId, ThreadId.make("other-ticket-chat"));
+        const turnItem = (threadId: string, payload: Record<string, unknown>) =>
+          harness.engine.handleDomainEvent({
+            type: "turn-item.updated",
+            threadId: ThreadId.make(threadId),
+            payload,
+          } as unknown as OrchestrationV2DomainEvent);
+        // create_threads records the new chat in the parent's timeline.
+        yield* turnItem("parent", { type: "thread_created", targetThreadId: "created-chat" });
+        // t3_thread_launch and t3_thread_send deliver a message from the parent.
+        yield* turnItem("launched-chat", { type: "user_message", senderThreadId: "parent" });
+        yield* turnItem("other-ticket-chat", { type: "user_message", senderThreadId: "parent" });
+        yield* turnItem("own-chat", { type: "user_message" });
+        const [linked, other] = (yield* harness.boards.snapshot).tickets.toSorted(
+          (a, b) => a.number - b.number,
+        );
+        expect(linked?.threadKeys.toSorted()).toEqual(
+          ["created-chat", "launched-chat", "parent"].map((id) => `${ENVIRONMENT_ID}:${id}`),
+        );
+        expect(other?.threadKeys).toEqual([`${ENVIRONMENT_ID}:other-ticket-chat`]);
+      }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("records workflow failures on the ticket and flags it for a human", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const { ticket } = yield* setupBoard(harness);
-      const ticketId = yield* ticket("Failure");
-      yield* harness.engine.dispatch({ type: "ticket.startWorkflow", ticketId });
-      const [owner] = yield* harness.threadIdsStarted;
-      yield* harness.endTurn(owner!, "error");
-      expect((yield* harness.boards.snapshot).tickets[0]?.flag?.level).toBe("error");
-      expect((yield* harness.store.snapshot).runs[0]?.status).toBe("failed");
-    }).pipe(Effect.provide(TestLayer)),
-  );
   it.effect("runs a schedule on demand in its project, without a ticket", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness;
       const id = (yield* harness.engine.dispatch({
         type: "automation.create",
         title: "Weekly audit",
-        prompt: "Audit the repo (run {{run.number}})",
+        prompt: "Audit the repo",
         trigger: {
           type: "schedule",
           schedule: { kind: "cron", cron: "0 9 * * 1" },
@@ -691,20 +515,6 @@ describe("AutomationEngine", () => {
       const recent = (yield* sweep(1)).id!;
       yield* harness.engine.dispatch({ type: "automation.runNow", automationId: recent });
       expect((yield* harness.boards.snapshot).tickets[0]!.columnId).toBe(column("Done"));
-      expect(
-        (yield* harness.engine
-          .dispatch({
-            type: "automation.create",
-            title: "Wrong trigger",
-            prompt: "",
-            trigger: { type: "board", boardId: null, columnId: null, columnName: "Done" },
-            action: {
-              ...action,
-              steps: [{ type: "moveStale", from: "Done", to: "Backlog", olderThanDays: 1 }],
-            },
-          })
-          .pipe(Effect.flip)).message,
-      ).toMatch(/replaced by ticket workflows/);
     }).pipe(Effect.provide(TestLayer)),
   );
   it.effect("sweeps only the board a stale-ticket step names", () =>
@@ -762,7 +572,6 @@ describe("AutomationEngine", () => {
         trigger: once("2030-01-01T09:00:00.000Z"),
         action: { ...action, projectKey: PROJECT_KEY },
         enabled: true,
-        maxRunsPerTicket: 5,
       });
       yield* harness.store.markFired(id, "2030-01-01T09:00:00.000Z");
       expect((yield* harness.store.get(id)).nextRunAt).toBeNull();

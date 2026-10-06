@@ -5,18 +5,16 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
-type CleanupStep = Extract<AutomationStep, { readonly type: "moveStale" }>;
-
 /** A step with a key for its row; steps themselves carry no ids. */
 export interface StepRow {
   readonly id: number;
-  readonly step: CleanupStep;
+  readonly step: AutomationStep;
 }
 
 let nextRowId = 0;
-/** Rows for scheduled cleanup; legacy ticket actions are migrated to workflow instructions. */
+/** Rows for scheduled cleanup. */
 export function toStepRows(steps: ReadonlyArray<AutomationStep>): StepRow[] {
-  return steps.flatMap((step) => (step.type === "moveStale" ? [{ id: nextRowId++, step }] : []));
+  return steps.map((step) => ({ id: nextRowId++, step }));
 }
 
 /**
@@ -35,7 +33,7 @@ export function StepsEditor({
   readonly columnNames: ReadonlyArray<string>;
   readonly boardNameOf: (boardId: string) => string;
 }) {
-  const replace = (id: number, step: CleanupStep) =>
+  const replace = (id: number, step: AutomationStep) =>
     onChange(rows.map((row) => (row.id === id ? { id, step } : row)));
   const remove = (id: number) => onChange(rows.filter((row) => row.id !== id));
   return (
@@ -121,10 +119,10 @@ function StepFields({
   boardNameOf,
   onChange,
 }: {
-  readonly step: CleanupStep;
+  readonly step: AutomationStep;
   readonly columnNames: ReadonlyArray<string>;
   readonly boardNameOf: (boardId: string) => string;
-  readonly onChange: (step: CleanupStep) => void;
+  readonly onChange: (step: AutomationStep) => void;
 }) {
   return (
     <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

@@ -1,5 +1,4 @@
-import { anyBoardColumnName } from "@t3tools/contracts";
-import type { AutomationSchedule, AutomationTrigger, Board } from "@t3tools/contracts";
+import type { AutomationSchedule, Board } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 
 /** RPC defects can arrive as strings rather than declared command errors. */
@@ -138,19 +137,6 @@ export function describeSchedule(schedule: AutomationSchedule): string {
     case "custom":
       return `Cron ${form.cron}`;
   }
-}
-
-/** A trigger in words; board names come from the caller. */
-export function describeTrigger(
-  trigger: AutomationTrigger,
-  boardColumnLabel: (boardId: string, columnId: string) => string,
-): string {
-  if (trigger.type === "schedule") return describeSchedule(trigger.schedule);
-  if (trigger.type === "workflow") return "Ticket workflow · Start / Resume";
-  if (trigger.boardId === null || trigger.columnId === null) {
-    return `When a ticket enters "${anyBoardColumnName(trigger) ?? "?"}" on any board`;
-  }
-  return `When a ticket enters ${boardColumnLabel(trigger.boardId, trigger.columnId)}`;
 }
 
 /** Every column name used on live boards, for scheduled cleanup steps. */

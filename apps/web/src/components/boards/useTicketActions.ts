@@ -90,7 +90,7 @@ export function useStartTicketSession(): (
       const start = async (projectRef: ScopedProjectRef, inTicketProject: boolean) => {
         if (!onBoardsEnvironment(projectRef, primaryEnvironmentId)) return;
         // In the ticket's own project the chat runs in the ticket's workspace,
-        // shared with its workflow chats; a project picked by hand gets a plain chat.
+        // shared with its other chats; a project picked by hand gets a plain chat.
         const workspace = inTicketProject
           ? await workspacesDispatch(
               { type: "workspace.ensure", ticketId: view.ticket.id },

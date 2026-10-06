@@ -1,5 +1,5 @@
 /**
- * Storage for scheduled automations, workflow presets, and their runs in `fork.sqlite`. Every
+ * Storage for scheduled automations and their runs in `fork.sqlite`. Every
  * write publishes a change; subscribers reload the whole snapshot, which stays
  * small (automations plus the most recent runs).
  */
@@ -48,7 +48,6 @@ export interface NewAutomation {
   readonly trigger: AutomationTrigger;
   readonly action: AutomationAction;
   readonly enabled: boolean;
-  readonly maxRunsPerTicket: number;
 }
 
 export interface RunPatch {
@@ -72,16 +71,12 @@ export class AutomationsStore extends Context.Service<
     readonly markFired: (id: string, at: string) => Effect.Effect<void, StoreError>;
     readonly insertRun: (run: {
       readonly automationId: string;
-      readonly ticketId: string | null;
       readonly status: AutomationRunStatus;
       readonly reason?: string | null;
     }) => Effect.Effect<string, StoreError>;
     readonly updateRun: (id: string, patch: RunPatch) => Effect.Effect<void, StoreError>;
     readonly runsWithStatus: (
       status: AutomationRunStatus,
-    ) => Effect.Effect<ReadonlyArray<AutomationRun>, StoreError>;
-    readonly runsForTicket: (
-      ticketId: string,
     ) => Effect.Effect<ReadonlyArray<AutomationRun>, StoreError>;
     readonly runningRunForThread: (
       threadKey: string,
@@ -98,7 +93,6 @@ interface AutomationRow {
   readonly trigger_json: string;
   readonly action_json: string;
   readonly enabled: number;
-  readonly max_runs_per_ticket: number;
   readonly last_fired_at: string | null;
   readonly created_at: string;
   readonly updated_at: string;
@@ -107,7 +101,6 @@ interface AutomationRow {
 interface RunRow {
   readonly id: string;
   readonly automation_id: string;
-  readonly ticket_id: string | null;
   readonly thread_key: string | null;
   readonly status: AutomationRunStatus;
   readonly reason: string | null;
@@ -133,7 +126,6 @@ const toAutomation = (row: AutomationRow): StoredAutomation => {
     trigger,
     action: decodeAction(row.action_json),
     enabled,
-    maxRunsPerTicket: row.max_runs_per_ticket,
     nextRunAt: next ? DateTime.formatIso(next) : null,
     lastFiredAt: row.last_fired_at,
     createdAt: row.created_at,
@@ -144,7 +136,6 @@ const toAutomation = (row: AutomationRow): StoredAutomation => {
 const toRun = (row: RunRow): AutomationRun => ({
   id: row.id,
   automationId: row.automation_id,
-  ticketId: row.ticket_id,
   threadKey: row.thread_key,
   status: row.status,
   reason: row.reason,
@@ -200,10 +191,9 @@ const make = Effect.gen(function* () {
         const at = yield* nowIso;
         yield* sql`
           INSERT INTO fork_automations (id, title, prompt, trigger_json, action_json, enabled,
-            max_runs_per_ticket, created_at, updated_at)
+            created_at, updated_at)
           VALUES (${id}, ${input.title}, ${input.prompt}, ${encodeTrigger(input.trigger)},
-            ${encodeAction(input.action)}, ${input.enabled ? 1 : 0}, ${input.maxRunsPerTicket},
-            ${at}, ${at})
+            ${encodeAction(input.action)}, ${input.enabled ? 1 : 0}, ${at}, ${at})
         `;
         return id;
       }),
@@ -220,10 +210,8 @@ const make = Effect.gen(function* () {
         patch.trigger !== undefined || (patch.enabled === true && !current.enabled);
       // A one-off moved to another time may fire again, even if it already did.
       const movedOnce =
-        trigger.type === "schedule" &&
         trigger.schedule.kind === "once" &&
         !(
-          current.trigger.type === "schedule" &&
           current.trigger.schedule.kind === "once" &&
           current.trigger.schedule.at === trigger.schedule.at
         );
@@ -234,11 +222,10 @@ const make = Effect.gen(function* () {
           trigger_json = ${encodeTrigger(trigger)},
           action_json = ${encodeAction(patch.action ?? current.action)},
           enabled = ${(patch.enabled ?? current.enabled) ? 1 : 0},
-          max_runs_per_ticket = ${patch.maxRunsPerTicket ?? current.maxRunsPerTicket},
           last_fired_at = ${
             movedOnce
               ? null
-              : rescheduled && trigger.type === "schedule" && trigger.schedule.kind === "cron"
+              : rescheduled && trigger.schedule.kind === "cron"
                 ? at
                 : current.lastFiredAt
           },
@@ -258,9 +245,8 @@ const make = Effect.gen(function* () {
         const id = yield* crypto.randomUUIDv4;
         const at = yield* nowIso;
         yield* sql`
-          INSERT INTO fork_automation_runs (id, automation_id, ticket_id, status, reason, created_at)
-          VALUES (${id}, ${run.automationId}, ${run.ticketId}, ${run.status},
-            ${run.reason ?? null}, ${at})
+          INSERT INTO fork_automation_runs (id, automation_id, status, reason, created_at)
+          VALUES (${id}, ${run.automationId}, ${run.status}, ${run.reason ?? null}, ${at})
         `;
         return id;
       }),
@@ -287,11 +273,6 @@ const make = Effect.gen(function* () {
       sql<RunRow>`SELECT * FROM fork_automation_runs WHERE status = ${status} ORDER BY created_at`,
     ).pipe(Effect.map((rows) => rows.map(toRun)));
 
-  const runsForTicket = (ticketId: string) =>
-    storage(
-      sql<RunRow>`SELECT * FROM fork_automation_runs WHERE ticket_id = ${ticketId} ORDER BY created_at`,
-    ).pipe(Effect.map((rows) => rows.map(toRun)));
-
   const runningRunForThread = (threadKey: string) =>
     storage(
       sql<RunRow>`
@@ -309,8 +290,6 @@ const make = Effect.gen(function* () {
     return {
       automations: automations.map(({ lastFiredAt: _lastFiredAt, ...automation }) => automation),
       runs: runs.map(toRun),
-      // Retained in the wire contract for older clients; column hooks no longer run.
-      boardHooks: [],
     } satisfies AutomationsSnapshot;
   });
 
@@ -345,7 +324,6 @@ const make = Effect.gen(function* () {
     insertRun,
     updateRun,
     runsWithStatus,
-    runsForTicket,
     runningRunForThread,
     snapshot,
     stream,

@@ -16,7 +16,6 @@ import {
   type TicketDetail,
   type TicketFlag,
   TicketFlag as TicketFlagSchema,
-  TicketWorkflow,
   type TicketPriority,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -55,10 +54,7 @@ export class BoardsService extends Context.Service<
   }
 >()("t3/fork/boards/BoardsService") {}
 
-/**
- * Columns a new board starts with. Names and colors only: execution belongs
- * to each ticket's workflow.
- */
+/** Columns a new board starts with. Names and colors only: columns never start work. */
 export const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
   readonly name: string;
   readonly color: string | null;
@@ -73,9 +69,6 @@ export const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
 const FlagJson = Schema.fromJsonString(TicketFlagSchema);
 const decodeFlag = Schema.decodeUnknownSync(FlagJson);
 const encodeFlag = Schema.encodeSync(FlagJson);
-const WorkflowJson = Schema.fromJsonString(TicketWorkflow);
-const decodeWorkflow = Schema.decodeUnknownSync(WorkflowJson);
-const encodeWorkflow = Schema.encodeSync(WorkflowJson);
 
 const fail = (code: BoardsCommandErrorCode, message: string) =>
   Effect.fail(new BoardsCommandError({ code, message }));
@@ -121,8 +114,6 @@ interface TicketRow {
   readonly priority: TicketPriority;
   readonly project_key: string | null;
   readonly folder: string | null;
-  readonly workflow_json: string | null;
-  readonly workflow_thread_key: string | null;
   readonly position: number;
   readonly flag_json: string | null;
   readonly created_at: string;
@@ -200,8 +191,6 @@ const make = Effect.gen(function* () {
         priority: row.priority,
         projectKey: row.project_key,
         folder: row.folder,
-        workflow: row.workflow_json === null ? null : decodeWorkflow(row.workflow_json),
-        workflowThreadKey: row.workflow_thread_key,
         position: row.position,
         flag: row.flag_json === null ? null : decodeFlag(row.flag_json),
         requires: (requiresByTicket.get(row.id) ?? []).map((entry) => entry.requires_ticket_id),
@@ -482,7 +471,7 @@ const make = Effect.gen(function* () {
           const position = yield* nextPosition("tickets", column.id);
           yield* sql`
             INSERT INTO fork_tickets (id, board_id, number, title, description, column_id, priority,
-              project_key, folder, workflow_json, position, created_at, updated_at)
+              project_key, folder, position, created_at, updated_at)
             VALUES (${id}, ${board.id}, ${number}, ${command.title}, ${command.description ?? ""},
               ${column.id}, ${command.priority ?? "none"}, ${command.projectKey ?? null},
               ${
@@ -491,7 +480,7 @@ const make = Effect.gen(function* () {
                   .map((name) => name.trim())
                   .join("/") ?? null
               },
-              ${command.workflow ? encodeWorkflow(command.workflow) : null}, ${position}, ${at}, ${at})
+              ${position}, ${at}, ${at})
           `;
           for (const [index, text] of (command.criteria ?? []).entries()) {
             const criterionId = yield* newId;
@@ -525,8 +514,6 @@ const make = Effect.gen(function* () {
               priority = ${command.priority ?? ticket.priority},
               project_key = ${command.projectKey === undefined ? ticket.project_key : command.projectKey},
               folder = ${folder},
-              workflow_json = ${command.workflow === undefined ? ticket.workflow_json : command.workflow === null ? null : encodeWorkflow(command.workflow)},
-              workflow_thread_key = ${command.workflow === null ? null : ticket.workflow_thread_key},
               updated_at = ${at}
             WHERE id = ${ticket.id}
           `;
@@ -542,7 +529,6 @@ const make = Effect.gen(function* () {
               ? "project"
               : null,
             command.folder !== undefined && folder !== ticket.folder ? "folder" : null,
-            command.workflow !== undefined ? "workflow" : null,
           ].filter((field) => field !== null);
           if (changed.length > 0) {
             yield* recordEvent(
@@ -556,34 +542,6 @@ const make = Effect.gen(function* () {
               at,
             );
           }
-          return { id: null, touched: [ticket.id] };
-        }
-        case "ticket.workflowSession": {
-          const ticket = yield* findTicket(command.ticketId);
-          yield* sql`UPDATE fork_tickets SET workflow_thread_key = ${command.threadKey},
-            updated_at = ${at} WHERE id = ${ticket.id}`;
-          if (command.threadKey !== null) {
-            const previous = (yield* sql<{
-              ticket_id: string;
-            }>`SELECT ticket_id FROM fork_ticket_threads
-              WHERE thread_key = ${command.threadKey}`)[0];
-            if (previous && previous.ticket_id !== ticket.id) {
-              return yield* fail("invalid", "The workflow session belongs to another ticket.");
-            }
-            yield* sql`INSERT INTO fork_ticket_threads (thread_key, ticket_id, source, linked_at)
-              VALUES (${command.threadKey}, ${ticket.id}, ${actor}, ${at})
-              ON CONFLICT(thread_key) DO NOTHING`;
-          }
-          yield* recordEvent(
-            ticket.id,
-            `workflow.${command.event}`,
-            {
-              threadKey: command.threadKey,
-              ...(command.reason !== undefined ? { reason: command.reason } : {}),
-            },
-            actor,
-            at,
-          );
           return { id: null, touched: [ticket.id] };
         }
         case "ticket.move": {
@@ -787,8 +745,6 @@ const make = Effect.gen(function* () {
           if (previousTicketId === command.ticketId) return { id: null, touched: [] };
           const touched: string[] = [];
           if (previousTicketId !== null) {
-            yield* sql`UPDATE fork_tickets SET workflow_thread_key = NULL
-              WHERE id = ${previousTicketId} AND workflow_thread_key = ${command.threadKey}`;
             yield* sql`DELETE FROM fork_ticket_threads WHERE thread_key = ${command.threadKey}`;
             yield* recordEvent(
               previousTicketId,

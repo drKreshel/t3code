@@ -9,11 +9,10 @@ import {
   PlusIcon,
   ZapIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useAutomations, useAutomationsDispatch } from "../../state/automations";
-import { useBoards } from "../../state/boards";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { readLocalApi } from "../../localApi";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
@@ -26,7 +25,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/men
 import { Switch } from "../ui/switch";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { AutomationDialog, type AutomationDraft } from "./AutomationDialog";
-import { describeTrigger } from "./automations.logic";
+import { describeSchedule } from "./automations.logic";
 
 const RUN_STATUS_VARIANT: Record<
   AutomationRunStatus,
@@ -61,28 +60,13 @@ const TEMPLATES: ReadonlyArray<{ readonly label: string; readonly draft: Automat
   },
 ];
 
-/** Scheduled automations and workflow presets, with their execution history. */
-export function AutomationsPage({
-  tab = "scheduled",
-}: {
-  readonly tab?: "scheduled" | "workflows";
-}) {
-  const isWorkflows = tab === "workflows";
+/** Scheduled automations, with their run history. */
+export function AutomationsPage() {
   const automations = useAutomations();
-  const boards = useBoards();
   const [dialog, setDialog] = useState<{
     readonly automation: Automation | null;
     readonly draft: AutomationDraft | null;
   } | null>(null);
-
-  const boardColumnLabel = useMemo(() => {
-    const snapshot = boards.status === "ready" ? boards.snapshot : null;
-    return (boardId: string, columnId: string) => {
-      const board = snapshot?.boards.find((candidate) => candidate.id === boardId);
-      const column = board?.columns.find((candidate) => candidate.id === columnId);
-      return `${board?.name ?? "a deleted board"} › ${column?.name ?? "a deleted column"}`;
-    };
-  }, [boards]);
 
   const content = () => {
     if (automations.status === "loading") {
@@ -96,106 +80,69 @@ export function AutomationsPage({
       );
     }
     const { snapshot } = automations;
-    const scheduled = snapshot.automations.filter(
-      (automation) => automation.trigger.type === "schedule",
-    );
-    const workflows = snapshot.automations.filter(
-      (automation) => automation.trigger.type === "workflow",
-    );
-    const visible = isWorkflows ? workflows : scheduled;
     return (
       <WorkspacePageContainer width="wide">
-        {visible.length === 0 ? (
+        {snapshot.automations.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <ZapIcon />
               </EmptyMedia>
-              <EmptyTitle>
-                {isWorkflows ? "No workflow presets yet" : "No automations yet"}
-              </EmptyTitle>
-              <EmptyDescription>
-                {isWorkflows
-                  ? "Create instructions you can select and customize on each ticket."
-                  : "Start a chat or perform cleanup on a schedule."}
-              </EmptyDescription>
+              <EmptyTitle>No automations yet</EmptyTitle>
+              <EmptyDescription>Start a chat or perform cleanup on a schedule.</EmptyDescription>
             </EmptyHeader>
           </Empty>
-        ) : null}
-        {!isWorkflows && scheduled.length > 0 ? (
-          <AutomationSection
-            title="Scheduled"
-            automations={scheduled}
-            runs={snapshot.runs}
-            boardColumnLabel={boardColumnLabel}
-            onEdit={(automation) => setDialog({ automation, draft: null })}
-          />
-        ) : null}
-        {isWorkflows && workflows.length > 0 ? (
-          <AutomationSection
-            title="Workflow presets"
-            automations={workflows}
-            runs={snapshot.runs}
-            boardColumnLabel={boardColumnLabel}
-            onEdit={(automation) => setDialog({ automation, draft: null })}
-          />
-        ) : null}
-        {!isWorkflows ? (
+        ) : (
           <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-medium text-muted-foreground">Start from a template</h2>
-            <div className="flex flex-wrap gap-2">
-              {TEMPLATES.map((template) => (
-                <Button
-                  key={template.label}
-                  size="xs"
-                  variant="outline"
-                  onClick={() => setDialog({ automation: null, draft: template.draft })}
-                >
-                  {template.label}
-                </Button>
+            <h2 className="text-sm font-medium text-foreground">Scheduled</h2>
+            <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border/60">
+              {snapshot.automations.map((automation) => (
+                <AutomationRow
+                  key={automation.id}
+                  automation={automation}
+                  runs={snapshot.runs.filter((run) => run.automationId === automation.id)}
+                  onEdit={() => setDialog({ automation, draft: null })}
+                />
               ))}
-            </div>
+            </ul>
           </section>
-        ) : null}
+        )}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium text-muted-foreground">Start from a template</h2>
+          <div className="flex flex-wrap gap-2">
+            {TEMPLATES.map((template) => (
+              <Button
+                key={template.label}
+                size="xs"
+                variant="outline"
+                onClick={() => setDialog({ automation: null, draft: template.draft })}
+              >
+                {template.label}
+              </Button>
+            ))}
+          </div>
+        </section>
       </WorkspacePageContainer>
     );
   };
 
   return (
     <BoardsPageFrame
-      root={isWorkflows ? "Workflows" : "Automations"}
+      root="Automations"
       crumbs={[]}
       actions={
         automations.status === "ready" ? (
           <Button
             size="xs"
             variant="outline"
-            onClick={() =>
-              setDialog({ automation: null, draft: isWorkflows ? { trigger: "workflow" } : null })
-            }
+            onClick={() => setDialog({ automation: null, draft: null })}
           >
             <PlusIcon />
-            {isWorkflows ? "New workflow" : "New automation"}
+            New automation
           </Button>
         ) : null
       }
     >
-      <div className="flex gap-2 px-6 pt-4">
-        <Button
-          size="xs"
-          variant={isWorkflows ? "ghost" : "secondary"}
-          render={<Link to="/automations" search={{ tab: "scheduled" }} />}
-        >
-          Scheduled
-        </Button>
-        <Button
-          size="xs"
-          variant={isWorkflows ? "secondary" : "ghost"}
-          render={<Link to="/automations" search={{ tab: "workflows" }} />}
-        >
-          Workflows
-        </Button>
-      </div>
       {content()}
       <AutomationDialog
         open={dialog !== null}
@@ -209,47 +156,14 @@ export function AutomationsPage({
   );
 }
 
-function AutomationSection({
-  title,
-  automations,
-  runs,
-  boardColumnLabel,
-  onEdit,
-}: {
-  readonly title: string;
-  readonly automations: ReadonlyArray<Automation>;
-  readonly runs: ReadonlyArray<AutomationRun>;
-  readonly boardColumnLabel: (boardId: string, columnId: string) => string;
-  readonly onEdit: (automation: Automation) => void;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-medium text-foreground">{title}</h2>
-      <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border/60">
-        {automations.map((automation) => (
-          <AutomationRow
-            key={automation.id}
-            automation={automation}
-            runs={runs.filter((run) => run.automationId === automation.id)}
-            boardColumnLabel={boardColumnLabel}
-            onEdit={() => onEdit(automation)}
-          />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 function AutomationRow({
   automation,
   runs,
-  boardColumnLabel,
   onEdit,
 }: {
   readonly automation: Automation;
   /** Newest first. */
   readonly runs: ReadonlyArray<AutomationRun>;
-  readonly boardColumnLabel: (boardId: string, columnId: string) => string;
   readonly onEdit: () => void;
 }) {
   const dispatch = useAutomationsDispatch();
@@ -257,15 +171,10 @@ function AutomationRow({
   const [expanded, setExpanded] = useState(false);
   const project = lookupProject(automation.action.projectKey);
   const last = runs[0];
-  const isSchedule = automation.trigger.type === "schedule";
 
   const remove = async () => {
     const api = readLocalApi();
     if (!api) return;
-    if (automation.trigger.type === "workflow") {
-      void dispatch({ type: "automation.update", automationId: automation.id, enabled: false });
-      return;
-    }
     const confirmed = await settlePromise(() =>
       api.dialogs.confirm(`Delete "${automation.title}"?\nIts run history is deleted too.`, {
         variant: "destructive",
@@ -306,8 +215,7 @@ function AutomationRow({
               {automation.title}
             </span>
             <span className="truncate text-xs text-muted-foreground">
-              {describeTrigger(automation.trigger, boardColumnLabel)}
-              {automation.trigger.type === "schedule" ? ` (${automation.trigger.timezone})` : ""}
+              {describeSchedule(automation.trigger.schedule)} ({automation.trigger.timezone})
               {project ? ` · ${project.title}` : ""}
             </span>
           </span>
@@ -336,21 +244,17 @@ function AutomationRow({
             <EllipsisIcon />
           </MenuTrigger>
           <MenuPopup align="end">
-            {isSchedule ? (
-              <MenuItem
-                onClick={() =>
-                  void dispatch({ type: "automation.runNow", automationId: automation.id })
-                }
-              >
-                <PlayIcon />
-                Run now
-              </MenuItem>
-            ) : null}
+            <MenuItem
+              onClick={() =>
+                void dispatch({ type: "automation.runNow", automationId: automation.id })
+              }
+            >
+              <PlayIcon />
+              Run now
+            </MenuItem>
             <MenuItem onClick={onEdit}>Edit</MenuItem>
             <MenuSeparator />
-            <MenuItem onClick={() => void remove()}>
-              {isSchedule ? "Delete" : "Retire preset"}
-            </MenuItem>
+            <MenuItem onClick={() => void remove()}>Delete</MenuItem>
           </MenuPopup>
         </Menu>
       </div>
@@ -360,20 +264,12 @@ function AutomationRow({
 }
 
 function RunHistory({ runs }: { readonly runs: ReadonlyArray<AutomationRun> }) {
-  const boards = useBoards();
-  const ticketLabel = (ticketId: string | null) => {
-    if (ticketId === null || boards.status !== "ready") return null;
-    const ticket = boards.snapshot.tickets.find((candidate) => candidate.id === ticketId);
-    const board = boards.snapshot.boards.find((candidate) => candidate.id === ticket?.boardId);
-    return ticket && board ? { key: `${board.key}-${ticket.number}`, board, ticket } : null;
-  };
   if (runs.length === 0) {
     return <p className="px-10 pb-3 text-xs text-muted-foreground">No runs yet.</p>;
   }
   return (
     <ol className="flex flex-col gap-1.5 px-10 pb-3 text-xs">
       {runs.slice(0, 15).map((run) => {
-        const ticket = ticketLabel(run.ticketId);
         const threadRef = run.threadKey ? parseScopedThreadKey(run.threadKey) : null;
         return (
           <li key={run.id} className="flex min-w-0 items-baseline gap-2">
@@ -383,15 +279,6 @@ function RunHistory({ runs }: { readonly runs: ReadonlyArray<AutomationRun> }) {
             <span className="shrink-0 text-muted-foreground">
               {formatRelativeTimeLabel(run.startedAt ?? run.createdAt)}
             </span>
-            {ticket ? (
-              <Link
-                className="shrink-0 font-mono text-muted-foreground hover:text-foreground"
-                to="/boards/$boardKey/$ticketNumber"
-                params={{ boardKey: ticket.board.key, ticketNumber: String(ticket.ticket.number) }}
-              >
-                {ticket.key}
-              </Link>
-            ) : null}
             {threadRef ? (
               <Link
                 className="shrink-0 hover:underline"

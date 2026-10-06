@@ -49,8 +49,7 @@ export function BoardSettingsDialog({
         <DialogHeader>
           <DialogTitle>Board settings</DialogTitle>
           <DialogDescription>
-            Columns are just names. What happens when a ticket enters one comes from automations
-            (the ⚡ on each column).
+            Columns are just names. Moving a ticket records progress and never starts an agent.
           </DialogDescription>
         </DialogHeader>
         {/* Remount on open so the fields start from the board's current values. */}
@@ -199,8 +198,7 @@ function SaveAsTemplate({ board }: { readonly board: Board }) {
       <div className="flex flex-col gap-1">
         <Label htmlFor="board-settings-template">Save as template</Label>
         <p className="text-xs text-muted-foreground">
-          New boards can start from it: these columns, this board's column automations, and the
-          schedules that move its old tickets. Hooks use each new board's own project.
+          New boards can start from it: these columns and the schedules that move its old tickets.
         </p>
       </div>
       <div className="flex items-center gap-2">

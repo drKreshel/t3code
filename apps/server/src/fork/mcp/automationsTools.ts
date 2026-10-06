@@ -1,13 +1,11 @@
 /**
- * `t3-code` MCP tools for scheduled automations and ticket workflow presets.
+ * `t3-code` MCP tools for scheduled automations.
  * Writes go through AutomationEngine, like the UI's.
  */
 import {
   AutomationCheckout,
   AutomationRunStatus,
   AutomationsCommandError,
-  AutomationAction,
-  ModelSelection,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -52,100 +50,8 @@ export type AutomationSummary = typeof AutomationSummary.Type;
 
 const Changed = Schema.Struct({ id: Schema.String, title: Schema.String });
 
-const WorkflowRef = TrimmedNonEmptyString.annotate({
-  description: "Workflow preset id or exact title.",
-});
-const ListWorkflowsTool = Tool.make("list_workflows", {
-  description:
-    "List reusable ticket workflow presets. Instructions are copied onto tickets when selected; column moves do not execute them.",
-  success: Schema.Struct({
-    workflows: Schema.Array(
-      Schema.Struct({
-        id: Schema.String,
-        title: Schema.String,
-        instructions: Schema.String,
-        action: AutomationAction,
-      }),
-    ),
-  }),
-  failure,
-  dependencies,
-})
-  .annotate(Tool.Readonly, true)
-  .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
-
-const CreateWorkflowTool = Tool.make("create_workflow", {
-  description:
-    "Create a reusable ticket workflow preset. Write the complete process as instructions, including delegation, models, handoffs, stopping conditions and any human approvals. Creating a preset does not start work. Use orchestrator_capabilities for model ids.",
-  parameters: Schema.Struct({
-    title: TrimmedNonEmptyString,
-    instructions: TrimmedNonEmptyString,
-    modelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-    checkout: Schema.optional(Schema.Literals(["local", "ticket"])),
-  }),
-  success: Changed,
-  failure,
-  dependencies,
-})
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false)
-  .annotate(Tool.OpenWorld, false)
-  .annotate(Tool.Idempotent, false);
-
-const UpdateWorkflowTool = Tool.make("update_workflow", {
-  description:
-    "Edit a workflow preset. Assigned tickets keep their existing instruction copies until explicitly reassigned. enabled=false retires the preset while preserving tickets and history.",
-  parameters: Schema.Struct({
-    workflow: WorkflowRef,
-    title: Schema.optional(TrimmedNonEmptyString),
-    instructions: Schema.optional(TrimmedNonEmptyString),
-    modelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-    checkout: Schema.optional(Schema.Literals(["local", "ticket"])),
-    enabled: Schema.optional(Schema.Boolean),
-  }),
-  success: Changed,
-  failure,
-  dependencies,
-})
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false)
-  .annotate(Tool.OpenWorld, false)
-  .annotate(Tool.Idempotent, true);
-
-const StartWorkflowTool = Tool.make("start_workflow", {
-  description:
-    "Explicitly start or resume a ticket's selected workflow. Resumes its existing workflow chat, prevents duplicate execution, and clears its pause flag. Defaults to this chat's linked ticket. Read the ticket and dependencies before starting. Column moves never start work.",
-  parameters: Schema.Struct({ ticket: Schema.optional(TrimmedNonEmptyString) }),
-  success: Schema.Struct({
-    ticket: Schema.String,
-    threadKey: Schema.NullOr(Schema.String),
-    runId: Schema.String,
-  }),
-  failure,
-  dependencies,
-})
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false)
-  .annotate(Tool.OpenWorld, false)
-  .annotate(Tool.Idempotent, false);
-
-const PauseWorkflowTool = Tool.make("pause_workflow", {
-  description:
-    "Pause a ticket workflow's current turn and hold its queued messages. Defaults to this chat's linked ticket. Resume with start_workflow.",
-  parameters: Schema.Struct({ ticket: Schema.optional(TrimmedNonEmptyString) }),
-  success: Schema.Struct({ ticket: Schema.String }),
-  failure,
-  dependencies,
-})
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false)
-  .annotate(Tool.OpenWorld, false)
-  .annotate(Tool.Idempotent, true);
-
 const ListAutomationsTool = Tool.make("list_automations", {
-  description:
-    "List scheduled T3 Code automations with their next run and last result. Use list_workflows for ticket instruction presets.",
+  description: "List scheduled T3 Code automations with their next run and last result.",
   success: Schema.Struct({ automations: Schema.Array(AutomationSummary) }),
   failure,
   dependencies,
@@ -158,7 +64,7 @@ const ListAutomationsTool = Tool.make("list_automations", {
 
 const CreateAutomationTool = Tool.make("create_automation", {
   description:
-    "Create a scheduled automation. Give cron (five fields) or at (an ISO date-time), and optionally timezone. Chat runs need useThisChatsProject. For ticket execution use workflow presets and start_workflow.",
+    "Create a scheduled automation. Give cron (five fields) or at (an ISO date-time), and optionally timezone. Chat runs need useThisChatsProject.",
   parameters: Schema.Struct({
     title: TrimmedNonEmptyString,
     prompt: TrimmedNonEmptyString,
@@ -224,13 +130,8 @@ const DeleteAutomationTool = Tool.make("delete_automation", {
   .annotate(Tool.OpenWorld, false);
 
 const RunAutomationTool = Tool.make("run_automation", {
-  description: "Run a scheduled automation now. Use start_workflow to run a ticket workflow.",
-  parameters: Schema.Struct({
-    automation: AutomationRef,
-    ticket: Schema.optional(
-      TrimmedNonEmptyString.annotate({ description: "Ticket key like WEB-12." }),
-    ),
-  }),
+  description: "Run a scheduled automation now.",
+  parameters: Schema.Struct({ automation: AutomationRef }),
   success: Changed,
   failure,
   dependencies,
@@ -242,11 +143,6 @@ const RunAutomationTool = Tool.make("run_automation", {
   .annotate(Tool.OpenWorld, false);
 
 export const AutomationsToolkit = Toolkit.make(
-  ListWorkflowsTool,
-  CreateWorkflowTool,
-  UpdateWorkflowTool,
-  StartWorkflowTool,
-  PauseWorkflowTool,
   ListAutomationsTool,
   CreateAutomationTool,
   UpdateAutomationTool,

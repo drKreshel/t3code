@@ -24,7 +24,6 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   EllipsisIcon,
-  ZapIcon,
   FolderIcon,
   LinkIcon,
   PlusIcon,
@@ -176,7 +175,7 @@ function BoardView({
       const id = ids[index + offset];
       return id === undefined ? undefined : viewById.get(id)?.ticket.position;
     };
-    // Moving a ticket records progress; execution starts explicitly from its workflow.
+    // Moving a ticket records progress; it never starts an agent.
     if (!unchanged) {
       await dispatch({
         type: "ticket.move",
@@ -259,10 +258,6 @@ function BoardView({
               <MenuItem onClick={() => setSettingsOpen(true)}>
                 <SettingsIcon />
                 Board settings
-              </MenuItem>
-              <MenuItem render={<Link to="/automations" search={{ tab: "workflows" }} />}>
-                <ZapIcon />
-                Workflows
               </MenuItem>
               <MenuSeparator />
               <MenuItem
@@ -523,9 +518,6 @@ function TicketCard({
         ) : null}
       </div>
       <p className="line-clamp-3 text-foreground">{ticket.title}</p>
-      {ticket.workflow ? (
-        <p className="truncate text-xs text-muted-foreground">{ticket.workflow.title}</p>
-      ) : null}
       {view.requirements.length > 0 || ticket.criteria.length > 0 || project ? (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {view.requirements.length > 0 ? (

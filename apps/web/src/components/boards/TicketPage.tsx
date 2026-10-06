@@ -15,6 +15,7 @@ import { Link } from "@tanstack/react-router";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  ChevronRightIcon,
   FolderIcon,
   MessageSquarePlusIcon,
   PlusIcon,
@@ -25,7 +26,6 @@ import {
 import { useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
-import { useAutomations } from "../../state/automations";
 import { useBoardsDispatch, useTicketDetail } from "../../state/boards";
 import { useSidebarFolderStore } from "../../sidebarFolderStore";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -36,6 +36,7 @@ import { toastManager } from "../ui/toast";
 import { flattenSidebarFolders } from "../SidebarFolders.logic";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -43,7 +44,6 @@ import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { TicketWorkspaceSection } from "./WorkspaceSettings";
-import { TicketWorkflowSection } from "./TicketWorkflowSection";
 import { describeTicketEvent } from "./boards.logic";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { columnDotClass, PRIORITIES, PRIORITY_LABEL } from "./boardsPresentation";
@@ -109,13 +109,17 @@ function TicketBody({
           <TicketHeading view={view} readOnly={readOnly} />
           {view.attention ? <TicketAttentionBanner view={view} readOnly={readOnly} /> : null}
           {handoff ? (
-            <section className="flex flex-col gap-1.5 rounded-lg border border-border/60 px-3 py-2">
-              <h2 className="text-xs font-medium text-muted-foreground">Latest handoff</h2>
+            <FoldedCard
+              defaultOpen={false}
+              preview={handoff.body}
+              title={
+                <span className="text-xs font-medium text-muted-foreground">Latest handoff</span>
+              }
+            >
               <ChatMarkdown text={handoff.body} cwd={undefined} isStreaming={false} />
-            </section>
+            </FoldedCard>
           ) : null}
           <DescriptionSection view={view} readOnly={readOnly} />
-          <TicketWorkflowSection view={view} readOnly={readOnly} />
           <CriteriaSection view={view} readOnly={readOnly} />
           <SessionsSection view={view} readOnly={readOnly} />
           <TicketWorkspaceSection
@@ -124,7 +128,6 @@ function TicketBody({
             projectKey={view.ticket.projectKey ?? view.board.defaultProjectKey}
             readOnly={readOnly}
           />
-          <TicketRunsSection view={view} />
           <CommentsSection
             view={view}
             comments={comments}
@@ -494,22 +497,29 @@ function CommentsSection({
       ) : comments.length > 0 ? (
         <ul className="flex flex-col gap-3">
           {comments.map((comment) => (
-            <li
+            <FoldedCard
               key={comment.id}
-              className="group/comment flex flex-col gap-1 rounded-lg border border-border/60 px-3 py-2"
-            >
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {commentAuthorLabel(comment.author, threadTitleByKey)}
+              as="li"
+              className="group/comment"
+              // Handoffs are long status reports; the latest one is pinned above.
+              defaultOpen={!comment.isHandoff}
+              preview={comment.body}
+              title={
+                <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <span className="shrink-0 font-medium text-foreground">
+                    {commentAuthorLabel(comment.author, threadTitleByKey)}
+                  </span>
+                  <span className="shrink-0">{formatRelativeTimeLabel(comment.createdAt)}</span>
+                  {comment.isHandoff ? (
+                    <Badge variant="info" size="sm">
+                      Handoff
+                    </Badge>
+                  ) : null}
                 </span>
-                <span>{formatRelativeTimeLabel(comment.createdAt)}</span>
-                {comment.isHandoff ? (
-                  <Badge variant="info" size="sm">
-                    Handoff
-                  </Badge>
-                ) : null}
-                {!readOnly ? (
-                  <div className="ml-auto flex items-center gap-1 opacity-0 group-hover/comment:opacity-100 focus-within:opacity-100">
+              }
+              actions={
+                !readOnly ? (
+                  <div className="flex items-center gap-1 opacity-0 group-hover/comment:opacity-100 focus-within:opacity-100">
                     <Button
                       size="xs"
                       variant="ghost"
@@ -534,10 +544,11 @@ function CommentsSection({
                       <Trash2Icon />
                     </Button>
                   </div>
-                ) : null}
-              </div>
+                ) : null
+              }
+            >
               <ChatMarkdown text={comment.body} cwd={undefined} isStreaming={false} />
-            </li>
+            </FoldedCard>
           ))}
         </ul>
       ) : null}
@@ -576,6 +587,66 @@ function CommentsSection({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** First readable line of markdown, for a folded card's one-line summary. */
+function previewLine(markdown: string): string {
+  const line = markdown.split("\n").find((candidate) => candidate.trim()) ?? "";
+  return line.replace(/^\s*(?:#+|[-*>]|\d+\.)\s*/, "").replace(/[*_`]/g, "");
+}
+
+/** A bordered card whose header toggles its body; folded, it shows a preview line. */
+function FoldedCard({
+  title,
+  actions,
+  preview,
+  defaultOpen,
+  as: Tag = "section",
+  className,
+  children,
+}: {
+  readonly title: ReactNode;
+  readonly actions?: ReactNode;
+  readonly preview: string;
+  readonly defaultOpen: boolean;
+  readonly as?: "li" | "section";
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      render={
+        <Tag
+          className={cn("flex flex-col rounded-lg border border-border/60 px-3 py-2", className)}
+        />
+      }
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <CollapsibleTrigger className="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
+              open && "rotate-90",
+            )}
+          />
+          {title}
+          {!open ? (
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {previewLine(preview)}
+            </span>
+          ) : null}
+        </CollapsibleTrigger>
+        {actions ? <div className="ml-auto shrink-0">{actions}</div> : null}
+      </div>
+      <CollapsiblePanel>
+        <div className="pt-1">{children}</div>
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 
@@ -920,51 +991,7 @@ function TicketProperties({
   );
 }
 
-/** Execution history; a finished turn does not mean the ticket is complete. */
-function TicketRunsSection({ view }: { readonly view: TicketView }) {
-  const automations = useAutomations();
-  if (automations.status !== "ready") return null;
-  const runs = automations.snapshot.runs.filter((run) => run.ticketId === view.ticket.id);
-  if (runs.length === 0) return null;
-  const titleOf = (automationId: string) =>
-    automations.snapshot.automations.find((automation) => automation.id === automationId)?.title ??
-    "Deleted automation";
-  return (
-    <section className="flex flex-col gap-2">
-      <SectionHeading>Workflow turns</SectionHeading>
-      <ol className="flex flex-col gap-1.5 text-sm">
-        {runs.slice(0, 10).map((run) => {
-          const threadRef = run.threadKey ? parseScopedThreadKey(run.threadKey) : null;
-          return (
-            <li key={run.id} className="flex min-w-0 items-baseline gap-2">
-              <span className="shrink-0 text-foreground">{titleOf(run.automationId)}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {run.status} {formatRelativeTimeLabel(run.startedAt ?? run.createdAt)}
-              </span>
-              {threadRef ? (
-                <Link
-                  className="shrink-0 text-xs hover:underline"
-                  to="/$environmentId/$threadId"
-                  params={{ environmentId: threadRef.environmentId, threadId: threadRef.threadId }}
-                >
-                  Open chat
-                </Link>
-              ) : null}
-              {run.reason ? (
-                <span className="min-w-0 truncate text-xs text-muted-foreground">{run.reason}</span>
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
-  );
-}
-
-/**
- * Resolve clears a stored flag; execution resumes explicitly. Chat waits
- * clear themselves.
- */
+/** Resolve clears a stored flag; chat waits clear themselves. */
 function TicketAttentionBanner({
   view,
   readOnly,
@@ -986,8 +1013,7 @@ function TicketAttentionBanner({
       )}
     >
       <span className="min-w-0 flex-1">
-        {error ? "Error" : ref ? "Chat needs attention" : "Workflow needs attention"}:{" "}
-        {attention.reason}
+        {error ? "Error" : ref ? "Chat needs attention" : "Needs attention"}: {attention.reason}
       </span>
       {ref ? (
         <Button

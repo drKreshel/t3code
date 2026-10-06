@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
-import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { AutomationAction, AutomationSchedule } from "./forkAutomations.ts";
 import { BoardKey, BoardsCommandError, ColumnSpec } from "./forkBoards.ts";
 
@@ -17,25 +17,18 @@ export const FORK_TEMPLATES_WS_METHODS = {
   dispatch: "fork.templates.dispatch",
 } as const;
 
-/**
- * An automation a template creates. A hook names its column; a schedule's
- * "move old tickets" steps act on the new board only.
- */
+/** A schedule a template creates; its "move old tickets" steps act on the new board only. */
 export const TemplateAutomation = Schema.Struct({
   title: TrimmedNonEmptyString,
   prompt: Schema.String,
-  trigger: Schema.Union([
-    Schema.Struct({ type: Schema.Literal("board"), column: TrimmedNonEmptyString }),
-    Schema.Struct({
-      type: Schema.Literal("schedule"),
-      schedule: AutomationSchedule,
-      /** Null: the server's zone when the board is created. */
-      timezone: Schema.NullOr(TrimmedNonEmptyString),
-    }),
-  ]),
+  trigger: Schema.Struct({
+    type: Schema.Literal("schedule"),
+    schedule: AutomationSchedule,
+    /** Null: the server's zone when the board is created. */
+    timezone: Schema.NullOr(TrimmedNonEmptyString),
+  }),
   action: AutomationAction,
   enabled: Schema.Boolean,
-  maxRunsPerTicket: PositiveInt,
 });
 export type TemplateAutomation = typeof TemplateAutomation.Type;
 
@@ -66,7 +59,7 @@ export const TemplatesCommand = Schema.Union([
     defaultProjectKey: Schema.optional(Schema.NullOr(Schema.String)),
   }),
   /**
-   * Saves a board's columns, its hooks, and the schedules that tidy it as a
+   * Saves a board's columns and the schedules that tidy it as a
    * template. Replaces a saved template with the same name.
    */
   Schema.Struct({

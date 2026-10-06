@@ -8,7 +8,6 @@ import {
   BoardsCommandError,
   TicketPriority,
   TicketFolderPath,
-  TicketWorkflow,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -87,8 +86,6 @@ export const TicketDetailResult = Schema.Struct({
   priority: TicketPriority,
   project: Schema.NullOr(Schema.String),
   folder: Schema.NullOr(Schema.String),
-  workflow: Schema.NullOr(TicketWorkflow),
-  workflowThreadKey: Schema.NullOr(Schema.String),
   history: Schema.Array(
     Schema.Struct({
       kind: Schema.String,
@@ -105,7 +102,7 @@ export const TicketDetailResult = Schema.Struct({
     Schema.Struct({ key: Schema.String, title: Schema.String, column: Schema.String }),
   ).annotate({
     description:
-      "Tickets this one depends on, with the column each sits in. Judge from those columns and the workflow instructions whether they are finished.",
+      "Tickets this one depends on, with the column each sits in. Judge from those columns whether they are finished.",
   }),
   latestHandoff: Schema.NullOr(Schema.String),
   comments: Schema.Array(
@@ -236,17 +233,6 @@ const CreateTicketTool = Tool.make("create_ticket", {
     title: TrimmedNonEmptyString,
     description: Schema.optional(Schema.String.annotate({ description: "Markdown." })),
     column: Schema.optional(ColumnRef),
-    workflow: Schema.optional(
-      TrimmedNonEmptyString.annotate({
-        description:
-          "Workflow preset id or exact title, from list_workflows. Selecting one does not start it.",
-      }),
-    ),
-    workflowInstructions: Schema.optional(
-      TrimmedNonEmptyString.annotate({
-        description: "Override the selected preset's instructions for this ticket only.",
-      }),
-    ),
     priority: Schema.optional(TicketPriority),
     folder: Schema.optional(
       Schema.NullOr(TicketFolderPath).annotate({
@@ -285,18 +271,6 @@ const UpdateTicketTool = Tool.make("update_ticket", {
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     title: Schema.optional(TrimmedNonEmptyString),
-    workflow: Schema.optional(
-      Schema.NullOr(TrimmedNonEmptyString).annotate({
-        description:
-          "Workflow preset id or exact title, from list_workflows. null removes it. Reassigning copies the current preset instructions.",
-      }),
-    ),
-    workflowInstructions: Schema.optional(
-      TrimmedNonEmptyString.annotate({
-        description:
-          "Edit this ticket's workflow instructions without changing the reusable preset.",
-      }),
-    ),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),
     folder: Schema.optional(
@@ -324,7 +298,7 @@ const UpdateTicketTool = Tool.make("update_ticket", {
 
 const MoveTicketTool = Tool.make("move_ticket", {
   description:
-    "Move a ticket to another column to record progress. Moving it does not start or resume its workflow, or resolve its flag. To ask the user for help, use request_human.",
+    "Move a ticket to another column to record progress. Moving it never starts an agent or resolves its flag. To ask the user for help, use request_human.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     column: ColumnRef,

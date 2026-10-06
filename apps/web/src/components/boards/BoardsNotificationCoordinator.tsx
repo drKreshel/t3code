@@ -41,9 +41,7 @@ export function BoardsNotificationCoordinator() {
       const failed = ticket.flag?.level === "error";
       const title = failed ? `${label} hit an error` : `${label} needs you`;
       const body = ticket.flag?.reason ?? ticket.title;
-      const threadKey = ticket.flag?.by.startsWith("thread:")
-        ? ticket.flag.by.slice(7)
-        : ticket.workflowThreadKey;
+      const threadKey = ticket.flag?.by.startsWith("thread:") ? ticket.flag.by.slice(7) : null;
       const ref = threadKey ? parseScopedThreadKey(threadKey) : null;
       const open = () =>
         ref

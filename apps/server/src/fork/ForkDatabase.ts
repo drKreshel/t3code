@@ -16,7 +16,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 import { ServerConfig } from "../config.ts";
-import { migrateColumnWorkflows } from "./automations/workflowMigration.ts";
 
 /**
  * Applied in order, once each. Append only: a shipped entry is never edited,
@@ -217,6 +216,31 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       `ALTER TABLE fork_tickets ADD COLUMN workflow_thread_key TEXT`,
     ],
   },
+  {
+    // Ticket workflows are gone: flows are agent skills now. Automations keep
+    // only schedules, and runs no longer belong to tickets.
+    version: 9,
+    statements: [
+      `DELETE FROM fork_automations
+        WHERE json_extract(trigger_json, '$.type') IS NOT 'schedule'
+          OR json_extract(action_json, '$.checkout') = 'ticket'
+          OR EXISTS (SELECT 1 FROM json_each(action_json, '$.steps')
+            WHERE json_extract(value, '$.type') IS NOT 'moveStale')`,
+      `UPDATE fork_board_templates SET automations_json = (
+        SELECT json_group_array(json(automation.value)) FROM json_each(automations_json) AS automation
+          WHERE json_extract(automation.value, '$.trigger.type') = 'schedule'
+            AND json_extract(automation.value, '$.action.checkout') IS NOT 'ticket'
+            AND NOT EXISTS (SELECT 1 FROM json_each(automation.value, '$.action.steps')
+              WHERE json_extract(value, '$.type') IS NOT 'moveStale'))`,
+      `ALTER TABLE fork_automations DROP COLUMN max_runs_per_ticket`,
+      `DROP INDEX fork_automation_runs_ticket`,
+      `ALTER TABLE fork_automation_runs DROP COLUMN ticket_id`,
+      `ALTER TABLE fork_tickets DROP COLUMN workflow_json`,
+      `ALTER TABLE fork_tickets DROP COLUMN workflow_thread_key`,
+      `DROP TABLE fork_board_hook_state`,
+      `DROP TABLE fork_ticket_hook_state`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {
@@ -239,7 +263,6 @@ export const runForkMigrations = Effect.gen(function* () {
         for (const statement of migration.statements) {
           yield* sql.unsafe(statement);
         }
-        if (migration.version === 8) yield* migrateColumnWorkflows;
         yield* sql`
           INSERT INTO fork_schema_migrations (version, applied_at)
           VALUES (${migration.version}, ${DateTime.formatIso(yield* DateTime.now)})

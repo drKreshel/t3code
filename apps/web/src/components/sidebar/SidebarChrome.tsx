@@ -182,7 +182,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   const handleAutomationsClick = useCallback(() => {
     closeMobileSidebar();
-    void navigate({ to: "/automations", search: { tab: "scheduled" } });
+    void navigate({ to: "/automations" });
   }, [closeMobileSidebar, navigate]);
 
   const handleUsageClick = useCallback(() => {

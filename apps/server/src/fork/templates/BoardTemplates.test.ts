@@ -18,7 +18,7 @@ const action: AutomationAction = {
   modelSelection: null,
   runtimeMode: "full-access",
   interactionMode: "default",
-  checkout: "ticket",
+  checkout: "local",
 };
 
 /** Templates over in-memory boards and automations; the engine records what it is asked to create. */
@@ -67,8 +67,8 @@ describe("BoardTemplates", () => {
       const commands = (yield* Ref.get(created)).flatMap((command) =>
         command.type === "automation.create" ? [command] : [],
       );
-      expect(commands.filter((command) => command.trigger.type === "board")).toHaveLength(0);
-      const settle = commands.find((command) => command.trigger.type === "schedule")!;
+      expect(commands).toHaveLength(1);
+      const settle = commands[0]!;
       expect(settle.title).toBe("Settle old Done tickets (Atlas)");
       expect(settle.action.steps).toEqual([
         { type: "moveStale", from: "Done", to: "Settled", olderThanDays: 7, boardId },
@@ -76,29 +76,18 @@ describe("BoardTemplates", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("saves a board's hooks and its tidying schedules, replacing by name", () =>
+  it.effect("saves a board's tidying schedules, replacing by name", () =>
     Effect.gen(function* () {
       const { templates, boards, store } = yield* makeHarness;
       const boardId = (yield* boards.dispatch(
         { type: "board.create", name: "Web", key: "WEB" },
         "user",
       )).id!;
-      const review = (yield* boards.snapshot).boards[0]!.columns.find(
-        (column) => column.name === "Review",
-      )!.id;
       const schedule = {
         type: "schedule" as const,
         schedule: { kind: "cron" as const, cron: "0 6 * * *" },
         timezone: "UTC",
       };
-      yield* store.create({
-        title: "Verify",
-        prompt: "Verify {{ticket.key}}",
-        trigger: { type: "board", boardId, columnId: review },
-        action,
-        enabled: true,
-        maxRunsPerTicket: 3,
-      });
       yield* store.create({
         title: "Settle (Web)",
         prompt: "",
@@ -108,7 +97,6 @@ describe("BoardTemplates", () => {
           steps: [{ type: "moveStale", from: "Done", to: "Review", olderThanDays: 2, boardId }],
         },
         enabled: true,
-        maxRunsPerTicket: 5,
       });
       // Not this board's: a chat schedule and a sweep over every board.
       yield* store.create({
@@ -117,7 +105,6 @@ describe("BoardTemplates", () => {
         trigger: schedule,
         action,
         enabled: true,
-        maxRunsPerTicket: 5,
       });
       yield* store.create({
         title: "Settle everywhere",
@@ -128,7 +115,6 @@ describe("BoardTemplates", () => {
           steps: [{ type: "moveStale", from: "Done", to: "Review", olderThanDays: 2 }],
         },
         enabled: true,
-        maxRunsPerTicket: 5,
       });
 
       const save = templates.dispatch(
@@ -147,11 +133,9 @@ describe("BoardTemplates", () => {
         "Done",
       ]);
       expect(saved[0]!.automations).toMatchObject([
-        { title: "Verify", trigger: { type: "board", column: "Review" }, maxRunsPerTicket: 3 },
         { title: "Settle", trigger: { type: "schedule", timezone: "UTC" } },
       ]);
-      expect(saved[0]!.automations[0]!.action.projectKey).toBeNull();
-      expect(saved[0]!.automations[1]!.action.steps).toEqual([
+      expect(saved[0]!.automations[0]!.action.steps).toEqual([
         { type: "moveStale", from: "Done", to: "Review", olderThanDays: 2, boardId: null },
       ]);
 
