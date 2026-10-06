@@ -17,6 +17,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "../ui/popover";
 import { ScrollArea } from "../ui/scroll-area";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { SkillPreview, SkillSourceEditor } from "./SkillContentView";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 
@@ -161,6 +163,9 @@ function SkillDetail(props: {
   const { file, reload } = useSkillFile(readPath);
   const { save } = useSkillsCommands();
   const [draft, setDraft] = useState<string | null>(null);
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  // Bumped to reload the editor with the saved text after a discard.
+  const [editorRevision, setEditorRevision] = useState(0);
   const [saving, setSaving] = useState(false);
   const [resyncOutput, setResyncOutput] = useState<string | null>(null);
   const content = file?.status === "ready" ? file.value.content : null;
@@ -220,9 +225,27 @@ function SkillDetail(props: {
               {agent}
             </Badge>
           ))}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-2">
+            <ToggleGroup
+              aria-label="Skill view"
+              value={[mode]}
+              onValueChange={(next) => {
+                const value = next[0];
+                if (value === "preview" || value === "edit") setMode(value);
+              }}
+            >
+              <Toggle value="preview">Preview</Toggle>
+              <Toggle value="edit">{editable ? "Edit" : "Source"}</Toggle>
+            </ToggleGroup>
             {dirty ? (
-              <Button size="xs" variant="ghost" onClick={() => setDraft(null)}>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => {
+                  setDraft(null);
+                  setEditorRevision((value) => value + 1);
+                }}
+              >
                 Discard
               </Button>
             ) : null}
@@ -231,19 +254,23 @@ function SkillDetail(props: {
             </Button>
           </div>
         </div>
-        {skill.description ? (
-          <p className="text-xs text-muted-foreground">{skill.description}</p>
-        ) : null}
-        <div className="flex flex-col gap-0.5 font-mono text-2xs text-muted-foreground">
-          {skill.sourcePath !== null ? <span>source · {skill.sourcePath}</span> : null}
-          {skill.loads.map((load) => (
-            <span key={`${load.providerName}:${load.path}`}>
-              {load.providerName.toLowerCase()} · {load.path}
-              {load.enabled ? "" : " (off)"}
-            </span>
-          ))}
-        </div>
-        <p className="text-2xs text-muted-foreground">{editNote}</p>
+        <details className="text-2xs text-muted-foreground">
+          <summary className="cursor-pointer">
+            {editNote}
+            {skill.loads.length > 0
+              ? ` Loaded from ${skill.loads.length} place${skill.loads.length === 1 ? "" : "s"}.`
+              : ""}
+          </summary>
+          <div className="flex flex-col gap-0.5 pt-1 font-mono">
+            {skill.sourcePath !== null ? <span>source · {skill.sourcePath}</span> : null}
+            {skill.loads.map((load) => (
+              <span key={`${load.providerName}:${load.path}`}>
+                {load.providerName.toLowerCase()} · {load.path}
+                {load.enabled ? "" : " (off)"}
+              </span>
+            ))}
+          </div>
+        </details>
         {resyncOutput !== null ? (
           <pre className="max-h-32 overflow-auto rounded-md bg-destructive/8 p-2 font-mono text-2xs whitespace-pre-wrap text-destructive-foreground">
             {resyncOutput}
@@ -256,14 +283,14 @@ function SkillDetail(props: {
         <BoardsStatusMessage>Loading…</BoardsStatusMessage>
       ) : file.status === "error" ? (
         <BoardsStatusMessage>{file.message}</BoardsStatusMessage>
+      ) : mode === "preview" ? (
+        <SkillPreview path={file.value.path} text={text} />
       ) : (
-        <textarea
-          aria-label={`${skill.name} SKILL.md`}
-          className="min-h-0 flex-1 resize-none bg-transparent px-4 py-3 font-mono text-xs leading-relaxed outline-none"
-          spellCheck={false}
-          readOnly={!editable}
-          value={text}
-          onChange={(event) => setDraft(event.target.value)}
+        <SkillSourceEditor
+          key={`${file.value.path}:${editorRevision}`}
+          path={file.value.path}
+          contents={text}
+          onChange={editable ? setDraft : undefined}
         />
       )}
     </div>
