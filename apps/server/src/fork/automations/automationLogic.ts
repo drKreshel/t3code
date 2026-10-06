@@ -2,6 +2,7 @@
 import type { AutomationAction, AutomationTrigger } from "@t3tools/contracts";
 import * as Cron from "effect/Cron";
 import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 
 /** A schedule missed by more than this (the app was off) is recorded as missed, not run. */
@@ -52,3 +53,32 @@ export function stepsProblem(action: AutomationAction, prompt: string): string |
 
 /** The zone the server runs in; T3 Code's server is usually the user's own machine. */
 export const serverTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
+/**
+ * A one-off's UTC instant from a typed `at`. Without an offset, `at` is
+ * wall-clock time in `timezone`, as people mean "4am Vancouver". Null when
+ * either does not parse.
+ */
+export function onceAtFromInput(at: string, timezone: string): string | null {
+  // ISO only: the Date parser also accepts loose text like "tomorrow at 4".
+  const iso =
+    /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i.exec(
+      at,
+    );
+  if (!iso) return null;
+  const instant: Option.Option<DateTime.DateTime> = iso[1]
+    ? DateTime.make(at)
+    : DateTime.makeZoned(at, { timeZone: timezone, adjustForTimeZone: true });
+  return Option.isSome(instant) ? DateTime.formatIso(instant.value) : null;
+}
+
+/** A trigger as agents read it: cron with its zone, or a one-off's wall-clock time in its zone. */
+export function describeTrigger(trigger: AutomationTrigger): string {
+  if (trigger.schedule.kind === "cron") {
+    return `cron ${trigger.schedule.cron} (${trigger.timezone})`;
+  }
+  const zoned = DateTime.makeZoned(trigger.schedule.at, { timeZone: trigger.timezone });
+  return Option.isSome(zoned)
+    ? `once at ${DateTime.formatIsoZoned(zoned.value)}`
+    : `once at ${trigger.schedule.at}`;
+}

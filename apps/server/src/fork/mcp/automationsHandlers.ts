@@ -7,7 +7,6 @@ import {
   DEFAULT_RUNTIME_MODE,
   ProjectId,
 } from "@t3tools/contracts";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -15,7 +14,11 @@ import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { AutomationEngine } from "../automations/AutomationEngine.ts";
-import { serverTimezone } from "../automations/automationLogic.ts";
+import {
+  describeTrigger,
+  onceAtFromInput,
+  serverTimezone,
+} from "../automations/automationLogic.ts";
 import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { type AutomationSummary, AutomationsToolkit } from "./automationsTools.ts";
 
@@ -26,28 +29,25 @@ const unavailable = new AutomationsCommandError({
   message: "Automations are not available on this server.",
 });
 
-/** A schedule from the tool's cron/at inputs, or undefined when neither was given. */
-function scheduleOf(input: {
-  readonly cron?: string | undefined;
-  readonly at?: string | undefined;
-}): Effect.Effect<AutomationSchedule | undefined, AutomationsCommandError> {
+/**
+ * A schedule from the tool's cron/at inputs, or undefined when neither was
+ * given. An `at` without an offset is wall-clock time in `timezone`.
+ */
+function scheduleOf(
+  input: { readonly cron?: string | undefined; readonly at?: string | undefined },
+  timezone: string,
+): Effect.Effect<AutomationSchedule | undefined, AutomationsCommandError> {
   if (input.cron !== undefined && input.at !== undefined) {
     return Effect.fail(invalid("Pass cron or at, not both."));
   }
   if (input.cron !== undefined) return Effect.succeed({ kind: "cron", cron: input.cron });
   if (input.at !== undefined) {
-    const at = DateTime.make(input.at);
-    return Option.isNone(at)
-      ? Effect.fail(invalid(`"${input.at}" is not a date-time.`))
-      : Effect.succeed({ kind: "once", at: DateTime.formatIso(at.value) });
+    const at = onceAtFromInput(input.at, timezone);
+    return at === null
+      ? Effect.fail(invalid(`"${input.at}" is not a date-time in ${timezone}.`))
+      : Effect.succeed({ kind: "once", at });
   }
   return Effect.succeed(undefined);
-}
-
-function describeTrigger({ trigger }: Automation): string {
-  return trigger.schedule.kind === "cron"
-    ? `cron ${trigger.schedule.cron} (${trigger.timezone})`
-    : `once at ${trigger.schedule.at}`;
 }
 
 function findAutomation(
@@ -113,7 +113,7 @@ const make = Effect.gen(function* () {
               id: automation.id,
               title: automation.title,
               enabled: automation.enabled,
-              trigger: describeTrigger(automation),
+              trigger: describeTrigger(automation.trigger),
               prompt: automation.prompt,
               project: yield* projectTitle(automation.action.projectKey),
               nextRunAt: automation.nextRunAt,
@@ -132,14 +132,11 @@ const make = Effect.gen(function* () {
 
     create_automation: (input) =>
       Effect.gen(function* () {
-        const schedule = yield* scheduleOf(input);
+        const timezone = input.timezone ?? serverTimezone();
+        const schedule = yield* scheduleOf(input, timezone);
         if (schedule === undefined)
           return yield* invalid("Give cron or at for a scheduled automation.");
-        const trigger = {
-          type: "schedule" as const,
-          schedule,
-          timezone: input.timezone ?? serverTimezone(),
-        };
+        const trigger = { type: "schedule" as const, schedule, timezone };
         const projectKey = input.useThisChatsProject === true ? yield* callerProjectKey : null;
         const result = yield* (yield* requireEngine).dispatch({
           type: "automation.create",
@@ -155,13 +152,13 @@ const make = Effect.gen(function* () {
           },
           ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
         });
-        return { id: result.id ?? "", title: input.title };
+        return { id: result.id ?? "", title: input.title, trigger: describeTrigger(trigger) };
       }),
 
     update_automation: (input) =>
       Effect.gen(function* () {
         const automation = yield* findAutomation(yield* automationsSnapshot, input.automation);
-        const schedule = yield* scheduleOf(input);
+        const schedule = yield* scheduleOf(input, input.timezone ?? automation.trigger.timezone);
         const retime = schedule !== undefined || input.timezone !== undefined;
         const trigger = retime
           ? {
@@ -178,7 +175,11 @@ const make = Effect.gen(function* () {
           ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
           ...(trigger !== undefined ? { trigger } : {}),
         });
-        return { id: automation.id, title: input.title ?? automation.title };
+        return {
+          id: automation.id,
+          title: input.title ?? automation.title,
+          trigger: describeTrigger(trigger ?? automation.trigger),
+        };
       }),
 
     delete_automation: ({ automation: ref }) =>
@@ -188,7 +189,11 @@ const make = Effect.gen(function* () {
           type: "automation.delete",
           automationId: automation.id,
         });
-        return { id: automation.id, title: automation.title };
+        return {
+          id: automation.id,
+          title: automation.title,
+          trigger: describeTrigger(automation.trigger),
+        };
       }),
 
     run_automation: (input) =>
@@ -198,7 +203,11 @@ const make = Effect.gen(function* () {
           type: "automation.runNow",
           automationId: automation.id,
         });
-        return { id: automation.id, title: automation.title };
+        return {
+          id: automation.id,
+          title: automation.title,
+          trigger: describeTrigger(automation.trigger),
+        };
       }),
   });
 });

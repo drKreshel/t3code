@@ -268,6 +268,18 @@ describe("AutomationEngine", () => {
           lastRun: expect.objectContaining({ status: "succeeded", reason: null }),
         }),
       ]);
+
+      // A one-off without an offset is wall-clock time in its zone.
+      const once = yield* call("create_automation", {
+        title: "Nightly update",
+        prompt: "Update.",
+        at: "2030-01-15T04:00",
+        timezone: "America/Vancouver",
+        useThisChatsProject: true,
+      });
+      expect(once.trigger).toBe("once at 2030-01-15T04:00:00.000-08:00[America/Vancouver]");
+      const savedOnce = yield* harness.store.get(once.id);
+      expect(savedOnce.trigger.schedule).toEqual({ kind: "once", at: "2030-01-15T12:00:00.000Z" });
     }).pipe(Effect.provide(TestLayer)),
   );
 

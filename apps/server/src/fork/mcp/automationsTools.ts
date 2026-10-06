@@ -33,7 +33,8 @@ export const AutomationSummary = Schema.Struct({
   title: Schema.String,
   enabled: Schema.Boolean,
   trigger: Schema.String.annotate({
-    description: "Like 'cron 0 9 * * 1-5 (Europe/Berlin)'.",
+    description:
+      "Like 'cron 0 9 * * 1-5 (Europe/Berlin)' or 'once at 2026-10-06T04:00:00.000-07:00[America/Vancouver]'.",
   }),
   prompt: Schema.String,
   project: Schema.NullOr(Schema.String),
@@ -48,7 +49,16 @@ export const AutomationSummary = Schema.Struct({
 });
 export type AutomationSummary = typeof AutomationSummary.Type;
 
-const Changed = Schema.Struct({ id: Schema.String, title: Schema.String });
+const Changed = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  trigger: Schema.String.annotate({ description: "The schedule as saved; check it." }),
+});
+
+const At = TrimmedNonEmptyString.annotate({
+  description:
+    "ISO date-time for a one-off run. Without an offset it is wall-clock time in timezone: 2026-10-06T04:00 with America/Vancouver is 4am Vancouver.",
+});
 
 const ListAutomationsTool = Tool.make("list_automations", {
   description: "List scheduled T3 Code automations with their next run and last result.",
@@ -64,12 +74,12 @@ const ListAutomationsTool = Tool.make("list_automations", {
 
 const CreateAutomationTool = Tool.make("create_automation", {
   description:
-    "Create a scheduled automation. Give cron (five fields) or at (an ISO date-time), and optionally timezone. Chat runs need useThisChatsProject.",
+    "Create a scheduled automation. Give cron (five fields) or at (an ISO date-time), and optionally timezone; both are read in that zone. Chat runs need useThisChatsProject.",
   parameters: Schema.Struct({
     title: TrimmedNonEmptyString,
     prompt: TrimmedNonEmptyString,
     cron: Schema.optional(TrimmedNonEmptyString),
-    at: Schema.optional(TrimmedNonEmptyString),
+    at: Schema.optional(At),
     timezone: Schema.optional(
       TrimmedNonEmptyString.annotate({
         description: "IANA zone like Europe/Berlin. Defaults to the server's zone.",
@@ -103,8 +113,13 @@ const UpdateAutomationTool = Tool.make("update_automation", {
     title: Schema.optional(TrimmedNonEmptyString),
     prompt: Schema.optional(TrimmedNonEmptyString),
     cron: Schema.optional(TrimmedNonEmptyString),
-    at: Schema.optional(TrimmedNonEmptyString),
-    timezone: Schema.optional(TrimmedNonEmptyString),
+    at: Schema.optional(At),
+    timezone: Schema.optional(
+      TrimmedNonEmptyString.annotate({
+        description:
+          "IANA zone like Europe/Berlin. Defaults to the automation's zone. Changing it alone does not move a one-off.",
+      }),
+    ),
   }),
   success: Changed,
   failure,

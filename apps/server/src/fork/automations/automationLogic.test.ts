@@ -4,8 +4,10 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   decideSchedule,
+  describeTrigger,
   MISSED_GRACE_MS,
   nextScheduledAt,
+  onceAtFromInput,
   scheduleProblem,
   stepsProblem,
 } from "./automationLogic.ts";
@@ -79,5 +81,42 @@ describe("stepsProblem", () => {
         "",
       ),
     ).toBeNull();
+  });
+});
+
+describe("onceAtFromInput", () => {
+  it("reads a time without an offset as wall-clock time in the zone", () => {
+    expect(onceAtFromInput("2026-10-06T04:00", "America/Vancouver")).toBe(
+      "2026-10-06T11:00:00.000Z",
+    );
+    expect(onceAtFromInput("2026-01-06T04:00:00", "America/Vancouver")).toBe(
+      "2026-01-06T12:00:00.000Z",
+    );
+  });
+
+  it("keeps an explicit offset", () => {
+    expect(onceAtFromInput("2026-10-06T04:00:00Z", "America/Vancouver")).toBe(
+      "2026-10-06T04:00:00.000Z",
+    );
+    expect(onceAtFromInput("2026-10-06T04:00:00+02:00", "America/Vancouver")).toBe(
+      "2026-10-06T02:00:00.000Z",
+    );
+  });
+
+  it("refuses a bad date or zone", () => {
+    expect(onceAtFromInput("tomorrow at 4", "America/Vancouver")).toBeNull();
+    expect(onceAtFromInput("2026-10-06T04:00", "Mars/Olympus")).toBeNull();
+  });
+});
+
+describe("describeTrigger", () => {
+  it("shows a one-off in its own zone", () => {
+    expect(
+      describeTrigger({
+        type: "schedule",
+        schedule: { kind: "once", at: "2026-10-06T11:00:00.000Z" },
+        timezone: "America/Vancouver",
+      }),
+    ).toBe("once at 2026-10-06T04:00:00.000-07:00[America/Vancouver]");
   });
 });
