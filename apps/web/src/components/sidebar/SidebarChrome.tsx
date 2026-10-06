@@ -3,7 +3,7 @@ import {
   SettingsIcon,
   SparklesIcon,
   SquareKanbanIcon,
-  ZapIcon,
+  CalendarClockIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
@@ -262,7 +262,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         count={boardsNeedsYou}
       />
       <SidebarUtilityItem
-        icon={<ZapIcon />}
+        icon={<CalendarClockIcon />}
         label="Scheduled Tasks"
         isActive={onScheduledTasks}
         onClick={handleScheduledTasksClick}
