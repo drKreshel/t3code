@@ -15,6 +15,7 @@ import {
   ForkBoardsSubscribeRpc,
   ForkBoardsSubscribeTicketRpc,
 } from "./forkBoards.ts";
+import { ForkAgentContextThreadRpc } from "./forkAgentContext.ts";
 import { ForkAutomationsDispatchRpc, ForkAutomationsSubscribeRpc } from "./forkAutomations.ts";
 import { ForkTemplatesDispatchRpc, ForkTemplatesSubscribeRpc } from "./forkBoardTemplates.ts";
 import {
@@ -1878,4 +1879,5 @@ export const WsRpcGroup = RpcGroup.make(
   ForkWorkspacesListReposRpc,
   ForkTemplatesSubscribeRpc,
   ForkTemplatesDispatchRpc,
+  ForkAgentContextThreadRpc,
 );

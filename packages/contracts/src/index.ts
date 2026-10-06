@@ -60,6 +60,7 @@ export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";
 export * from "./forkBoards.ts";
+export * from "./forkAgentContext.ts";
 export * from "./forkAutomations.ts";
 export * from "./forkWorkspaces.ts";
 export * from "./forkBoardTemplates.ts";

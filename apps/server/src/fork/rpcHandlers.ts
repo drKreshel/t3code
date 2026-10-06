@@ -8,12 +8,14 @@ import {
   type AutomationsCommand,
   BoardsCommandError,
   type BoardsCommand,
+  FORK_AGENT_CONTEXT_WS_METHODS,
   FORK_AUTOMATIONS_WS_METHODS,
   type EnvironmentAuthorizationError,
   FORK_BOARDS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
   type TemplatesCommand,
+  type ThreadId,
   type WorkspacesCommand,
   WorkspacesCommandError,
 } from "@t3tools/contracts";
@@ -21,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
+import { makeThreadAgentContext } from "./agentContext/AgentContext.ts";
 import { AutomationEngine } from "./automations/AutomationEngine.ts";
 import { AutomationsStore } from "./automations/AutomationsStore.ts";
 import { BoardsService } from "./boards/BoardsService.ts";
@@ -76,7 +79,12 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
     const automationEngine = yield* Effect.serviceOption(AutomationEngine);
     const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
     const templates = yield* Effect.serviceOption(BoardTemplates);
+    const threadAgentContext = yield* makeThreadAgentContext;
     return {
+      [FORK_AGENT_CONTEXT_WS_METHODS.thread]: (input: { readonly threadId: ThreadId }) =>
+        observeRpcEffect(FORK_AGENT_CONTEXT_WS_METHODS.thread, threadAgentContext(input.threadId), {
+          "rpc.aggregate": "fork-agent-context",
+        }),
       [FORK_BOARDS_WS_METHODS.subscribe]: () =>
         observeRpcStream(FORK_BOARDS_WS_METHODS.subscribe, boards.stream, TRACE),
       [FORK_BOARDS_WS_METHODS.subscribeTicket]: (input: { readonly ticketId: string }) =>

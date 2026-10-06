@@ -875,9 +875,7 @@ export function makeClaudeQueryOptions(input: {
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
-      append:
-        buildRuntimeInstructions({ harness: "Claude Code" }) +
-        (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+      append: claudeSystemPromptAppend(input.mcpServers !== undefined),
     },
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
@@ -888,6 +886,14 @@ export function makeClaudeQueryOptions(input: {
   const withDirectories =
     additionalDirectories.length === 0 ? options : { ...options, additionalDirectories };
   return input.cwd === null ? withDirectories : { ...withDirectories, cwd: input.cwd };
+}
+
+/** What T3 appends to Claude Code's preset system prompt; also shown in the agent context view. */
+export function claudeSystemPromptAppend(hasT3Mcp: boolean): string {
+  return (
+    buildRuntimeInstructions({ harness: "Claude Code" }) +
+    (hasT3Mcp ? T3_CODE_ORCHESTRATION_INSTRUCTIONS : "")
+  );
 }
 
 export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";

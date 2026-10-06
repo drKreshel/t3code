@@ -60,6 +60,7 @@ import {
   MoonIcon,
   PaletteIcon,
   RotateCcwIcon,
+  ScrollTextIcon,
   SettingsIcon,
   SquarePenIcon,
   SunIcon,
@@ -1969,6 +1970,16 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
+    actionItems.push({
+      kind: "action",
+      value: "action:open-agent-context",
+      searchTerms: ["agent", "context", "instructions", "system prompt", "tools", "skills", "mcp"],
+      title: "Show agent context",
+      icon: <ScrollTextIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore.getState().open(threadRef, "agent-context");
+      },
+    });
   }
 
   if (activeThread !== null) {
