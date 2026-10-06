@@ -47,8 +47,6 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
-import { AutomationsToolkitHandlersLive } from "../fork/mcp/automationsHandlers.ts";
-import { AutomationsToolkit } from "../fork/mcp/automationsTools.ts";
 import { BoardsToolkitHandlersLive } from "../fork/mcp/boardsHandlers.ts";
 import { BoardsToolkit } from "../fork/mcp/boardsTools.ts";
 import { AgentTerminalToolkitHandlersLive } from "../fork/mcp/terminalHandlers.ts";
@@ -748,10 +746,9 @@ export const layerPullRequestsToolkit = McpServer.toolkit(PullRequestsToolkit).p
   Layer.provide(PullRequestsHandlers.layer),
 );
 
-// Fork: boards, tickets, automations, and agent terminals.
+// Fork: boards, tickets, and agent terminals.
 export const BoardsToolkitRegistrationLive = Layer.mergeAll(
   McpServer.toolkit(BoardsToolkit).pipe(Layer.provide(BoardsToolkitHandlersLive)),
-  McpServer.toolkit(AutomationsToolkit).pipe(Layer.provide(AutomationsToolkitHandlersLive)),
   McpServer.toolkit(AgentTerminalToolkit).pipe(Layer.provide(AgentTerminalToolkitHandlersLive)),
 );
 

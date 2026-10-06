@@ -63,7 +63,6 @@ export * from "./rpc.ts";
 export * from "./forkBoards.ts";
 export * from "./forkAgentContext.ts";
 export * from "./forkSkills.ts";
-export * from "./forkAutomations.ts";
 export * from "./forkWorkspaces.ts";
 export * from "./forkBoardTemplates.ts";
 export * from "./worktreeSetup.ts";

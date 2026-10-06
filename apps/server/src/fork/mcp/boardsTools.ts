@@ -7,6 +7,7 @@ import {
   BoardColumnColor,
   BoardKey,
   BoardsCommandError,
+  PositiveInt,
   TicketPriority,
   TicketFolderPath,
   TrimmedNonEmptyString,
@@ -43,6 +44,9 @@ const ColumnSummary = Schema.Struct({
   name: Schema.String,
   color: Schema.NullOr(Schema.String),
   tickets: Schema.Int,
+  autoMove: Schema.NullOr(Schema.Struct({ afterDays: Schema.Int, to: Schema.String })).annotate({
+    description: "Tickets left unchanged here this many days move on to the column `to`.",
+  }),
 });
 
 const ColumnColor = Schema.NullOr(BoardColumnColor).annotate({
@@ -203,7 +207,7 @@ const GetTicketTool = Tool.make("get_ticket", {
 
 const CreateBoardTool = Tool.make("create_board", {
   description:
-    "Create a board. Without a template or columns it starts with the columns Backlog, Todo, In progress, Review, and Done, and no automations.",
+    "Create a board. Without a template or columns it starts with the columns Backlog, Todo, In progress, Review, and Done.",
   parameters: Schema.Struct({
     name: TrimmedNonEmptyString,
     key: BoardKey.annotate({
@@ -217,7 +221,7 @@ const CreateBoardTool = Tool.make("create_board", {
     template: Schema.optional(
       TrimmedNonEmptyString.annotate({
         description:
-          'A board template\'s name, like "Ship with agents": the board gets its columns and automations. Only when the user asks for one.',
+          'A board template\'s name, like "Ship with agents": the board gets its columns. Only when the user asks for one.',
       }),
     ),
     columns: Schema.optional(
@@ -258,8 +262,21 @@ const UpdateBoardTool = Tool.make("update_board", {
           column: ColumnRef,
           name: Schema.optional(TrimmedNonEmptyString),
           color: Schema.optional(ColumnColor),
+          autoMove: Schema.optional(
+            Schema.NullOr(
+              Schema.Struct({
+                afterDays: PositiveInt,
+                to: TrimmedNonEmptyString.annotate({
+                  description: "The column they move to, named as after this call.",
+                }),
+              }),
+            ).annotate({
+              description:
+                "Move tickets left unchanged in this column for afterDays on to another column, like Done to Settled after 7 days. null stops it.",
+            }),
+          ),
         }),
-      ).annotate({ description: "Rename or recolor existing columns." }),
+      ).annotate({ description: "Rename, recolor, or set ticket moves on existing columns." }),
     ),
     addColumns: Schema.optional(
       Schema.Array(

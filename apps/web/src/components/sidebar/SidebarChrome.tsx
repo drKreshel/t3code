@@ -3,7 +3,7 @@ import {
   SettingsIcon,
   SparklesIcon,
   SquareKanbanIcon,
-  ZapIcon,
+  CalendarClockIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
@@ -194,6 +194,9 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const { isMobile, setOpenMobile } = useSidebar();
   // Only the first path segment, so switching threads does not re-render the row.
   const page = useLocation({ select: (location) => location.pathname.split("/")[1] });
+  const onScheduledTasks = useLocation({
+    select: (location) => location.pathname === "/settings/scheduled-tasks",
+  });
   const pullRequestsSupported = usePullRequestsSupported();
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
@@ -218,9 +221,9 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/boards" });
   }, [closeMobileSidebar, navigate]);
 
-  const handleAutomationsClick = useCallback(() => {
+  const handleScheduledTasksClick = useCallback(() => {
     closeMobileSidebar();
-    void navigate({ to: "/automations" });
+    void navigate({ to: "/settings/scheduled-tasks" });
   }, [closeMobileSidebar, navigate]);
 
   const handleSkillsClick = useCallback(() => {
@@ -240,7 +243,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       <SidebarUtilityItem
         icon={<SettingsIcon />}
         label="Settings"
-        isActive={page === "settings"}
+        isActive={page === "settings" && !onScheduledTasks}
         onClick={handleSettingsClick}
       />
       {pullRequestsSupported ? (
@@ -259,10 +262,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
         count={boardsNeedsYou}
       />
       <SidebarUtilityItem
-        icon={<ZapIcon />}
-        label="Automations"
-        isActive={page === "automations"}
-        onClick={handleAutomationsClick}
+        icon={<CalendarClockIcon />}
+        label="Scheduled Tasks"
+        isActive={onScheduledTasks}
+        onClick={handleScheduledTasksClick}
       />
       <SidebarUtilityItem
         icon={<SparklesIcon />}

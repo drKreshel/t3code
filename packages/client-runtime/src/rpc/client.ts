@@ -1,5 +1,4 @@
 import {
-  FORK_AUTOMATIONS_WS_METHODS,
   FORK_BOARDS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
@@ -70,7 +69,6 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.terminalAttach
   | typeof FORK_BOARDS_WS_METHODS.subscribe
   | typeof FORK_BOARDS_WS_METHODS.subscribeTicket
-  | typeof FORK_AUTOMATIONS_WS_METHODS.subscribe
   | typeof FORK_WORKSPACES_WS_METHODS.subscribe
   | typeof FORK_TEMPLATES_WS_METHODS.subscribe;
 

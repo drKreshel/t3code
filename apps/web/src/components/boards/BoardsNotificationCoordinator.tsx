@@ -15,7 +15,7 @@ import { indexBoards, ticketLabel, ticketsNewlyFlagged } from "./boards.logic";
 
 /**
  * Tells Kreshel when a ticket gets flagged: an agent's request_human (yellow)
- * or a failed automation run (red). Chats waiting on an approval or an answer
+ * or a failed run (red). Chats waiting on an approval or an answer
  * already notify through the thread notifications. Follows the same
  * notification settings; mount once, beside those.
  */

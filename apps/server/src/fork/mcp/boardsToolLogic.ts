@@ -107,6 +107,7 @@ export interface ColumnEdits {
         readonly column: string;
         readonly name?: string | undefined;
         readonly color?: string | null | undefined;
+        readonly autoMove?: { readonly afterDays: number; readonly to: string } | null | undefined;
       }>
     | undefined;
   readonly addColumns?:
@@ -127,6 +128,8 @@ export interface ColumnPlan {
     readonly column: BoardColumn;
     readonly name?: string;
     readonly color?: string | null;
+    /** `to` is the target's final name. */
+    readonly autoMove?: { readonly afterDays: number; readonly to: string } | null;
   }>;
   readonly adds: ReadonlyArray<{ readonly name: string; readonly color: string | null }>;
   readonly removes: ReadonlyArray<{ readonly column: BoardColumn; readonly moveTicketsTo: string }>;
@@ -179,6 +182,22 @@ export function planColumnEdits(
   const finalName = (ref: string) =>
     finalNames.find((name) => name.toLowerCase() === ref.trim().toLowerCase());
   const listed = finalNames.join(", ");
+
+  for (const [index, edit] of (edits.updateColumns ?? []).entries()) {
+    if (edit.autoMove === undefined) continue;
+    if (edit.autoMove === null) {
+      updates[index] = { ...updates[index]!, autoMove: null };
+      continue;
+    }
+    const to = finalName(edit.autoMove.to);
+    const own = renamed.get(updates[index]!.column.id) ?? updates[index]!.column.name;
+    if (!to || to === own) {
+      return missing(
+        `Cannot move "${own}"'s tickets to "${edit.autoMove.to.trim()}". Columns after this change: ${listed}.`,
+      );
+    }
+    updates[index] = { ...updates[index]!, autoMove: { afterDays: edit.autoMove.afterDays, to } };
+  }
 
   const removes: Array<ColumnPlan["removes"][number]> = [];
   for (const [index, edit] of (edits.removeColumns ?? []).entries()) {

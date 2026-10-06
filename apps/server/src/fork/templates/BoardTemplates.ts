@@ -1,13 +1,11 @@
 /**
  * Board templates: the built-in ones plus those saved in `fork.sqlite`.
- * Creating a board from a template creates the board, then its automations;
- * it sits on top of boards and automations for that reason.
+ * Creating a board from a template creates the board with its columns.
  */
 import {
   BoardsCommandError,
   type BoardTemplate,
   ColumnSpec,
-  TemplateAutomation,
   type TemplatesCommand,
   type TemplatesCommandResult,
   type TemplatesSnapshot,
@@ -23,19 +21,13 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { AutomationEngine } from "../automations/AutomationEngine.ts";
-import { serverTimezone } from "../automations/automationLogic.ts";
-import { AutomationsStore } from "../automations/AutomationsStore.ts";
 import { type BoardsActor, BoardsService } from "../boards/BoardsService.ts";
 import * as ForkDatabase from "../ForkDatabase.ts";
-import { automationsForBoard, BUILT_IN_TEMPLATES, templatePartsOf } from "./templateLogic.ts";
+import { BUILT_IN_TEMPLATES, templateColumnsOf } from "./templateLogic.ts";
 
 const ColumnsJson = Schema.fromJsonString(Schema.Array(ColumnSpec));
-const AutomationsJson = Schema.fromJsonString(Schema.Array(TemplateAutomation));
 const decodeColumns = Schema.decodeUnknownSync(ColumnsJson);
-const decodeAutomations = Schema.decodeUnknownSync(AutomationsJson);
 const encodeColumns = Schema.encodeSync(ColumnsJson);
-const encodeAutomations = Schema.encodeSync(AutomationsJson);
 
 export class BoardTemplates extends Context.Service<
   BoardTemplates,
@@ -54,7 +46,6 @@ interface TemplateRow {
   readonly name: string;
   readonly description: string;
   readonly columns_json: string;
-  readonly automations_json: string;
 }
 
 const fail = (code: BoardsCommandError["code"], message: string) =>
@@ -64,8 +55,6 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const crypto = yield* Crypto.Crypto;
   const boards = yield* BoardsService;
-  const engine = yield* AutomationEngine;
-  const automations = yield* AutomationsStore;
   const changes = yield* PubSub.unbounded<void>();
 
   const storage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -90,15 +79,11 @@ const make = Effect.gen(function* () {
             description: row.description,
             builtIn: false,
             columns: decodeColumns(row.columns_json),
-            automations: decodeAutomations(row.automations_json),
           })),
         ],
       })),
     ),
   );
-
-  const asBoardsError = (error: { readonly message: string }) =>
-    new BoardsCommandError({ code: "invalid", message: error.message });
 
   const dispatch = (command: TemplatesCommand, actor: BoardsActor) =>
     Effect.gen(function* () {
@@ -107,7 +92,7 @@ const make = Effect.gen(function* () {
           const { templates } = yield* snapshot;
           const template = templates.find((candidate) => candidate.id === command.templateId);
           if (!template) return yield* fail("not-found", "That template no longer exists.");
-          const created = yield* boards.dispatch(
+          return yield* boards.dispatch(
             {
               type: "board.create",
               name: command.name,
@@ -119,14 +104,6 @@ const make = Effect.gen(function* () {
             },
             actor,
           );
-          const board = (yield* boards.snapshot).boards.find(
-            (candidate) => candidate.id === created.id,
-          );
-          if (!board) return yield* fail("storage", "The new board was not found.");
-          for (const automation of automationsForBoard(template, board, serverTimezone())) {
-            yield* engine.dispatch(automation).pipe(Effect.mapError(asBoardsError));
-          }
-          return { id: board.id };
         }
         case "template.save": {
           if (BUILT_IN_TEMPLATES.some((template) => template.name === command.name)) {
@@ -136,8 +113,6 @@ const make = Effect.gen(function* () {
             (candidate) => candidate.id === command.boardId,
           );
           if (!board) return yield* fail("not-found", "That board no longer exists.");
-          const stored = yield* automations.snapshot.pipe(Effect.mapError(asBoardsError));
-          const parts = templatePartsOf(board, stored.automations);
           const at = DateTime.formatIso(yield* DateTime.now);
           const existing = yield* storage(
             sql<{ readonly id: string }>`
@@ -147,13 +122,12 @@ const make = Effect.gen(function* () {
           const id = existing[0]?.id ?? (yield* storage(crypto.randomUUIDv4));
           yield* storage(sql`
             INSERT INTO fork_board_templates
-              (id, name, description, columns_json, automations_json, created_at, updated_at)
+              (id, name, description, columns_json, created_at, updated_at)
             VALUES (${id}, ${command.name}, ${command.description ?? ""},
-              ${encodeColumns(parts.columns)}, ${encodeAutomations(parts.automations)}, ${at}, ${at})
+              ${encodeColumns(templateColumnsOf(board))}, ${at}, ${at})
             ON CONFLICT (id) DO UPDATE SET
               description = excluded.description,
               columns_json = excluded.columns_json,
-              automations_json = excluded.automations_json,
               updated_at = excluded.updated_at
           `);
           yield* PubSub.publish(changes, undefined);
