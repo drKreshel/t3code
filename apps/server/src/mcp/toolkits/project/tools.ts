@@ -24,6 +24,7 @@ import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 import * as ProjectService from "../../../project/ProjectService.ts";
+import * as ServerSettings from "../../../serverSettings.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as SourceControlRepositoryService from "../../../sourceControl/SourceControlRepositoryService.ts";
@@ -37,6 +38,7 @@ const shared = {
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
     ProjectService.ProjectService,
+    ServerSettings.ServerSettingsService,
     Crypto.Crypto,
   ],
 };

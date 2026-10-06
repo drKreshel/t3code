@@ -7,6 +7,7 @@ import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import { newCommandId, readCaller, readMutationCaller, unavailable } from "../../threadAccess.ts";
+import { projectSettingsView, writeProjectSettings } from "./projectSettings.ts";
 import { ProjectToolkit } from "./tools.ts";
 
 function projectFailure(error: Project.ProjectServiceError) {
@@ -122,7 +123,10 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
       const rows = snapshot.projects.filter((project) => project.deletedAt === null);
       const start = input.cursor ?? 0,
         end = start + (input.limit ?? 20);
-      return { projects: rows.slice(start, end), nextCursor: end < rows.length ? end : null };
+      return {
+        projects: rows.slice(start, end).map(yield* projectSettingsView),
+        nextCursor: end < rows.length ? end : null,
+      };
     }),
   t3_project_read: (input) =>
     Effect.gen(function* () {
@@ -133,7 +137,8 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
           code: "invalid_request",
           message: "The project was not found.",
         });
-      return result.value;
+      const view = yield* projectSettingsView;
+      return view(result.value);
     }),
   t3_project_create: ({ workspaceRoot, ...input }) =>
     Effect.gen(function* () {
@@ -174,16 +179,22 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
         };
       }
       const commandId = yield* newCommandId();
-      return yield* projects
+      const created = yield* projects
         .create({ ...input, workspaceRoot, commandId, projectId: ProjectId.make(commandId) })
         .pipe(Effect.mapError(projectFailure));
+      yield* writeProjectSettings(created.id, { scripts: input.scripts });
+      const view = yield* projectSettingsView;
+      return view(created);
     }),
   t3_project_update: (input) =>
     Effect.gen(function* () {
       const projects = yield* mutation;
-      return yield* projects
+      const updated = yield* projects
         .update({ ...input, commandId: yield* newCommandId() })
         .pipe(Effect.mapError(projectFailure));
+      yield* writeProjectSettings(updated.id, input);
+      const view = yield* projectSettingsView;
+      return view(updated);
     }),
   t3_project_delete: (input) =>
     Effect.gen(function* () {
