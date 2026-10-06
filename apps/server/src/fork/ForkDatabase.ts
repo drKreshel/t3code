@@ -241,6 +241,16 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       `DROP TABLE fork_ticket_hook_state`,
     ],
   },
+  {
+    // Small fork-wide settings, one JSON value per key.
+    version: 10,
+    statements: [
+      `CREATE TABLE fork_settings (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL
+      )`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

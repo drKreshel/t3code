@@ -5,6 +5,7 @@
 import {
   createAtomCommandScheduler,
   createEnvironmentRpcCommand,
+  squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
   FORK_AGENT_CONTEXT_WS_METHODS,
@@ -16,6 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { serverEnvironment } from "./server";
+import { failureMessage } from "./skills";
 import { useAtomCommand } from "./use-atom-command";
 
 const scheduler = createAtomCommandScheduler();
@@ -57,7 +59,13 @@ export function useThreadAgentContext(threadRef: ScopedThreadRef): {
         value:
           result._tag === "Success"
             ? { status: "ready", context: result.value }
-            : { status: "error", message: "The agent context could not be read." },
+            : {
+                status: "error",
+                message: failureMessage(
+                  squashAtomCommandFailure(result),
+                  "The agent context could not be read. The server may need a restart to support it.",
+                ),
+              },
       });
     });
     return () => {

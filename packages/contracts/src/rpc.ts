@@ -16,6 +16,12 @@ import {
   ForkBoardsSubscribeTicketRpc,
 } from "./forkBoards.ts";
 import { ForkAgentContextThreadRpc } from "./forkAgentContext.ts";
+import {
+  ForkSkillsListRpc,
+  ForkSkillsReadRpc,
+  ForkSkillsSaveRpc,
+  ForkSkillsSaveSettingsRpc,
+} from "./forkSkills.ts";
 import { ForkAutomationsDispatchRpc, ForkAutomationsSubscribeRpc } from "./forkAutomations.ts";
 import { ForkTemplatesDispatchRpc, ForkTemplatesSubscribeRpc } from "./forkBoardTemplates.ts";
 import {
@@ -1880,4 +1886,8 @@ export const WsRpcGroup = RpcGroup.make(
   ForkTemplatesSubscribeRpc,
   ForkTemplatesDispatchRpc,
   ForkAgentContextThreadRpc,
+  ForkSkillsListRpc,
+  ForkSkillsReadRpc,
+  ForkSkillsSaveRpc,
+  ForkSkillsSaveSettingsRpc,
 );

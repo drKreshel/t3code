@@ -10318,6 +10318,7 @@ export default function ChatView(props: ChatViewProps) {
           providerStatuses.find((provider) => provider.instanceId === threadProvider) ?? null
         }
         cwd={gitCwd}
+        projectId={activeProject?.id ?? null}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>

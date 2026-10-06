@@ -10,9 +10,11 @@ import type {
   ServerProviderSkill,
 } from "@t3tools/contracts";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
+import { Link } from "@tanstack/react-router";
 import { RefreshCwIcon } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 
+import { cn } from "~/lib/utils";
 import { useProviderWorkspaceSkillsScan, useThreadAgentContext } from "~/state/agentContext";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -89,7 +91,13 @@ function ItemRow(props: {
   );
 }
 
-function SkillGroups({ skills }: { skills: ReadonlyArray<ServerProviderSkill> }) {
+function SkillGroups({
+  skills,
+  projectId,
+}: {
+  skills: ReadonlyArray<ServerProviderSkill>;
+  projectId: string | null;
+}) {
   const groups = useMemo(() => {
     const byScope = new Map<string, ServerProviderSkill[]>();
     for (const skill of skills) {
@@ -114,13 +122,21 @@ function SkillGroups({ skills }: { skills: ReadonlyArray<ServerProviderSkill> })
         {group.label} · {group.skills.length}
       </p>
       {group.skills.map((skill) => (
-        <ItemRow
+        <Link
           key={skill.path}
-          name={skill.name}
-          meta={skill.enabled ? undefined : "off"}
-          muted={!skill.enabled}
-          detail={`${skill.description ?? "No description."}\n${skill.path}`}
-        />
+          to="/skills"
+          search={{ q: skill.name, ...(projectId === null ? {} : { project: projectId }) }}
+          title={`${skill.description ?? "No description."}\n${skill.path}`}
+          className={cn(
+            "truncate rounded-sm px-1 py-0.5 font-mono text-xs hover:bg-accent/60",
+            !skill.enabled && "opacity-60",
+          )}
+        >
+          {skill.name}
+          {skill.enabled ? null : (
+            <span className="ml-1.5 text-2xs text-muted-foreground">off</span>
+          )}
+        </Link>
       ))}
     </div>
   ));
@@ -131,6 +147,8 @@ export function AgentContextPanel(props: {
   provider: ServerProvider | null;
   /** The folder the agent works in: the thread's worktree, or the project root. */
   cwd: string | null;
+  /** Filters the Skills page that a skill opens in. */
+  projectId: string | null;
 }) {
   const { state, reload } = useThreadAgentContext(props.threadRef);
   useProviderWorkspaceSkillsScan(props.threadRef, props.provider, props.cwd);
@@ -184,7 +202,7 @@ export function AgentContextPanel(props: {
                 : "The thread's provider is not available on this server."
             }
           >
-            <SkillGroups skills={skills} />
+            <SkillGroups skills={skills} projectId={props.projectId} />
           </Section>
         </div>
       </ScrollArea>

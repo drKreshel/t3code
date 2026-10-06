@@ -18,6 +18,8 @@ export interface BoardsCrumb {
   readonly to?: { readonly boardKey?: string };
 }
 
+const ROOT_PATHS = { Boards: "/boards", Automations: "/automations", Skills: "/skills" } as const;
+
 /**
  * Top bar and body shared by the boards screens. `scroll` wraps the body in a
  * vertical scroll area; the board view scrolls its columns itself.
@@ -30,7 +32,7 @@ export function BoardsPageFrame({
   children,
 }: {
   /** The first crumb, and the page it links to. */
-  readonly root?: "Boards" | "Automations";
+  readonly root?: keyof typeof ROOT_PATHS;
   readonly crumbs: ReadonlyArray<BoardsCrumb>;
   readonly actions?: ReactNode;
   readonly scroll?: boolean;
@@ -52,10 +54,7 @@ export function BoardsPageFrame({
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </h1>
                   ) : crumb.to.boardKey === undefined ? (
-                    <Link
-                      className="hover:text-foreground"
-                      to={root === "Boards" ? "/boards" : "/automations"}
-                    >
+                    <Link className="hover:text-foreground" to={ROOT_PATHS[root]}>
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </Link>
                   ) : (

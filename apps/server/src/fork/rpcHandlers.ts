@@ -10,6 +10,10 @@ import {
   type BoardsCommand,
   FORK_AGENT_CONTEXT_WS_METHODS,
   FORK_AUTOMATIONS_WS_METHODS,
+  FORK_SKILLS_WS_METHODS,
+  type SkillFile,
+  SkillsError,
+  type SkillsSettings,
   type EnvironmentAuthorizationError,
   FORK_BOARDS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
@@ -27,6 +31,7 @@ import { makeThreadAgentContext } from "./agentContext/AgentContext.ts";
 import { AutomationEngine } from "./automations/AutomationEngine.ts";
 import { AutomationsStore } from "./automations/AutomationsStore.ts";
 import { BoardsService } from "./boards/BoardsService.ts";
+import { SkillsService } from "./skills/SkillsService.ts";
 import { BoardTemplates } from "./templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "./workspaces/TicketWorkspaces.ts";
 
@@ -46,6 +51,13 @@ interface RpcObservers {
 const TRACE = { "rpc.aggregate": "fork-boards" } as const;
 const AUTOMATIONS_TRACE = { "rpc.aggregate": "fork-automations" } as const;
 const WORKSPACES_TRACE = { "rpc.aggregate": "fork-workspaces" } as const;
+
+const SKILLS_TRACE = { "rpc.aggregate": "fork-skills" } as const;
+
+const skillsUnavailable = new SkillsError({
+  code: "storage",
+  message: "Skills are not available on this server.",
+});
 
 const workspacesUnavailable = new WorkspacesCommandError({
   code: "storage",
@@ -80,7 +92,39 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
     const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
     const templates = yield* Effect.serviceOption(BoardTemplates);
     const threadAgentContext = yield* makeThreadAgentContext;
+    const skills = yield* Effect.serviceOption(SkillsService);
+    const withSkills = <A>(
+      run: (service: SkillsService["Service"]) => Effect.Effect<A, SkillsError>,
+    ): Effect.Effect<A, SkillsError> =>
+      Option.match(skills, {
+        onNone: () => Effect.fail(skillsUnavailable),
+        onSome: run,
+      });
     return {
+      [FORK_SKILLS_WS_METHODS.list]: () =>
+        observeRpcEffect(
+          FORK_SKILLS_WS_METHODS.list,
+          withSkills((service) => service.list),
+          SKILLS_TRACE,
+        ),
+      [FORK_SKILLS_WS_METHODS.read]: (input: { readonly path: string }) =>
+        observeRpcEffect(
+          FORK_SKILLS_WS_METHODS.read,
+          withSkills((service) => service.read(input.path)),
+          SKILLS_TRACE,
+        ),
+      [FORK_SKILLS_WS_METHODS.save]: (file: SkillFile) =>
+        observeRpcEffect(
+          FORK_SKILLS_WS_METHODS.save,
+          withSkills((service) => service.save(file)),
+          SKILLS_TRACE,
+        ),
+      [FORK_SKILLS_WS_METHODS.saveSettings]: (settings: SkillsSettings) =>
+        observeRpcEffect(
+          FORK_SKILLS_WS_METHODS.saveSettings,
+          withSkills((service) => service.saveSettings(settings)),
+          SKILLS_TRACE,
+        ),
       [FORK_AGENT_CONTEXT_WS_METHODS.thread]: (input: { readonly threadId: ThreadId }) =>
         observeRpcEffect(FORK_AGENT_CONTEXT_WS_METHODS.thread, threadAgentContext(input.threadId), {
           "rpc.aggregate": "fork-agent-context",

@@ -2,6 +2,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   SettingsIcon,
+  SparklesIcon,
   SquareKanbanIcon,
   ZapIcon,
 } from "lucide-react";
@@ -185,6 +186,11 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/automations" });
   }, [closeMobileSidebar, navigate]);
 
+  const handleSkillsClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigate({ to: "/skills" });
+  }, [closeMobileSidebar, navigate]);
+
   const handleUsageClick = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);
@@ -231,6 +237,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Automations"
             onClick={handleAutomationsClick}
           />
+          <SidebarUtilityItem icon={<SparklesIcon />} label="Skills" onClick={handleSkillsClick} />
           <SidebarUtilityItem
             icon={<ChartNoAxesColumnIcon />}
             label="Usage"

@@ -44,6 +44,7 @@ import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as ForkAutomationEngine from "./fork/automations/AutomationEngine.ts";
 import * as ForkAutomationsStore from "./fork/automations/AutomationsStore.ts";
 import * as ForkBoards from "./fork/boards/BoardsService.ts";
+import * as ForkSkills from "./fork/skills/SkillsService.ts";
 import * as ForkBoardTemplates from "./fork/templates/BoardTemplates.ts";
 import * as ForkTicketWorkspaces from "./fork/workspaces/TicketWorkspaces.ts";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite.ts";
@@ -515,6 +516,7 @@ const RuntimeCoreDependenciesBaseLive = ForkBoardTemplates.layer
     Layer.provideMerge(ForkTicketWorkspaces.layer),
     Layer.provideMerge(ForkAutomationsStore.layer),
     Layer.provideMerge(ForkBoards.layer),
+    Layer.provideMerge(ForkSkills.layer),
     Layer.provideMerge(
       Layer.mergeAll(
         AgentAwarenessRelay.layer,

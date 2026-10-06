@@ -2,6 +2,7 @@ import {
   type DeviceListInput,
   AuthAccessReadScope,
   FORK_AGENT_CONTEXT_WS_METHODS,
+  FORK_SKILLS_WS_METHODS,
   FORK_AUTOMATIONS_WS_METHODS,
   FORK_BOARDS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
@@ -216,6 +217,10 @@ export const RPC_REQUIRED_SCOPES = {
   [FORK_TEMPLATES_WS_METHODS.subscribe]: AuthOrchestrationReadScope,
   [FORK_TEMPLATES_WS_METHODS.dispatch]: AuthOrchestrationOperateScope,
   [FORK_AGENT_CONTEXT_WS_METHODS.thread]: AuthOrchestrationReadScope,
+  [FORK_SKILLS_WS_METHODS.list]: AuthOrchestrationReadScope,
+  [FORK_SKILLS_WS_METHODS.read]: AuthOrchestrationReadScope,
+  [FORK_SKILLS_WS_METHODS.save]: AuthOrchestrationOperateScope,
+  [FORK_SKILLS_WS_METHODS.saveSettings]: AuthOrchestrationOperateScope,
 } as const satisfies Readonly<Record<WsRpcMethod, AuthEnvironmentScope>>;
 
 export function requiredScopeForRpcMethod(method: string): AuthEnvironmentScope {
