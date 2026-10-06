@@ -62,6 +62,7 @@ import {
   folderThreadDndId,
   parseSidebarFolderDndId,
   planSidebarFolderDrop,
+  renderedSidebarFolderThreads,
   resolveSidebarFolderDefaultProject,
   resolveSidebarFolderDropSlot,
   SIDEBAR_FOLDER_ROOT_DND_ID,
@@ -164,6 +165,32 @@ export function useSidebarFolderTree(input: {
   }, [capabilitiesOf, filedThreadKeys, layout, now, routeThreadKey, scopedProjectKeys, threads]);
 }
 
+/**
+ * Fully settled folders follow the main Settled shelf: collapsed, only the
+ * folder holding the open thread stays visible, like the shelf's own rows.
+ */
+export function useRenderedSettledSidebarFolders(
+  tree: Pick<SidebarFolderTree<EnvironmentThreadShell>, "settledRoots">,
+  shelfExpanded: boolean,
+  routeThreadKey: string | null,
+) {
+  const { settledRoots } = tree;
+  return useMemo(() => {
+    const roots = shelfExpanded
+      ? settledRoots
+      : settledRoots.filter(
+          (root) =>
+            routeThreadKey !== null &&
+            root.subtreeThreads.some((thread) => threadKeyOf(thread) === routeThreadKey),
+        );
+    return {
+      roots,
+      renderedThreads: renderedSidebarFolderThreads(roots),
+      threadCount: settledRoots.reduce((count, root) => count + root.subtreeThreads.length, 0),
+    };
+  }, [routeThreadKey, settledRoots, shelfExpanded]);
+}
+
 // ---------------------------------------------------------------------------
 // Drag and drop
 
@@ -199,6 +226,8 @@ export function useSidebarFolderDnd(input: {
   onDragEnd: (event: DragEndEvent) => void;
   sidebarListItems: readonly SidebarListItem[];
   blockRef: MutableRefObject<HTMLElement | null>;
+  /** Fully settled folders, rendered in the main Settled section. */
+  settledBlockRef: MutableRefObject<HTMLElement | null>;
   listRef: MutableRefObject<HTMLElement | null>;
   /** The list's pickup clamp; folder drags lift it so rows can reach folders. */
   dragLabelOffsetRef: MutableRefObject<number>;
@@ -227,12 +256,12 @@ export function useSidebarFolderDnd(input: {
       );
       const source = sourceRef.current;
       const pointer = args.pointerCoordinates;
-      const block = inputRef.current.blockRef.current?.getBoundingClientRect();
       const inBlock =
         pointer !== null &&
-        block !== undefined &&
-        pointer.y >= block.top &&
-        pointer.y <= block.bottom;
+        [inputRef.current.blockRef, inputRef.current.settledBlockRef].some((ref) => {
+          const block = ref.current?.getBoundingClientRect();
+          return block !== undefined && pointer.y >= block.top && pointer.y <= block.bottom;
+        });
       if (inBlock) {
         const hits = pointerWithin({ ...args, droppableContainers: ours });
         if (hits.length > 0) return hits;
@@ -1038,6 +1067,40 @@ export function SidebarFolderBlock<TThread extends SidebarThreadSummary>(props: 
           ))}
         </ul>
       ) : null}
+    </li>
+  );
+}
+
+/** Fully settled top-level folders, shown at the end of the main Settled
+    section. Unsettling any of their threads returns them to the Folders block. */
+export function SidebarSettledFolderBlock<TThread extends SidebarThreadSummary>(props: {
+  roots: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
+  blockRef: MutableRefObject<HTMLElement | null>;
+  renamingThreadKey: string | null;
+  renderThreadRow: RenderSidebarFolderThreadRow<TThread>;
+  chatActions: SidebarFolderChatActions;
+}) {
+  const { blockRef } = props;
+  const attachBlockRef = useCallback(
+    (node: HTMLLIElement | null) => {
+      blockRef.current = node;
+    },
+    [blockRef],
+  );
+  if (props.roots.length === 0) return null;
+  return (
+    <li ref={attachBlockRef} className="mt-1 list-none" data-thread-selection-safe>
+      <ul role="presentation" className="flex flex-col gap-px">
+        {props.roots.map((node) => (
+          <FolderNode
+            key={node.folder.id}
+            node={node}
+            renamingThreadKey={props.renamingThreadKey}
+            renderThreadRow={props.renderThreadRow}
+            chatActions={props.chatActions}
+          />
+        ))}
+      </ul>
     </li>
   );
 }

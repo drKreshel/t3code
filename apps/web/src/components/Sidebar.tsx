@@ -175,7 +175,9 @@ import {
   useSidebarFolderChatActions,
   showThreadMenuWithFolders,
   SidebarFolderBlock,
+  SidebarSettledFolderBlock,
   useFiledSidebarThreadKeys,
+  useRenderedSettledSidebarFolders,
   useSidebarFolderDnd,
   useSidebarFolderLayout,
   useSidebarFolderTree,
@@ -2951,6 +2953,11 @@ export default function Sidebar() {
     );
     return routeThread === undefined ? EMPTY_THREADS : [routeThread];
   }, [routeThreadKey, settledShelfExpanded, visibleSettledThreads]);
+  const settledFolders = useRenderedSettledSidebarFolders(
+    folderTree,
+    settledShelfExpanded,
+    routeThreadKey,
+  );
 
   // The snoozed shelf is collapsed by default: out of the way, never gone.
   // Collapsed threads don't render (and so don't participate in jump
@@ -3008,6 +3015,7 @@ export default function Sidebar() {
       ...visibleWorkingThreads,
       ...visibleSnoozedThreads,
       ...renderedSettledThreads,
+      ...settledFolders.renderedThreads,
     ],
     [
       folderTree.renderedThreads,
@@ -3016,6 +3024,7 @@ export default function Sidebar() {
       visibleWorkingThreads,
       visibleSnoozedThreads,
       renderedSettledThreads,
+      settledFolders.renderedThreads,
     ],
   );
   const orderedThreadKeys = useMemo(
@@ -3653,7 +3662,8 @@ export default function Sidebar() {
         activeThreads.length +
         workingThreads.length +
         snoozedThreads.length +
-        settledThreads.length ===
+        settledThreads.length +
+        settledFolders.roots.length ===
       0
     ) {
       return [];
@@ -3682,6 +3692,7 @@ export default function Sidebar() {
     activeThreads,
     pinnedThreads,
     renderedSettledThreads,
+    settledFolders.roots.length,
     settledThreads.length,
     snoozedThreads.length,
     visibleSnoozedThreads,
@@ -4021,6 +4032,7 @@ export default function Sidebar() {
     ],
   );
   const folderBlockRef = useRef<HTMLElement | null>(null);
+  const settledFolderBlockRef = useRef<HTMLElement | null>(null);
   // Filing a pinned thread unpins it: pinned rows render in Pinned, not folders.
   const handleThreadFiled = useCallback(
     (threadKey: string) => {
@@ -4091,6 +4103,7 @@ export default function Sidebar() {
     onDragEnd: handleThreadDragEnd,
     sidebarListItems,
     blockRef: folderBlockRef,
+    settledBlockRef: settledFolderBlockRef,
     listRef: threadListRef,
     dragLabelOffsetRef,
     hasFolders: folderLayout.folders.length > 0,
@@ -5332,7 +5345,7 @@ export default function Sidebar() {
                                 label={
                                   settledShelfExpanded
                                     ? "Settled"
-                                    : `Settled (${settledThreads.length})`
+                                    : `Settled (${settledThreads.length + settledFolders.threadCount})`
                                 }
                                 dragging={from !== null}
                                 isDropTarget={dragTargetSection === "settled"}
@@ -5363,20 +5376,33 @@ export default function Sidebar() {
                             break;
                         }
                       }
+                      if (settledShelfExpanded && hiddenSettledCount > 0) {
+                        items.push(
+                          <li key="settled-show-more" className="list-none">
+                            <button
+                              type="button"
+                              onClick={showMoreSettled}
+                              className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground/55 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                            >
+                              <PlusIcon aria-hidden className="size-4 shrink-0" />
+                              Show {Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more
+                            </button>
+                          </li>,
+                        );
+                      }
+                      // After the sortable run, which the drag preview needs contiguous.
+                      items.push(
+                        <SidebarSettledFolderBlock
+                          key="settled-folders"
+                          roots={settledFolders.roots}
+                          blockRef={settledFolderBlockRef}
+                          renamingThreadKey={renamingThreadKey}
+                          renderThreadRow={renderThreadRowInner}
+                          chatActions={folderChatActions}
+                        />,
+                      );
                       return items;
                     })()}
-                    {settledShelfExpanded && hiddenSettledCount > 0 ? (
-                      <li className="list-none">
-                        <button
-                          type="button"
-                          onClick={showMoreSettled}
-                          className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground/55 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                        >
-                          <PlusIcon aria-hidden className="size-4 shrink-0" />
-                          Show {Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more
-                        </button>
-                      </li>
-                    ) : null}
                   </ul>
                 </SortableContext>
               </DndContext>

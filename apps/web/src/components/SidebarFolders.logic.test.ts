@@ -12,6 +12,7 @@ import {
   moveSidebarFolder,
   moveThreadToSidebarFolder,
   planSidebarFolderDrop,
+  renderedSidebarFolderThreads,
   resolveSidebarFolderDefaultProject,
   resolveSidebarFolderDropSlot,
   setSidebarFolderDefaultProject,
@@ -309,14 +310,15 @@ describe("buildSidebarFolderTree", () => {
         ["a", null],
         ["b", null],
       ],
-      { a: ["t1", "s1"], b: ["s2"] },
+      { a: ["t1", "s1"], b: ["t2", "s2"] },
     );
+    const visible = ["t1", "s1", "t2", "s2"];
     const expanded = toggleSidebarFolderSettledExpanded(layout, "a");
-    const tree = build(expanded, ["t1", "s1", "s2"]);
-    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s1"]);
-    expect(tree.roots[1]).toMatchObject({ rows: [], settledCount: 1, settledExpanded: false });
-    const collapsed = build(toggleSidebarFolderSettledExpanded(expanded, "a"), ["t1", "s1", "s2"]);
-    expect(collapsed.renderedThreads.map((thread) => thread.key)).toEqual(["t1"]);
+    const tree = build(expanded, visible);
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s1", "t2"]);
+    expect(tree.roots[1]).toMatchObject({ settledCount: 1, settledExpanded: false });
+    const collapsed = build(toggleSidebarFolderSettledExpanded(expanded, "a"), visible);
+    expect(collapsed.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "t2"]);
   });
 
   it("keeps the open settled thread visible under its collapsed shelf", () => {
@@ -333,14 +335,39 @@ describe("buildSidebarFolderTree", () => {
   });
 
   it("remembers shelf expansion across folder collapse and removes it when the folder is deleted", () => {
-    const layout = layoutWith([["a", null]], { a: ["s1"] });
+    const layout = layoutWith([["a", null]], { a: ["t1", "s1"] });
     const expanded = toggleSidebarFolderSettledExpanded(layout, "a");
     const collapsed = toggleSidebarFolderCollapsed(expanded, "a");
-    expect(build(collapsed, ["s1"]).renderedThreads).toEqual([]);
+    expect(build(collapsed, ["t1", "s1"]).renderedThreads).toEqual([]);
     expect(
-      build(toggleSidebarFolderCollapsed(collapsed, "a"), ["s1"]).renderedThreads,
-    ).toHaveLength(1);
+      build(toggleSidebarFolderCollapsed(collapsed, "a"), ["t1", "s1"]).renderedThreads,
+    ).toHaveLength(2);
     expect(deleteSidebarFolder(expanded, "a").expandedSettledFolderIds).toEqual([]);
+  });
+
+  it("moves fully settled top-level folders to the Settled section with their rows shown", () => {
+    const layout = layoutWith(
+      [
+        ["a", null],
+        ["b", null],
+        ["b1", "b"],
+        ["c", null],
+        ["d", null],
+        ["d1", "d"],
+      ],
+      { a: ["t1", "s1"], b: ["s2"], b1: ["s3"], d: ["s4"], d1: ["t2"] },
+    );
+    const tree = build(layout, ["t1", "s1", "s2", "s3", "s4", "t2"]);
+    // An empty folder and folders holding any active thread stay on top.
+    expect(tree.roots.map((node) => node.folder.id)).toEqual(["a", "c", "d"]);
+    expect(tree.settledRoots.map((node) => node.folder.id)).toEqual(["b"]);
+    expect(tree.settledRoots[0]).toMatchObject({ settledCount: 0 });
+    expect(renderedSidebarFolderThreads(tree.settledRoots).map((thread) => thread.key)).toEqual([
+      "s3",
+      "s2",
+    ]);
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "t2"]);
+    expect(tree.settledKeys).toEqual(new Set(["s1", "s2", "s3", "s4"]));
   });
 
   it("returns an unsettled thread to its saved position among the other active threads", () => {
