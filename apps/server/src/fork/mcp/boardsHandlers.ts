@@ -28,6 +28,7 @@ import {
   findCriterion,
   findTicket,
   type Lookup,
+  planColumnEdits,
   ticketKeyOf,
 } from "./boardsToolLogic.ts";
 import {
@@ -38,6 +39,7 @@ import {
 } from "./boardsTools.ts";
 
 const notFound = (message: string) => new BoardsCommandError({ code: "not-found", message });
+const invalid = (message: string) => new BoardsCommandError({ code: "invalid", message });
 const storage = (message: string) => () => new BoardsCommandError({ code: "storage", message });
 
 const unwrap = <A>(lookup: Lookup<A>): Effect.Effect<A, BoardsCommandError> =>
@@ -155,6 +157,7 @@ const make = Effect.gen(function* () {
           .toSorted((a, b) => a.position - b.position)
           .map((column) => ({
             name: column.name,
+            color: column.color,
             tickets: live.filter((ticket) => ticket.columnId === column.id).length,
           })),
       } satisfies BoardSummary;
@@ -301,6 +304,13 @@ const make = Effect.gen(function* () {
 
     create_board: (input) =>
       Effect.gen(function* () {
+        if (input.template !== undefined && input.columns !== undefined) {
+          return yield* invalid("Pass either template or columns.");
+        }
+        const names = new Set(input.columns?.map((column) => column.name.toLowerCase()));
+        if (input.columns !== undefined && names.size !== input.columns.length) {
+          return yield* invalid("Column names must differ.");
+        }
         const defaultProjectKey =
           input.useThisChatsProject === true ? yield* callerProjectKey : null;
         if (input.template === undefined) {
@@ -309,6 +319,11 @@ const make = Effect.gen(function* () {
             name: input.name,
             key: input.key,
             defaultProjectKey,
+            ...(input.columns
+              ? {
+                  columns: input.columns.map(({ name, color }) => ({ name, color: color ?? null })),
+                }
+              : {}),
           });
         } else {
           if (Option.isNone(templates)) return yield* notFound("Board templates are unavailable.");
@@ -336,6 +351,86 @@ const make = Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const board = yield* unwrap(findBoard(snapshot, input.key));
         return yield* summarizeBoard(snapshot, board);
+      }),
+
+    update_board: (input) =>
+      Effect.gen(function* () {
+        const snapshot = yield* boards.snapshot;
+        const board = yield* unwrap(findBoard(snapshot, input.board));
+        const tickets = snapshot.tickets.filter((ticket) => ticket.boardId === board.id);
+        const plan = planColumnEdits(board, tickets, input);
+        if (!plan.ok) return yield* invalid(plan.message);
+        const { updates, adds, removes, order } = plan.value;
+
+        // The board update runs first: a taken key is refused before any column changes.
+        const defaultProjectKey =
+          input.useThisChatsProject === undefined
+            ? undefined
+            : input.useThisChatsProject
+              ? yield* callerProjectKey
+              : null;
+        if (
+          input.name !== undefined ||
+          input.key !== undefined ||
+          defaultProjectKey !== undefined
+        ) {
+          yield* dispatch({
+            type: "board.update",
+            boardId: board.id,
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.key !== undefined ? { key: input.key } : {}),
+            ...(defaultProjectKey !== undefined ? { defaultProjectKey } : {}),
+          });
+        }
+        if (input.archived !== undefined && input.archived !== (board.archivedAt !== null)) {
+          yield* dispatch({ type: "board.archive", boardId: board.id, archived: input.archived });
+        }
+
+        // Column ids by their names after this call, so renames can swap or reuse names.
+        const renamed = new Map(updates.map(({ column, name }) => [column.id, name]));
+        const removedIds = new Set(removes.map(({ column }) => column.id));
+        const idByName = new Map(
+          board.columns
+            .filter((column) => !removedIds.has(column.id))
+            .map((column) => [(renamed.get(column.id) ?? column.name).toLowerCase(), column.id]),
+        );
+        for (const { column, name, color } of updates) {
+          yield* dispatch({
+            type: "column.update",
+            columnId: column.id,
+            ...(name !== undefined ? { name } : {}),
+            ...(color !== undefined ? { color } : {}),
+          });
+        }
+        for (const { name, color } of adds) {
+          const { id } = yield* dispatch({ type: "column.create", boardId: board.id, name, color });
+          if (id !== null) idByName.set(name.toLowerCase(), id);
+        }
+        const idOf = (name: string) =>
+          Effect.fromNullishOr(idByName.get(name.toLowerCase())).pipe(
+            Effect.mapError(storage(`Column "${name}" was not created.`)),
+          );
+        for (const { column, moveTicketsTo } of removes) {
+          yield* dispatch({
+            type: "column.delete",
+            columnId: column.id,
+            moveTicketsTo: yield* idOf(moveTicketsTo),
+          });
+        }
+        if (order !== null) {
+          for (const [index, name] of order.entries()) {
+            yield* dispatch({
+              type: "column.reorder",
+              columnId: yield* idOf(name),
+              position: index + 1,
+            });
+          }
+        }
+
+        const after = yield* boards.snapshot;
+        const updated = after.boards.find((candidate) => candidate.id === board.id);
+        if (!updated) return yield* notFound("The board is missing.");
+        return yield* summarizeBoard(after, updated);
       }),
 
     create_ticket: (input) =>

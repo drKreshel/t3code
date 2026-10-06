@@ -39,6 +39,27 @@ export const TicketFolderPath = TrimmedNonEmptyString.check(
 /** Two to five capital letters or digits, starting with a letter: `WEB`, `API2`. */
 export const BoardKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Z][A-Z0-9]{1,4}$/));
 
+/** Column colors a board can pick; a column without one gets the neutral dot. */
+export const BOARD_COLUMN_COLORS = [
+  "gray",
+  "slate",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "lime",
+  "green",
+  "teal",
+  "cyan",
+  "blue",
+  "violet",
+  "purple",
+  "pink",
+  "brown",
+] as const;
+export const BoardColumnColor = Schema.Literals(BOARD_COLUMN_COLORS);
+export type BoardColumnColor = typeof BoardColumnColor.Type;
+
 /** A column records progress; moving a ticket never starts an agent. */
 export const BoardColumn = Schema.Struct({
   id: TrimmedNonEmptyString,

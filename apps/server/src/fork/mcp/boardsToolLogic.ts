@@ -100,3 +100,125 @@ export function filterTickets(
         ticket.description.toLowerCase().includes(query)),
   );
 }
+
+export interface ColumnEdits {
+  readonly updateColumns?:
+    | ReadonlyArray<{
+        readonly column: string;
+        readonly name?: string | undefined;
+        readonly color?: string | null | undefined;
+      }>
+    | undefined;
+  readonly addColumns?:
+    | ReadonlyArray<{ readonly name: string; readonly color?: string | null | undefined }>
+    | undefined;
+  readonly removeColumns?:
+    | ReadonlyArray<{ readonly column: string; readonly moveTicketsTo?: string | undefined }>
+    | undefined;
+  readonly columnOrder?: ReadonlyArray<string> | undefined;
+}
+
+/**
+ * Column edits resolved against the board. Removal targets and the order name
+ * columns as they are after this call's renames and additions.
+ */
+export interface ColumnPlan {
+  readonly updates: ReadonlyArray<{
+    readonly column: BoardColumn;
+    readonly name?: string;
+    readonly color?: string | null;
+  }>;
+  readonly adds: ReadonlyArray<{ readonly name: string; readonly color: string | null }>;
+  readonly removes: ReadonlyArray<{ readonly column: BoardColumn; readonly moveTicketsTo: string }>;
+  /** Final column names, first to last; null keeps the current order. */
+  readonly order: ReadonlyArray<string> | null;
+}
+
+/** Checks every column edit before anything is written, so a bad reference changes nothing. */
+export function planColumnEdits(
+  board: Board,
+  tickets: ReadonlyArray<Ticket>,
+  edits: ColumnEdits,
+): Lookup<ColumnPlan> {
+  const updates: Array<ColumnPlan["updates"][number]> = [];
+  for (const edit of edits.updateColumns ?? []) {
+    const column = findColumn(board, edit.column);
+    if (!column.ok) return column;
+    updates.push({
+      column: column.value,
+      ...(edit.name !== undefined ? { name: edit.name.trim() } : {}),
+      ...(edit.color !== undefined ? { color: edit.color } : {}),
+    });
+  }
+  const removed: BoardColumn[] = [];
+  for (const edit of edits.removeColumns ?? []) {
+    const column = findColumn(board, edit.column);
+    if (!column.ok) return column;
+    removed.push(column.value);
+  }
+
+  // The board's columns after renames and additions, in their current order.
+  const renamed = new Map(updates.flatMap(({ column, name }) => (name ? [[column.id, name]] : [])));
+  const adds = (edits.addColumns ?? []).map((add) => ({
+    name: add.name.trim(),
+    color: add.color ?? null,
+  }));
+  const finalNames = [
+    ...board.columns
+      .toSorted((a, b) => a.position - b.position)
+      .filter((column) => !removed.includes(column))
+      .map((column) => renamed.get(column.id) ?? column.name),
+    ...adds.map((add) => add.name),
+  ];
+  const seen = new Set<string>();
+  for (const name of finalNames) {
+    if (seen.has(name.toLowerCase())) return missing(`Two columns would be named "${name}".`);
+    seen.add(name.toLowerCase());
+  }
+  if (finalNames.length === 0) return missing("A board needs at least one column.");
+  const finalName = (ref: string) =>
+    finalNames.find((name) => name.toLowerCase() === ref.trim().toLowerCase());
+  const listed = finalNames.join(", ");
+
+  const removes: Array<ColumnPlan["removes"][number]> = [];
+  for (const [index, edit] of (edits.removeColumns ?? []).entries()) {
+    const column = removed[index]!;
+    if (edit.moveTicketsTo !== undefined) {
+      const target = finalName(edit.moveTicketsTo);
+      if (!target) {
+        return missing(
+          `Cannot move "${column.name}"'s tickets to "${edit.moveTicketsTo.trim()}". Columns after this change: ${listed}.`,
+        );
+      }
+      removes.push({ column, moveTicketsTo: target });
+      continue;
+    }
+    const live = tickets.filter(
+      (ticket) => ticket.columnId === column.id && ticket.archivedAt === null,
+    ).length;
+    if (live > 0) {
+      return missing(
+        `Column "${column.name}" has ${live} ticket${live === 1 ? "" : "s"}. Pass moveTicketsTo, one of: ${listed}.`,
+      );
+    }
+    // Only archived tickets, if any, follow to the first column.
+    removes.push({ column, moveTicketsTo: finalNames[0]! });
+  }
+
+  let order: string[] | null = null;
+  if (edits.columnOrder !== undefined) {
+    const named = edits.columnOrder.map(finalName);
+    const complete =
+      named.length === finalNames.length &&
+      named.every((name) => name !== undefined) &&
+      new Set(named).size === finalNames.length;
+    if (!complete) {
+      return missing(
+        `columnOrder must name every column once. Columns after this change: ${listed}.`,
+      );
+    }
+    order = named as string[];
+  }
+
+  return found({ updates, adds, removes, order });
+}

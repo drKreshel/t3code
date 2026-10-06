@@ -4,6 +4,7 @@
  * BoardsService, so open windows update live and the timeline records the chat.
  */
 import {
+  BoardColumnColor,
   BoardKey,
   BoardsCommandError,
   TicketPriority,
@@ -40,7 +41,12 @@ const ColumnRef = TrimmedNonEmptyString.annotate({
 
 const ColumnSummary = Schema.Struct({
   name: Schema.String,
+  color: Schema.NullOr(Schema.String),
   tickets: Schema.Int,
+});
+
+const ColumnColor = Schema.NullOr(BoardColumnColor).annotate({
+  description: "The column's dot color; null for the neutral one.",
 });
 
 const FlagSummary = Schema.NullOr(
@@ -197,7 +203,7 @@ const GetTicketTool = Tool.make("get_ticket", {
 
 const CreateBoardTool = Tool.make("create_board", {
   description:
-    "Create a board. Without a template it starts with the columns Backlog, Todo, In progress, Review, and Done, and no automations.",
+    "Create a board. Without a template or columns it starts with the columns Backlog, Todo, In progress, Review, and Done, and no automations.",
   parameters: Schema.Struct({
     name: TrimmedNonEmptyString,
     key: BoardKey.annotate({
@@ -214,6 +220,11 @@ const CreateBoardTool = Tool.make("create_board", {
           'A board template\'s name, like "Ship with agents": the board gets its columns and automations. Only when the user asks for one.',
       }),
     ),
+    columns: Schema.optional(
+      Schema.Array(
+        Schema.Struct({ name: TrimmedNonEmptyString, color: Schema.optional(ColumnColor) }),
+      ).annotate({ description: "The board's columns, first to last. Not with template." }),
+    ),
   }),
   success: BoardSummary,
   failure,
@@ -222,6 +233,66 @@ const CreateBoardTool = Tool.make("create_board", {
   .annotate(Tool.Title, "Create board")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const UpdateBoardTool = Tool.make("update_board", {
+  description:
+    "Change a board: its name, key, default project, or archived state, and add, rename, recolor, remove, or reorder its columns. Every reference is checked before anything changes. Columns record progress only; editing them never starts an agent.",
+  parameters: Schema.Struct({
+    board: TrimmedNonEmptyString.annotate({ description: "Board key like WEB." }),
+    name: Schema.optional(TrimmedNonEmptyString),
+    key: Schema.optional(
+      BoardKey.annotate({ description: "A new key. Ticket keys change with it, like WEB-12." }),
+    ),
+    useThisChatsProject: Schema.optional(
+      Schema.Boolean.annotate({
+        description:
+          "true: make this chat's project the board's default project. false: clear the default project.",
+      }),
+    ),
+    archived: Schema.optional(Schema.Boolean),
+    updateColumns: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          column: ColumnRef,
+          name: Schema.optional(TrimmedNonEmptyString),
+          color: Schema.optional(ColumnColor),
+        }),
+      ).annotate({ description: "Rename or recolor existing columns." }),
+    ),
+    addColumns: Schema.optional(
+      Schema.Array(
+        Schema.Struct({ name: TrimmedNonEmptyString, color: Schema.optional(ColumnColor) }),
+      ).annotate({ description: "New columns; they go last unless columnOrder places them." }),
+    ),
+    removeColumns: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          column: ColumnRef,
+          moveTicketsTo: Schema.optional(
+            TrimmedNonEmptyString.annotate({
+              description:
+                "Where the column's tickets go, named as after this call. Required when it has tickets.",
+            }),
+          ),
+        }),
+      ),
+    ),
+    columnOrder: Schema.optional(
+      Schema.Array(TrimmedNonEmptyString).annotate({
+        description:
+          "Every column, first to last, named as after this call's renames, additions, and removals.",
+      }),
+    ),
+  }),
+  success: BoardSummary,
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Update board")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
@@ -389,6 +460,7 @@ export const BoardsToolkit = Toolkit.make(
   ListTicketsTool,
   GetTicketTool,
   CreateBoardTool,
+  UpdateBoardTool,
   CreateTicketTool,
   UpdateTicketTool,
   MoveTicketTool,

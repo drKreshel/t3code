@@ -187,6 +187,74 @@ describe("boards toolkit handlers", () => {
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 
+  it.effect("edits columns in one call, moving tickets out of removed ones", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", { name: "Eco", key: "ECO" });
+      yield* call("create_ticket", { board: "ECO", title: "Meter", column: "Todo" });
+
+      const board = yield* call("update_board", {
+        board: "eco",
+        updateColumns: [{ column: "review", color: "amber" }],
+        addColumns: [{ name: "Testing", color: "cyan" }],
+        removeColumns: [{ column: "Todo", moveTicketsTo: "Backlog" }],
+        columnOrder: ["Backlog", "In progress", "Testing", "Review", "Done"],
+      });
+      expect(board.columns).toEqual([
+        { name: "Backlog", color: null, tickets: 1 },
+        { name: "In progress", color: "blue", tickets: 0 },
+        { name: "Testing", color: "cyan", tickets: 0 },
+        { name: "Review", color: "amber", tickets: 0 },
+        { name: "Done", color: "green", tickets: 0 },
+      ]);
+      expect((yield* call("get_ticket", { ticket: "ECO-1" })).column).toBe("Backlog");
+
+      // Renames can swap names; the order uses the new ones.
+      const swapped = yield* call("update_board", {
+        board: "ECO",
+        updateColumns: [
+          { column: "Backlog", name: "Done" },
+          { column: "Done", name: "Backlog" },
+        ],
+      });
+      expect(swapped.columns.map((column) => column.name)).toEqual([
+        "Done",
+        "In progress",
+        "Testing",
+        "Review",
+        "Backlog",
+      ]);
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
+
+  it.effect("changes nothing when a column edit is refused", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", {
+        name: "Eco",
+        key: "ECO",
+        columns: [{ name: "Todo" }, { name: "Doing", color: "blue" }, { name: "Done" }],
+      });
+      yield* call("create_ticket", { board: "ECO", title: "Meter" });
+
+      const refusals = [
+        { removeColumns: [{ column: "Todo" }] },
+        { addColumns: [{ name: "doing" }] },
+        { columnOrder: ["Done", "Todo"] },
+        { removeColumns: [{ column: "Doing", moveTicketsTo: "Doing" }] },
+      ];
+      for (const edits of refusals) {
+        const error = yield* call("update_board", { board: "ECO", name: "Renamed", ...edits }).pipe(
+          Effect.flip,
+        );
+        expect(error).toMatchObject({ code: "invalid" });
+      }
+      const [board] = (yield* call("list_boards", {})).boards;
+      expect(board!.name).toBe("Eco");
+      expect(board!.columns.map((column) => column.name)).toEqual(["Todo", "Doing", "Done"]);
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
+
   it.effect("explains what exists when a name does not match", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

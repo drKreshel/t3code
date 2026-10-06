@@ -1,24 +1,11 @@
-import type { TicketPriority } from "@t3tools/contracts";
+import {
+  BOARD_COLUMN_COLORS,
+  type BoardColumnColor,
+  type TicketPriority,
+} from "@t3tools/contracts";
 
-/** Column colors a board can pick; a column without one gets the neutral dot. */
-export const COLUMN_COLORS = [
-  "gray",
-  "slate",
-  "red",
-  "orange",
-  "amber",
-  "yellow",
-  "lime",
-  "green",
-  "teal",
-  "cyan",
-  "blue",
-  "violet",
-  "purple",
-  "pink",
-  "brown",
-] as const;
-export type ColumnColor = (typeof COLUMN_COLORS)[number];
+export const COLUMN_COLORS = BOARD_COLUMN_COLORS;
+export type ColumnColor = BoardColumnColor;
 
 const COLUMN_DOT_CLASS: Record<ColumnColor, string> = {
   gray: "bg-muted-foreground/40",
