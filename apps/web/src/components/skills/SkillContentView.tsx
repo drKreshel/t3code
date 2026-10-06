@@ -20,7 +20,7 @@ export function SkillPreview(props: { readonly path: string; readonly text: stri
   const directory = props.path.slice(0, Math.max(props.path.lastIndexOf("/"), 0)) || "/";
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4 px-6 py-5">
+      <div className="mx-auto flex max-w-4xl min-w-0 flex-col gap-4 px-6 py-5 break-words">
         {fields.length > 0 ? (
           <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 rounded-md border border-border/60 px-3 py-2 text-xs">
             {fields.map(([key, value]) => (
