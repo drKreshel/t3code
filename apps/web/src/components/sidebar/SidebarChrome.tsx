@@ -1,5 +1,4 @@
 import {
-  ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   SettingsIcon,
   SparklesIcon,
@@ -31,7 +30,6 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -113,11 +111,13 @@ function SidebarUtilityItem({
   icon,
   label,
   onClick,
+  isActive = false,
   count = 0,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  isActive?: boolean;
   /** Shown as a dot with a number over the icon when above zero. */
   count?: number;
 }) {
@@ -128,6 +128,7 @@ function SidebarUtilityItem({
           render={
             <SidebarMenuButton
               aria-label={count > 0 ? `${label} (${count})` : label}
+              isActive={isActive}
               onClick={onClick}
               size="icon"
             >
@@ -152,11 +153,9 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
-  const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
-  const isOnUtilityPage = useLocation({
-    select: (location) => isSidebarUtilityPage(location.pathname),
-  });
+  // Only the first path segment, so switching threads does not re-render the row.
+  const page = useLocation({ select: (location) => location.pathname.split("/")[1] });
   const pullRequestsSupported = usePullRequestsSupported();
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
@@ -198,53 +197,47 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/usage" });
   }, [isMobile, navigate, setOpenMobile]);
 
-  const handleBackClick = useCallback(() => {
-    closeMobileSidebar();
-    void navigateToMainApp();
-  }, [closeMobileSidebar, navigateToMainApp]);
-
   return (
     <SidebarMenu className="flex-row items-center">
-      {isOnUtilityPage ? (
-        <SidebarMenuItem className="min-w-0 flex-1">
-          <SidebarMenuButton onClick={handleBackClick}>
-            <ArrowLeftIcon />
-            <span>Back</span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      ) : (
-        <>
-          <SidebarUtilityItem
-            icon={<SettingsIcon />}
-            label="Settings"
-            onClick={handleSettingsClick}
-          />
-          {pullRequestsSupported ? (
-            <SidebarUtilityItem
-              icon={<PullRequestGlyph.pullRequest />}
-              label="Pull Requests"
-              onClick={handlePullRequestsClick}
-            />
-          ) : null}
-          <SidebarUtilityItem
-            icon={<SquareKanbanIcon />}
-            label="Boards"
-            onClick={handleBoardsClick}
-            count={boardsNeedsYou}
-          />
-          <SidebarUtilityItem
-            icon={<ZapIcon />}
-            label="Automations"
-            onClick={handleAutomationsClick}
-          />
-          <SidebarUtilityItem icon={<SparklesIcon />} label="Skills" onClick={handleSkillsClick} />
-          <SidebarUtilityItem
-            icon={<ChartNoAxesColumnIcon />}
-            label="Usage"
-            onClick={handleUsageClick}
-          />
-        </>
-      )}
+      <SidebarUtilityItem
+        icon={<SettingsIcon />}
+        label="Settings"
+        isActive={page === "settings"}
+        onClick={handleSettingsClick}
+      />
+      {pullRequestsSupported ? (
+        <SidebarUtilityItem
+          icon={<PullRequestGlyph.pullRequest />}
+          label="Pull Requests"
+          isActive={page === "pull-requests"}
+          onClick={handlePullRequestsClick}
+        />
+      ) : null}
+      <SidebarUtilityItem
+        icon={<SquareKanbanIcon />}
+        label="Boards"
+        isActive={page === "boards"}
+        onClick={handleBoardsClick}
+        count={boardsNeedsYou}
+      />
+      <SidebarUtilityItem
+        icon={<ZapIcon />}
+        label="Automations"
+        isActive={page === "automations"}
+        onClick={handleAutomationsClick}
+      />
+      <SidebarUtilityItem
+        icon={<SparklesIcon />}
+        label="Skills"
+        isActive={page === "skills"}
+        onClick={handleSkillsClick}
+      />
+      <SidebarUtilityItem
+        icon={<ChartNoAxesColumnIcon />}
+        label="Usage"
+        isActive={page === "usage"}
+        onClick={handleUsageClick}
+      />
       <SidebarUpdatePill />
     </SidebarMenu>
   );
