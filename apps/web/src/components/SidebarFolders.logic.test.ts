@@ -261,7 +261,9 @@ describe("buildSidebarFolderTree", () => {
       ],
       { a: ["t1"], a1: ["s2"] },
     );
-    const tree = build(toggleSidebarFolderSettledExpanded(layout, "a1"), ["t1", "s2"]);
+    const tree = build(layout, ["t1", "s2"]);
+    // A folder of only settled chats shows them directly, without a collapsed shelf.
+    expect(tree.roots[0]!.children[0]).toMatchObject({ settledCount: 0 });
     expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["s2", "t1"]);
     expect(tree.settledKeys).toEqual(new Set(["s2"]));
     expect(tree.roots[0]!.subtreeThreads).toHaveLength(2);
@@ -366,7 +368,8 @@ describe("buildSidebarFolderTree", () => {
       "s3",
       "s2",
     ]);
-    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "t2"]);
+    // d's own chats are all settled, so they show without a shelf.
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "t2", "s4"]);
     expect(tree.settledKeys).toEqual(new Set(["s1", "s2", "s3", "s4"]));
   });
 

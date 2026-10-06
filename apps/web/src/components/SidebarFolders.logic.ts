@@ -429,8 +429,8 @@ export interface SidebarFolderTreeNode<TThread> {
   readonly children: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
   /** This folder's threads in visual order, with settled rows last; empty while collapsed. */
   readonly rows: ReadonlyArray<SidebarFolderThreadRow<TThread>>;
-  /** Rows behind this folder's own Settled shelf. Zero in the main Settled
-      section, where every row is settled and renders directly. */
+  /** Rows behind this folder's own Settled shelf. Zero when every row is
+      settled: the shelf only splits a mix, otherwise the rows render directly. */
   readonly settledCount: number;
   readonly settledExpanded: boolean;
   /** Visible threads in this folder and below, for the header rollup. */
@@ -521,14 +521,10 @@ export function buildSidebarFolderTree<TThread>(input: {
     return rows.length > 0 && rows.every((row) => row.section === "settled");
   };
 
-  const build = (
-    folder: SidebarFolder,
-    depth: number,
-    inSettledSection: boolean,
-  ): SidebarFolderTreeNode<TThread> | null => {
+  const build = (folder: SidebarFolder, depth: number): SidebarFolderTreeNode<TThread> | null => {
     const children = layout.folders
       .filter((candidate) => candidate.parentId === folder.id)
-      .flatMap((child) => build(child, depth + 1, inSettledSection) ?? []);
+      .flatMap((child) => build(child, depth + 1) ?? []);
     const ownRows = ownRowsByFolderId.get(folder.id) ?? [];
     const subtreeThreads = [
       ...children.flatMap((node) => node.subtreeThreads),
@@ -537,9 +533,10 @@ export function buildSidebarFolderTree<TThread>(input: {
     if (input.hideEmptyFolders && subtreeThreads.length === 0) return null;
     const isCollapsed = collapsed.has(folder.id);
     const settledExpanded = expandedSettled.has(folder.id);
+    const allSettled = ownRows.every((row) => row.section === "settled");
     const rows = isCollapsed
       ? []
-      : inSettledSection
+      : allSettled
         ? ownRows
         : ownRows.filter(
             (row) =>
@@ -551,9 +548,7 @@ export function buildSidebarFolderTree<TThread>(input: {
       collapsed: isCollapsed,
       children: isCollapsed ? [] : children,
       rows,
-      settledCount: inSettledSection
-        ? 0
-        : ownRows.filter((row) => row.section === "settled").length,
+      settledCount: allSettled ? 0 : ownRows.filter((row) => row.section === "settled").length,
       settledExpanded,
       subtreeThreads,
     };
@@ -563,7 +558,7 @@ export function buildSidebarFolderTree<TThread>(input: {
   for (const folder of layout.folders) {
     if (folder.parentId !== null) continue;
     const settled = isSettledSubtree(folder.id);
-    const node = build(folder, 0, settled);
+    const node = build(folder, 0);
     if (node !== null) (settled ? settledRoots : roots).push(node);
   }
   return {
