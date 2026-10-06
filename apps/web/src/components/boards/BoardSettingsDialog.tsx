@@ -150,6 +150,7 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
             <ColumnRow
               key={column.id}
               column={column}
+              columns={columns}
               first={index === 0}
               last={index === columns.length - 1}
               onlyColumn={columns.length === 1}
@@ -180,7 +181,7 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
   );
 }
 
-/** Saves the board's columns and its own automations for new boards to start from. */
+/** Saves the board's columns, with their ticket moves, for new boards to start from. */
 function SaveAsTemplate({ board }: { readonly board: Board }) {
   const dispatch = useTemplatesDispatch();
   const templates = useBoardTemplates();
@@ -198,7 +199,7 @@ function SaveAsTemplate({ board }: { readonly board: Board }) {
       <div className="flex flex-col gap-1">
         <Label htmlFor="board-settings-template">Save as template</Label>
         <p className="text-xs text-muted-foreground">
-          New boards can start from it: these columns and the schedules that move its old tickets.
+          New boards can start from it: these columns and when their tickets move on.
         </p>
       </div>
       <div className="flex items-center gap-2">
@@ -278,6 +279,7 @@ function BoardWorkspaceSettings({ board }: { readonly board: Board }) {
 
 function ColumnRow({
   column,
+  columns,
   first,
   last,
   onlyColumn,
@@ -285,6 +287,7 @@ function ColumnRow({
   onRemove,
 }: {
   readonly column: BoardColumn;
+  readonly columns: ReadonlyArray<BoardColumn>;
   readonly first: boolean;
   readonly last: boolean;
   readonly onlyColumn: boolean;
@@ -294,85 +297,161 @@ function ColumnRow({
   const dispatch = useBoardsDispatch();
   const [name, setName] = useState(column.name);
   return (
-    <li className="flex items-center gap-1.5">
-      <Input
-        size="sm"
-        aria-label="Column name"
-        className="min-w-0 flex-1"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        onBlur={() => {
-          const trimmed = name.trim();
-          if (!trimmed) setName(column.name);
-          else if (trimmed !== column.name) {
-            void dispatch({ type: "column.update", columnId: column.id, name: trimmed });
+    <li className="flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <Input
+          size="sm"
+          aria-label="Column name"
+          className="min-w-0 flex-1"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onBlur={() => {
+            const trimmed = name.trim();
+            if (!trimmed) setName(column.name);
+            else if (trimmed !== column.name) {
+              void dispatch({ type: "column.update", columnId: column.id, name: trimmed });
+            }
+          }}
+        />
+        <Select
+          value={column.color ?? NO_COLOR}
+          onValueChange={(value) =>
+            void dispatch({
+              type: "column.update",
+              columnId: column.id,
+              color: value === NO_COLOR ? null : String(value),
+            })
           }
-        }}
-      />
+        >
+          <SelectTrigger size="sm" className="w-28" aria-label="Column color">
+            <SelectValue>
+              <span className="flex items-center gap-2">
+                <span className={cn("size-2 rounded-full", columnDotClass(column.color))} />
+                {column.color
+                  ? (COLUMN_COLOR_LABEL[column.color as ColumnColor] ?? column.color)
+                  : "None"}
+              </span>
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            <SelectItem value={NO_COLOR}>
+              <span className="flex items-center gap-2">
+                <span className={cn("size-2 rounded-full", columnDotClass(null))} />
+                None
+              </span>
+            </SelectItem>
+            {COLUMN_COLORS.map((color) => (
+              <SelectItem key={color} value={color}>
+                <span className="flex items-center gap-2">
+                  <span className={cn("size-2 rounded-full", columnDotClass(color))} />
+                  {COLUMN_COLOR_LABEL[color]}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+        <Button
+          aria-label="Move column left"
+          size="icon-xs"
+          variant="ghost"
+          disabled={first}
+          onClick={() => onMove(-1)}
+        >
+          <ArrowUpIcon />
+        </Button>
+        <Button
+          aria-label="Move column right"
+          size="icon-xs"
+          variant="ghost"
+          disabled={last}
+          onClick={() => onMove(1)}
+        >
+          <ArrowDownIcon />
+        </Button>
+        <Button
+          aria-label="Delete column"
+          size="icon-xs"
+          variant="ghost"
+          disabled={onlyColumn}
+          onClick={onRemove}
+        >
+          <Trash2Icon />
+        </Button>
+      </div>
+      <ColumnAutoMoveRow column={column} columns={columns} />
+    </li>
+  );
+}
+
+const KEEP_TICKETS = "keep";
+const DEFAULT_AUTO_MOVE_DAYS = 7;
+
+/** When tickets left unchanged in a column move on, like Done to Settled after a week. */
+function ColumnAutoMoveRow({
+  column,
+  columns,
+}: {
+  readonly column: BoardColumn;
+  readonly columns: ReadonlyArray<BoardColumn>;
+}) {
+  const dispatch = useBoardsDispatch();
+  const autoMove = column.autoMove;
+  const [days, setDays] = useState(String(autoMove?.afterDays ?? DEFAULT_AUTO_MOVE_DAYS));
+  const targets = columns.filter((candidate) => candidate.id !== column.id);
+  const target = targets.find((candidate) => candidate.id === autoMove?.toColumnId);
+  const save = (next: BoardColumn["autoMove"]) =>
+    void dispatch({ type: "column.update", columnId: column.id, autoMove: next });
+  return (
+    <div className="flex items-center gap-1.5 pl-2 text-xs text-muted-foreground">
+      <span>Move tickets unchanged here to</span>
       <Select
-        value={column.color ?? NO_COLOR}
+        value={target?.id ?? KEEP_TICKETS}
         onValueChange={(value) =>
-          void dispatch({
-            type: "column.update",
-            columnId: column.id,
-            color: value === NO_COLOR ? null : String(value),
-          })
+          save(
+            value === KEEP_TICKETS
+              ? null
+              : {
+                  afterDays: autoMove?.afterDays ?? DEFAULT_AUTO_MOVE_DAYS,
+                  toColumnId: String(value),
+                },
+          )
         }
       >
-        <SelectTrigger size="sm" className="w-28" aria-label="Column color">
-          <SelectValue>
-            <span className="flex items-center gap-2">
-              <span className={cn("size-2 rounded-full", columnDotClass(column.color))} />
-              {column.color
-                ? (COLUMN_COLOR_LABEL[column.color as ColumnColor] ?? column.color)
-                : "None"}
-            </span>
-          </SelectValue>
+        <SelectTrigger size="sm" className="w-36" aria-label={`Where ${column.name} tickets move`}>
+          <SelectValue>{target?.name ?? "Never"}</SelectValue>
         </SelectTrigger>
-        <SelectPopup align="end" alignItemWithTrigger={false}>
-          <SelectItem value={NO_COLOR}>
-            <span className="flex items-center gap-2">
-              <span className={cn("size-2 rounded-full", columnDotClass(null))} />
-              None
-            </span>
-          </SelectItem>
-          {COLUMN_COLORS.map((color) => (
-            <SelectItem key={color} value={color}>
-              <span className="flex items-center gap-2">
-                <span className={cn("size-2 rounded-full", columnDotClass(color))} />
-                {COLUMN_COLOR_LABEL[color]}
-              </span>
+        <SelectPopup align="start" alignItemWithTrigger={false}>
+          <SelectItem value={KEEP_TICKETS}>Never</SelectItem>
+          {targets.map((candidate) => (
+            <SelectItem key={candidate.id} value={candidate.id}>
+              {candidate.name}
             </SelectItem>
           ))}
         </SelectPopup>
       </Select>
-      <Button
-        aria-label="Move column left"
-        size="icon-xs"
-        variant="ghost"
-        disabled={first}
-        onClick={() => onMove(-1)}
-      >
-        <ArrowUpIcon />
-      </Button>
-      <Button
-        aria-label="Move column right"
-        size="icon-xs"
-        variant="ghost"
-        disabled={last}
-        onClick={() => onMove(1)}
-      >
-        <ArrowDownIcon />
-      </Button>
-      <Button
-        aria-label="Delete column"
-        size="icon-xs"
-        variant="ghost"
-        disabled={onlyColumn}
-        onClick={onRemove}
-      >
-        <Trash2Icon />
-      </Button>
-    </li>
+      {autoMove && target ? (
+        <>
+          <span>after</span>
+          <Input
+            size="compact"
+            type="number"
+            min={1}
+            aria-label={`Days before ${column.name} tickets move`}
+            className="w-16"
+            value={days}
+            onChange={(event) => setDays(event.target.value)}
+            onBlur={() => {
+              const parsed = Math.floor(Number(days));
+              if (!Number.isFinite(parsed) || parsed < 1) {
+                setDays(String(autoMove.afterDays));
+                return;
+              }
+              if (parsed !== autoMove.afterDays) save({ ...autoMove, afterDays: parsed });
+            }}
+          />
+          <span>{Number(days) === 1 ? "day" : "days"}</span>
+        </>
+      ) : null}
+    </div>
   );
 }

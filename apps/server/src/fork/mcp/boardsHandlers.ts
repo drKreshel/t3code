@@ -157,11 +157,18 @@ const make = Effect.gen(function* () {
         archived: board.archivedAt !== null,
         columns: board.columns
           .toSorted((a, b) => a.position - b.position)
-          .map((column) => ({
-            name: column.name,
-            color: column.color,
-            tickets: live.filter((ticket) => ticket.columnId === column.id).length,
-          })),
+          .map((column) => {
+            const target = board.columns.find((other) => other.id === column.autoMove?.toColumnId);
+            return {
+              name: column.name,
+              color: column.color,
+              tickets: live.filter((ticket) => ticket.columnId === column.id).length,
+              autoMove:
+                column.autoMove && target
+                  ? { afterDays: column.autoMove.afterDays, to: target.name }
+                  : null,
+            };
+          }),
       } satisfies BoardSummary;
     });
 
@@ -417,6 +424,18 @@ const make = Effect.gen(function* () {
             type: "column.delete",
             columnId: column.id,
             moveTicketsTo: yield* idOf(moveTicketsTo),
+          });
+        }
+        // After adds, so a move can target a column this call creates.
+        for (const { column, autoMove } of updates) {
+          if (autoMove === undefined || removedIds.has(column.id)) continue;
+          yield* dispatch({
+            type: "column.update",
+            columnId: column.id,
+            autoMove:
+              autoMove === null
+                ? null
+                : { afterDays: autoMove.afterDays, toColumnId: yield* idOf(autoMove.to) },
           });
         }
         if (order !== null) {

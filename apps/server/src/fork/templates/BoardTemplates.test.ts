@@ -1,52 +1,21 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import type { AutomationAction, AutomationsCommand } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Ref from "effect/Ref";
 
-import { AutomationEngine } from "../automations/AutomationEngine.ts";
-import {
-  AutomationsStore,
-  layerMemory as storeLayerMemory,
-} from "../automations/AutomationsStore.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { BoardTemplates, layerMemory } from "./BoardTemplates.ts";
 
-const action: AutomationAction = {
-  projectKey: "env:project",
-  modelSelection: null,
-  runtimeMode: "full-access",
-  interactionMode: "default",
-  checkout: "local",
-};
-
-/** Templates over in-memory boards and automations; the engine records what it is asked to create. */
-const makeHarness = Effect.gen(function* () {
-  const created = yield* Ref.make<ReadonlyArray<AutomationsCommand>>([]);
-  const engine = Layer.mock(AutomationEngine)({
-    dispatch: (command) =>
-      Ref.update(created, (list) => [...list, command]).pipe(Effect.as({ id: "a" })),
-  });
-  const templates = yield* BoardTemplates.pipe(
-    Effect.provide(layerMemory.pipe(Layer.provide(engine))),
-  );
-  return {
-    templates,
-    created,
-    boards: yield* BoardsService,
-    store: yield* AutomationsStore,
-  };
-});
-
-const TestLayer = Layer.mergeAll(boardsLayerMemory, storeLayerMemory).pipe(
+const TestLayer = layerMemory.pipe(
+  Layer.provideMerge(boardsLayerMemory),
   Layer.provideMerge(NodeServices.layer),
 );
 
 describe("BoardTemplates", () => {
-  it.effect("creates a board with a template's columns and automations", () =>
+  it.effect("creates a board with a template's columns and their ticket moves", () =>
     Effect.gen(function* () {
-      const { templates, created, boards } = yield* makeHarness;
+      const templates = yield* BoardTemplates;
+      const boards = yield* BoardsService;
       const boardId = (yield* templates.dispatch(
         { type: "board.create", templateId: "builtin:ship", name: "Atlas", key: "ATLAS" },
         "user",
@@ -64,58 +33,33 @@ describe("BoardTemplates", () => {
         "Settled",
         "Cancelled",
       ]);
-      const commands = (yield* Ref.get(created)).flatMap((command) =>
-        command.type === "automation.create" ? [command] : [],
-      );
-      expect(commands).toHaveLength(1);
-      const settle = commands[0]!;
-      expect(settle.title).toBe("Settle old Done tickets (Atlas)");
-      expect(settle.action.steps).toEqual([
-        { type: "moveStale", from: "Done", to: "Settled", olderThanDays: 7, boardId },
-      ]);
+      const column = (name: string) => board.columns.find((candidate) => candidate.name === name)!;
+      expect(column("Done").autoMove).toEqual({
+        afterDays: 7,
+        toColumnId: column("Settled").id,
+      });
+      expect(column("Todo").autoMove).toBeNull();
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("saves a board's tidying schedules, replacing by name", () =>
+  it.effect("saves a board's columns and moves, replacing by name", () =>
     Effect.gen(function* () {
-      const { templates, boards, store } = yield* makeHarness;
+      const templates = yield* BoardTemplates;
+      const boards = yield* BoardsService;
       const boardId = (yield* boards.dispatch(
         { type: "board.create", name: "Web", key: "WEB" },
         "user",
       )).id!;
-      const schedule = {
-        type: "schedule" as const,
-        schedule: { kind: "cron" as const, cron: "0 6 * * *" },
-        timezone: "UTC",
-      };
-      yield* store.create({
-        title: "Settle (Web)",
-        prompt: "",
-        trigger: schedule,
-        action: {
-          ...action,
-          steps: [{ type: "moveStale", from: "Done", to: "Review", olderThanDays: 2, boardId }],
+      const columns = (yield* boards.snapshot).boards[0]!.columns;
+      const column = (name: string) => columns.find((candidate) => candidate.name === name)!.id;
+      yield* boards.dispatch(
+        {
+          type: "column.update",
+          columnId: column("Done"),
+          autoMove: { afterDays: 2, toColumnId: column("Review") },
         },
-        enabled: true,
-      });
-      // Not this board's: a chat schedule and a sweep over every board.
-      yield* store.create({
-        title: "Standup",
-        prompt: "Summarize",
-        trigger: schedule,
-        action,
-        enabled: true,
-      });
-      yield* store.create({
-        title: "Settle everywhere",
-        prompt: "",
-        trigger: schedule,
-        action: {
-          ...action,
-          steps: [{ type: "moveStale", from: "Done", to: "Review", olderThanDays: 2 }],
-        },
-        enabled: true,
-      });
+        "user",
+      );
 
       const save = templates.dispatch(
         { type: "template.save", boardId, name: "Mine", description: "Mine" },
@@ -125,18 +69,12 @@ describe("BoardTemplates", () => {
       expect((yield* save).id).toBe(id);
       const saved = (yield* templates.snapshot).templates.filter((template) => !template.builtIn);
       expect(saved.map((template) => template.name)).toEqual(["Mine"]);
-      expect(saved[0]!.columns.map((column) => column.name)).toEqual([
-        "Backlog",
-        "Todo",
-        "In progress",
-        "Review",
-        "Done",
-      ]);
-      expect(saved[0]!.automations).toMatchObject([
-        { title: "Settle", trigger: { type: "schedule", timezone: "UTC" } },
-      ]);
-      expect(saved[0]!.automations[0]!.action.steps).toEqual([
-        { type: "moveStale", from: "Done", to: "Review", olderThanDays: 2, boardId: null },
+      expect(saved[0]!.columns).toEqual([
+        { name: "Backlog", color: null },
+        { name: "Todo", color: null },
+        { name: "In progress", color: "blue" },
+        { name: "Review", color: "violet" },
+        { name: "Done", color: "green", autoMove: { afterDays: 2, toColumn: "Review" } },
       ]);
 
       const refused = yield* templates

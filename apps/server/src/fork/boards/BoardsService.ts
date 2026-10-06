@@ -12,6 +12,7 @@ import {
   type BoardsCommandErrorCode,
   type BoardsCommandResult,
   type BoardsSnapshot,
+  type ColumnSpec,
   type Ticket,
   type TicketDetail,
   type TicketFlag,
@@ -103,6 +104,8 @@ interface ColumnRow {
   readonly name: string;
   readonly color: string | null;
   readonly position: number;
+  readonly move_after_days: number | null;
+  readonly move_to_column_id: string | null;
 }
 interface TicketRow {
   readonly id: string;
@@ -176,6 +179,10 @@ const make = Effect.gen(function* () {
           name: column.name,
           color: column.color,
           position: column.position,
+          autoMove:
+            column.move_after_days !== null && column.move_to_column_id !== null
+              ? { afterDays: column.move_after_days, toColumnId: column.move_to_column_id }
+              : null,
         })),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -356,11 +363,28 @@ const make = Effect.gen(function* () {
             VALUES (${id}, ${command.key}, ${command.name}, ${command.defaultProjectKey ?? null},
               ${position}, ${at}, ${at})
           `;
-          for (const [index, column] of (command.columns ?? DEFAULT_BOARD_COLUMNS).entries()) {
+          const specs: ReadonlyArray<ColumnSpec> = command.columns ?? DEFAULT_BOARD_COLUMNS;
+          const created: Array<{ readonly id: string; readonly spec: ColumnSpec }> = [];
+          for (const [index, spec] of specs.entries()) {
             const columnId = yield* newId;
             yield* sql`
               INSERT INTO fork_board_columns (id, board_id, name, color, position)
-              VALUES (${columnId}, ${id}, ${column.name}, ${column.color}, ${index + 1})
+              VALUES (${columnId}, ${id}, ${spec.name}, ${spec.color}, ${index + 1})
+            `;
+            created.push({ id: columnId, spec });
+          }
+          // Specs name their target column; a missing or same column drops the move.
+          const sameName = (a: string, b: string) =>
+            a.trim().toLowerCase() === b.trim().toLowerCase();
+          for (const column of created) {
+            const autoMove = column.spec.autoMove;
+            if (!autoMove) continue;
+            const target = created.find((other) => sameName(other.spec.name, autoMove.toColumn));
+            if (!target || target.id === column.id) continue;
+            yield* sql`
+              UPDATE fork_board_columns
+              SET move_after_days = ${autoMove.afterDays}, move_to_column_id = ${target.id}
+              WHERE id = ${column.id}
             `;
           }
           return { id, touched: [] };
@@ -410,10 +434,23 @@ const make = Effect.gen(function* () {
         }
         case "column.update": {
           const column = yield* findColumn(command.columnId);
+          const autoMove = command.autoMove;
+          if (autoMove) {
+            const target = yield* findColumn(autoMove.toColumnId);
+            if (target.board_id !== column.board_id || target.id === column.id) {
+              return yield* fail("invalid", "Move tickets to another column of the same board.");
+            }
+          }
           yield* sql`
             UPDATE fork_board_columns
             SET name = ${command.name ?? column.name},
-              color = ${command.color === undefined ? column.color : command.color}
+              color = ${command.color === undefined ? column.color : command.color},
+              move_after_days = ${
+                autoMove === undefined ? column.move_after_days : (autoMove?.afterDays ?? null)
+              },
+              move_to_column_id = ${
+                autoMove === undefined ? column.move_to_column_id : (autoMove?.toColumnId ?? null)
+              }
             WHERE id = ${column.id}
           `;
           return { id: null, touched: [] };
@@ -442,6 +479,10 @@ const make = Effect.gen(function* () {
               at,
             );
           }
+          yield* sql`
+            UPDATE fork_board_columns SET move_after_days = NULL, move_to_column_id = NULL
+            WHERE move_to_column_id = ${column.id}
+          `;
           yield* sql`DELETE FROM fork_board_columns WHERE id = ${column.id}`;
           return { id: null, touched: moved.map((ticket) => ticket.id) };
         }

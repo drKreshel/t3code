@@ -18,7 +18,7 @@ export interface BoardsCrumb {
   readonly to?: { readonly boardKey?: string };
 }
 
-const ROOT_PATHS = { Boards: "/boards", Automations: "/automations", Skills: "/skills" } as const;
+const ROOT_PATHS = { Boards: "/boards", Skills: "/skills" } as const;
 
 /**
  * Top bar and body shared by the boards screens. `scroll` wraps the body in a

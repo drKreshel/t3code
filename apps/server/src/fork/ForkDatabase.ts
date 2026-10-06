@@ -251,6 +251,35 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       )`,
     ],
   },
+  {
+    // A column can move tickets left in it for some days on to another column.
+    // It replaces scheduled "move stale tickets" automations; the automations
+    // themselves move to scheduled tasks in `LegacyAutomations`.
+    version: 11,
+    statements: [
+      `ALTER TABLE fork_board_columns ADD COLUMN move_after_days INTEGER`,
+      `ALTER TABLE fork_board_columns ADD COLUMN move_to_column_id TEXT`,
+      // Templates carry the move on the column it starts from.
+      `UPDATE fork_board_templates SET columns_json = (
+        SELECT json_group_array(
+          CASE WHEN moved.auto_move IS NULL THEN json(moved.value)
+            ELSE json_set(moved.value, '$.autoMove', json(moved.auto_move)) END)
+        FROM (
+          SELECT col.value, (
+            SELECT json_object('afterDays', json_extract(step.value, '$.olderThanDays'),
+                'toColumn', json_extract(step.value, '$.to'))
+              FROM json_each(fork_board_templates.automations_json) AS automation,
+                json_each(automation.value, '$.action.steps') AS step
+              WHERE json_extract(automation.value, '$.enabled')
+                AND lower(trim(json_extract(step.value, '$.from')))
+                  = lower(trim(json_extract(col.value, '$.name')))
+              LIMIT 1) AS auto_move
+          FROM json_each(fork_board_templates.columns_json) AS col ORDER BY col.key
+        ) AS moved
+      )`,
+      `ALTER TABLE fork_board_templates DROP COLUMN automations_json`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

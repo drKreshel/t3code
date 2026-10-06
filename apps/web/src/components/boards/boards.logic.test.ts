@@ -21,9 +21,9 @@ const board: Board = {
   defaultProjectKey: null,
   position: 1,
   columns: [
-    { id: "todo", name: "Todo", color: null, position: 1 },
-    { id: "review", name: "Review", color: "violet", position: 2 },
-    { id: "done", name: "Done", color: "green", position: 3 },
+    { id: "todo", name: "Todo", color: null, position: 1, autoMove: null },
+    { id: "review", name: "Review", color: "violet", position: 2, autoMove: null },
+    { id: "done", name: "Done", color: "green", position: 3, autoMove: null },
   ],
   createdAt: "",
   updatedAt: "",

@@ -659,7 +659,9 @@ function TimelineSection({ events }: { readonly events: ReadonlyArray<TicketEven
         {events.toReversed().map((event) => (
           <li key={event.id} className="flex min-w-0 items-baseline gap-2">
             <span className="min-w-0 flex-1 text-muted-foreground">
-              <span className="text-foreground">{event.actor === "user" ? "You" : "Agent"}</span>{" "}
+              <span className="text-foreground">
+                {event.actor === "user" ? "You" : event.actor === "board" ? "The board" : "Agent"}
+              </span>{" "}
               {describeTicketEvent(event).replace(/^./, (first) => first.toLowerCase())}
             </span>
             <span className="shrink-0 text-xs text-muted-foreground">

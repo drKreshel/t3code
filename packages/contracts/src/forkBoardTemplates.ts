@@ -1,36 +1,20 @@
 /**
- * Board templates (fork feature): columns plus the automations that give them
- * behavior. Creating a board from one copies both; the board and its
- * automations are then independent of the template. Built-in templates ship
- * with T3; saved ones live in the environment's `fork.sqlite`.
+ * Board templates (fork feature): columns, including when tickets move on by
+ * themselves. Creating a board from one copies them; the board is then
+ * independent of the template. Built-in templates ship with T3; saved ones
+ * live in the environment's `fork.sqlite`.
  */
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { AutomationAction, AutomationSchedule } from "./forkAutomations.ts";
 import { BoardKey, BoardsCommandError, ColumnSpec } from "./forkBoards.ts";
 
 export const FORK_TEMPLATES_WS_METHODS = {
   subscribe: "fork.templates.subscribe",
   dispatch: "fork.templates.dispatch",
 } as const;
-
-/** A schedule a template creates; its "move old tickets" steps act on the new board only. */
-export const TemplateAutomation = Schema.Struct({
-  title: TrimmedNonEmptyString,
-  prompt: Schema.String,
-  trigger: Schema.Struct({
-    type: Schema.Literal("schedule"),
-    schedule: AutomationSchedule,
-    /** Null: the server's zone when the board is created. */
-    timezone: Schema.NullOr(TrimmedNonEmptyString),
-  }),
-  action: AutomationAction,
-  enabled: Schema.Boolean,
-});
-export type TemplateAutomation = typeof TemplateAutomation.Type;
 
 export const BoardTemplate = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -39,7 +23,6 @@ export const BoardTemplate = Schema.Struct({
   /** Ships with T3; cannot be deleted. */
   builtIn: Schema.Boolean,
   columns: Schema.Array(ColumnSpec),
-  automations: Schema.Array(TemplateAutomation),
 });
 export type BoardTemplate = typeof BoardTemplate.Type;
 
@@ -50,7 +33,7 @@ export type TemplatesSnapshot = typeof TemplatesSnapshot.Type;
 const Id = TrimmedNonEmptyString;
 
 export const TemplatesCommand = Schema.Union([
-  /** Creates a board with the template's columns and automations. */
+  /** Creates a board with the template's columns. */
   Schema.Struct({
     type: Schema.Literal("board.create"),
     templateId: Id,
@@ -58,10 +41,7 @@ export const TemplatesCommand = Schema.Union([
     key: BoardKey,
     defaultProjectKey: Schema.optional(Schema.NullOr(Schema.String)),
   }),
-  /**
-   * Saves a board's columns and the schedules that tidy it as a
-   * template. Replaces a saved template with the same name.
-   */
+  /** Saves a board's columns as a template. Replaces a saved template with the same name. */
   Schema.Struct({
     type: Schema.Literal("template.save"),
     boardId: Id,

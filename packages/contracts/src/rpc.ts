@@ -23,7 +23,6 @@ import {
   ForkSkillsSaveRpc,
   ForkSkillsSaveSettingsRpc,
 } from "./forkSkills.ts";
-import { ForkAutomationsDispatchRpc, ForkAutomationsSubscribeRpc } from "./forkAutomations.ts";
 import { ForkTemplatesDispatchRpc, ForkTemplatesSubscribeRpc } from "./forkBoardTemplates.ts";
 import {
   ForkWorkspacesDispatchRpc,
@@ -1931,8 +1930,6 @@ export const WsRpcGroup = RpcGroup.make(
   ForkBoardsSubscribeRpc,
   ForkBoardsSubscribeTicketRpc,
   ForkBoardsDispatchRpc,
-  ForkAutomationsSubscribeRpc,
-  ForkAutomationsDispatchRpc,
   ForkWorkspacesSubscribeRpc,
   ForkWorkspacesDispatchRpc,
   ForkWorkspacesListReposRpc,

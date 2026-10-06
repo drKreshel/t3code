@@ -22,7 +22,7 @@ export const FORK_BOARDS_WS_METHODS = {
 export const TicketFlag = Schema.Struct({
   level: Schema.Literals(["warning", "error"]),
   reason: Schema.String,
-  /** `user`, `thread:<key>`, or `automation:<id>`. */
+  /** `user`, `system`, or `thread:<key>`; older flags may name `automation:<id>`. */
   by: Schema.String,
   at: IsoDateTime,
 });
@@ -60,6 +60,16 @@ export const BOARD_COLUMN_COLORS = [
 export const BoardColumnColor = Schema.Literals(BOARD_COLUMN_COLORS);
 export type BoardColumnColor = typeof BoardColumnColor.Type;
 
+/**
+ * Moves tickets left unchanged in a column for `afterDays` into another column
+ * of the same board, like Done tickets settling after a week.
+ */
+export const ColumnAutoMove = Schema.Struct({
+  afterDays: PositiveInt,
+  toColumnId: TrimmedNonEmptyString,
+});
+export type ColumnAutoMove = typeof ColumnAutoMove.Type;
+
 /** A column records progress; moving a ticket never starts an agent. */
 export const BoardColumn = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -67,6 +77,7 @@ export const BoardColumn = Schema.Struct({
   /** A color token for the column's dot, like `blue`; null for the neutral one. */
   color: Schema.NullOr(Schema.String),
   position: Schema.Number,
+  autoMove: Schema.NullOr(ColumnAutoMove),
 });
 export type BoardColumn = typeof BoardColumn.Type;
 
@@ -74,6 +85,10 @@ export type BoardColumn = typeof BoardColumn.Type;
 export const ColumnSpec = Schema.Struct({
   name: TrimmedNonEmptyString,
   color: Schema.NullOr(Schema.String),
+  /** Like a column's `autoMove`, naming the target column instead. */
+  autoMove: Schema.optional(
+    Schema.NullOr(Schema.Struct({ afterDays: PositiveInt, toColumn: TrimmedNonEmptyString })),
+  ),
 });
 export type ColumnSpec = typeof ColumnSpec.Type;
 
@@ -196,6 +211,7 @@ export const BoardsCommand = Schema.Union([
     columnId: Id,
     name: Schema.optional(TrimmedNonEmptyString),
     color: Schema.optional(Schema.NullOr(Schema.String)),
+    autoMove: Schema.optional(Schema.NullOr(ColumnAutoMove)),
   }),
   command("column.delete", { columnId: Id, moveTicketsTo: Id }),
   command("column.reorder", { columnId: Id, position: Schema.Number }),

@@ -217,18 +217,32 @@ describe("boards toolkit handlers", () => {
 
       const board = yield* call("update_board", {
         board: "eco",
-        updateColumns: [{ column: "review", color: "amber" }],
+        updateColumns: [
+          { column: "review", color: "amber" },
+          // A move can target a column this call adds.
+          { column: "Done", autoMove: { afterDays: 7, to: "testing" } },
+        ],
         addColumns: [{ name: "Testing", color: "cyan" }],
         removeColumns: [{ column: "Todo", moveTicketsTo: "Backlog" }],
         columnOrder: ["Backlog", "In progress", "Testing", "Review", "Done"],
       });
       expect(board.columns).toEqual([
-        { name: "Backlog", color: null, tickets: 1 },
-        { name: "In progress", color: "blue", tickets: 0 },
-        { name: "Testing", color: "cyan", tickets: 0 },
-        { name: "Review", color: "amber", tickets: 0 },
-        { name: "Done", color: "green", tickets: 0 },
+        { name: "Backlog", color: null, tickets: 1, autoMove: null },
+        { name: "In progress", color: "blue", tickets: 0, autoMove: null },
+        { name: "Testing", color: "cyan", tickets: 0, autoMove: null },
+        { name: "Review", color: "amber", tickets: 0, autoMove: null },
+        {
+          name: "Done",
+          color: "green",
+          tickets: 0,
+          autoMove: { afterDays: 7, to: "Testing" },
+        },
       ]);
+      const stopped = yield* call("update_board", {
+        board: "ECO",
+        updateColumns: [{ column: "Done", autoMove: null }],
+      });
+      expect(stopped.columns.at(-1)?.autoMove).toBeNull();
       expect((yield* call("get_ticket", { ticket: "ECO-1" })).column).toBe("Backlog");
 
       // Renames can swap names; the order uses the new ones.

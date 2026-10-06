@@ -57,7 +57,7 @@ export function NewBoardDialog({
     if (!api) return;
     const confirmed = await settlePromise(() =>
       api.dialogs.confirm(
-        `Delete template "${template.name}"?\nBoards made from it keep their columns and automations.`,
+        `Delete template "${template.name}"?\nBoards made from it keep their columns.`,
         { variant: "destructive" },
       ),
     );
@@ -157,9 +157,6 @@ export function NewBoardDialog({
                         ) : null}
                         <span className="text-xs text-muted-foreground">
                           {template.columns.map((column) => column.name).join(" → ")}
-                          {template.automations.length > 0
-                            ? ` · ${template.automations.length} automation${template.automations.length === 1 ? "" : "s"}`
-                            : ""}
                         </span>
                       </RadioPrimitive.Root>
                       {template.builtIn ? null : (

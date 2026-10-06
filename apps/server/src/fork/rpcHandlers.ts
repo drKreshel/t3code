@@ -4,12 +4,9 @@
  * authorization and tracing as upstream ones.
  */
 import {
-  AutomationsCommandError,
-  type AutomationsCommand,
   BoardsCommandError,
   type BoardsCommand,
   FORK_AGENT_CONTEXT_WS_METHODS,
-  FORK_AUTOMATIONS_WS_METHODS,
   FORK_SKILLS_WS_METHODS,
   type SkillFile,
   SkillsError,
@@ -28,8 +25,6 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import { makeThreadAgentContext } from "./agentContext/AgentContext.ts";
-import { AutomationEngine } from "./automations/AutomationEngine.ts";
-import { AutomationsStore } from "./automations/AutomationsStore.ts";
 import { BoardsService } from "./boards/BoardsService.ts";
 import { SkillsService } from "./skills/SkillsService.ts";
 import { BoardTemplates } from "./templates/BoardTemplates.ts";
@@ -49,7 +44,6 @@ interface RpcObservers {
 }
 
 const TRACE = { "rpc.aggregate": "fork-boards" } as const;
-const AUTOMATIONS_TRACE = { "rpc.aggregate": "fork-automations" } as const;
 const WORKSPACES_TRACE = { "rpc.aggregate": "fork-workspaces" } as const;
 
 const SKILLS_TRACE = { "rpc.aggregate": "fork-skills" } as const;
@@ -62,11 +56,6 @@ const skillsUnavailable = new SkillsError({
 const workspacesUnavailable = new WorkspacesCommandError({
   code: "storage",
   message: "Ticket workspaces are not available on this server.",
-});
-
-const automationsUnavailable = new AutomationsCommandError({
-  code: "storage",
-  message: "Automations are not available on this server.",
 });
 
 const unavailable = new BoardsCommandError({
@@ -87,8 +76,6 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
     // server tests) still build; there, fork methods report unavailability.
     const maybeBoards = yield* Effect.serviceOption(BoardsService);
     const boards = Option.getOrElse(maybeBoards, () => unavailableBoards);
-    const automationsStore = yield* Effect.serviceOption(AutomationsStore);
-    const automationEngine = yield* Effect.serviceOption(AutomationEngine);
     const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
     const templates = yield* Effect.serviceOption(BoardTemplates);
     const threadAgentContext = yield* makeThreadAgentContext;
@@ -139,24 +126,6 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
         ),
       [FORK_BOARDS_WS_METHODS.dispatch]: (command: BoardsCommand) =>
         observeRpcEffect(FORK_BOARDS_WS_METHODS.dispatch, boards.dispatch(command, "user"), TRACE),
-      [FORK_AUTOMATIONS_WS_METHODS.subscribe]: () =>
-        observeRpcStream(
-          FORK_AUTOMATIONS_WS_METHODS.subscribe,
-          Option.match(automationsStore, {
-            onNone: () => Stream.fail(automationsUnavailable),
-            onSome: (store) => store.stream,
-          }),
-          AUTOMATIONS_TRACE,
-        ),
-      [FORK_AUTOMATIONS_WS_METHODS.dispatch]: (command: AutomationsCommand) =>
-        observeRpcEffect(
-          FORK_AUTOMATIONS_WS_METHODS.dispatch,
-          Option.match(automationEngine, {
-            onNone: () => Effect.fail(automationsUnavailable),
-            onSome: (engine) => engine.dispatch(command),
-          }),
-          AUTOMATIONS_TRACE,
-        ),
       [FORK_WORKSPACES_WS_METHODS.subscribe]: () =>
         observeRpcStream(
           FORK_WORKSPACES_WS_METHODS.subscribe,

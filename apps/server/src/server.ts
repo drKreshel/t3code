@@ -35,9 +35,9 @@ import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
-import * as ForkAutomationEngine from "./fork/automations/AutomationEngine.ts";
-import * as ForkAutomationsStore from "./fork/automations/AutomationsStore.ts";
+import * as ForkLegacyAutomations from "./fork/automations/LegacyAutomations.ts";
 import * as ForkBoards from "./fork/boards/BoardsService.ts";
+import * as ForkBoardUpkeep from "./fork/boards/BoardUpkeep.ts";
 import * as ForkSkills from "./fork/skills/SkillsService.ts";
 import * as ForkBoardTemplates from "./fork/templates/BoardTemplates.ts";
 import * as ForkTicketWorkspaces from "./fork/workspaces/TicketWorkspaces.ts";
@@ -529,9 +529,8 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 
 const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer
   .pipe(
-    Layer.provideMerge(ForkAutomationEngine.layer),
+    Layer.provideMerge(Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer)),
     Layer.provideMerge(ForkTicketWorkspaces.layer),
-    Layer.provideMerge(ForkAutomationsStore.layer),
     Layer.provideMerge(ForkBoards.layer),
     Layer.provideMerge(ForkSkills.layer),
     Layer.provideMerge(
