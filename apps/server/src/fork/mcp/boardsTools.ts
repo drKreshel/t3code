@@ -404,11 +404,25 @@ const AddCommentTool = Tool.make("add_comment", {
 
 const RequestHumanTool = Tool.make("request_human", {
   description:
-    "Mark this chat Needs you when you are completely blocked from continuing without the user. Explain the blocker and the decision or action needed. The user can reply or Resume in this chat to continue the same session. For ordinary questions, use the provider's question tool. Leave a ticket handoff when linked, then stop.",
+    "Mark this chat Needs you when you are blocked without the user. The user may be away and read this later with no context, so write `reason` as short markdown: what you were doing, what happened, and the decision or action needed. When there are concrete ways forward, offer them as options; the user can always answer in their own words, and their answer continues this session. For ordinary questions while the user is present, use the provider's question tool. Leave a ticket handoff when linked, then stop.",
   parameters: Schema.Struct({
     reason: TrimmedNonEmptyString.annotate({
-      description: "What blocks progress and what the user needs to decide or do.",
+      description:
+        "Markdown summary: what you were doing, what blocks progress, and what the user needs to decide or do. Use short paragraphs or bullets.",
     }),
+    options: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          label: TrimmedNonEmptyString.annotate({ description: "Short choice, 1-5 words." }),
+          description: TrimmedNonEmptyString.annotate({
+            description: "What you will do if the user picks this.",
+          }),
+        }),
+      ).annotate({
+        description:
+          "2-4 ways forward the user can pick. Picking one sends it to you immediately, so each must be a complete decision.",
+      }),
+    ),
   }),
   success: Schema.Struct({ threadId: Schema.String, path: Schema.String }),
   failure,

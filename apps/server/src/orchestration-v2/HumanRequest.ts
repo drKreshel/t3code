@@ -82,13 +82,9 @@ export function humanRequestEvents(
             header: "Needs you",
             question: command.reason,
             allowCustomAnswer: true,
-            options: [
-              {
-                label: "Resume",
-                value: "The blocker is resolved. Continue from where you stopped.",
-                description: "I have resolved the blocker. Continue this chat.",
-              },
-            ],
+            // No canned "continue" answer: picking an option sends at once, so the
+            // user should only ever pick a way forward the agent actually offered.
+            options: command.options ?? [],
           },
         ],
       },

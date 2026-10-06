@@ -9,6 +9,7 @@ import { CheckIcon, HandIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
+import ChatMarkdown from "../ChatMarkdown";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -241,13 +242,19 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       <CollapsiblePanel>
         <ComposerBanner.Scroll>
           <ComposerBanner.Body className="pe-1 pb-1 wrap-anywhere">
-            <p className="text-sm text-foreground/85">{activeQuestion.question}</p>
             {prompt.blockingReason ? (
-              <p className="text-xs text-muted-foreground">
-                The agent is blocked. Reply below to continue, or choose Resume after resolving the
-                blocker.
-              </p>
-            ) : null}
+              // Blockers are written for a user who was away, so they carry markdown structure.
+              <>
+                <ChatMarkdown text={activeQuestion.question} cwd={undefined} />
+                <p className="text-xs text-muted-foreground">
+                  {activeQuestion.options.length > 0
+                    ? "Pick a way forward, or reply below in your own words."
+                    : "Reply below to continue."}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-foreground/85">{activeQuestion.question}</p>
+            )}
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}

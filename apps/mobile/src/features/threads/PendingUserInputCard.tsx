@@ -270,7 +270,9 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         ) : null}
         {props.pendingUserInput.blockingReason ? (
           <Text className="font-sans text-sm text-foreground-muted">
-            The agent is blocked. Reply to continue, or choose Resume after resolving the blocker.
+            {props.pendingUserInput.questions.some((question) => question.options.length > 0)
+              ? "Pick a way forward, or reply in your own words."
+              : "Reply to continue."}
           </Text>
         ) : null}
         {props.pendingUserInput.questions.map((question) => {

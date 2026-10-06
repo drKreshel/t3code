@@ -3064,7 +3064,14 @@ const OrchestrationV2InternalCommand = Schema.Union([
     type: Schema.Literal("thread.request-human"),
     commandId: CommandId,
     threadId: ThreadId,
+    /** Markdown shown to the user: what blocks progress and what they need to decide or do. */
     reason: TrimmedNonEmptyString,
+    /** Ways forward the user can pick; they can always reply in their own words. */
+    options: Schema.optional(
+      Schema.Array(
+        Schema.Struct({ label: TrimmedNonEmptyString, description: TrimmedNonEmptyString }),
+      ),
+    ),
   }),
   /**
    * Records what a pull request watch saw, and wakes the agent in the same transaction when

@@ -567,6 +567,7 @@ const make = Effect.gen(function* () {
             commandId: CommandId.make(`request-human:${id}`),
             threadId: scope.thread.threadId,
             reason: input.reason,
+            ...(input.options === undefined ? {} : { options: input.options }),
           })
           .pipe(Effect.mapError(storage("Could not request help in this chat.")));
         return {
