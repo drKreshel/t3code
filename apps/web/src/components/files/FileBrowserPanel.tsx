@@ -6,7 +6,7 @@ import type {
 import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { ChevronsDownUpIcon, ChevronsUpDownIcon } from "lucide-react";
+import { ChevronsDownUpIcon, ChevronsUpDownIcon, FolderIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -27,6 +27,7 @@ import { areAllDirectoriesExpanded, setAllDirectoriesExpanded } from "./fileTree
 import { buildFileTreePathUpdates } from "./fileTreePathReconciliation";
 import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
+import { fileBrowserLinkPath } from "./filePreviewMode";
 
 interface FileBrowserPanelProps {
   environmentId: EnvironmentId;
@@ -39,6 +40,9 @@ interface FileBrowserPanelProps {
   onOpenFile: (relativePath: string) => void;
   onRefreshSelectedFile?: () => void;
   workspaceMutationId: string | null;
+  /** Emit host paths for an explorer rooted outside the thread workspace. */
+  absolutePaths?: boolean;
+  onOpenRoot?: () => void;
 }
 
 function treePath(entry: ProjectEntry): string {
@@ -103,6 +107,8 @@ export default function FileBrowserPanel({
   onOpenFile,
   onRefreshSelectedFile,
   workspaceMutationId,
+  absolutePaths = false,
+  onOpenRoot,
 }: FileBrowserPanelProps) {
   const { resolvedTheme } = useTheme();
   const composerRef = useComposerHandleContext();
@@ -169,7 +175,7 @@ export default function FileBrowserPanel({
       context.close();
       return;
     }
-    const relativePath = item.path.replace(/\/$/, "");
+    const relativePath = fileBrowserLinkPath(item.path.replace(/\/$/, ""), cwd, absolutePaths);
     const mention = serializeComposerFileLink(relativePath);
     const pointer = contextMenuPointerRef.current;
     const pointerIsFresh = pointer !== null && performance.now() - pointer.at < 1000;
@@ -243,8 +249,9 @@ export default function FileBrowserPanel({
     () =>
       createFileTreeDragMentionController({
         deselect: (path) => treeModelRef.current?.getItem(path)?.deselect(),
+        linkPath: (path) => fileBrowserLinkPath(path, cwd, absolutePaths),
       }),
-    [],
+    [cwd, absolutePaths],
   );
   const { model } = useFileTree({
     composition: {
@@ -278,7 +285,7 @@ export default function FileBrowserPanel({
       const selectedPath = selectedPaths.at(-1)?.replace(/\/$/, "");
       if (selectedPath && entryKindsRef.current.get(selectedPath) === "file") {
         treeSelectionPathRef.current = selectedPath;
-        onOpenFile(selectedPath);
+        onOpenFile(fileBrowserLinkPath(selectedPath, cwd, absolutePaths));
       }
     },
     paths: [],
@@ -487,6 +494,14 @@ export default function FileBrowserPanel({
       className="flex min-h-0 flex-1 flex-col bg-background"
       data-file-browser-panel={`${environmentId}:${cwd}`}
     >
+      {onOpenRoot ? (
+        <div className="shrink-0 border-b border-border/60 px-2 py-1">
+          <Button variant="ghost" size="sm" onClick={onOpenRoot} aria-label={`Open folder ${cwd}`}>
+            <FolderIcon className="size-3.5" />
+            {projectName}
+          </Button>
+        </div>
+      ) : null}
       <div
         className="flex h-10 min-h-10 shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 in-data-[preview-panel-mode=inline]:mb-1 in-data-[preview-panel-mode=inline]:h-9 in-data-[preview-panel-mode=inline]:min-h-9 in-data-[preview-panel-mode=inline]:border-b-transparent"
         data-surface-subheader

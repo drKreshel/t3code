@@ -6,8 +6,11 @@ import {
   remapFileCommentAnnotations,
 } from "./fileCommentAnnotations";
 import {
+  fileBrowserLinkPath,
+  fileBrowserSelectedPath,
   isMarkdownPreviewFile,
   resolveFilePreviewPath,
+  resolveHostFolderRoot,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
 } from "./filePreviewMode";
@@ -72,6 +75,28 @@ describe("isMarkdownPreviewFile", () => {
 });
 
 describe("shouldShowFileExplorer", () => {
+  it("shows a confirmed host folder and respects the explorer toggle for its child files", () => {
+    const hostFolderRoot = "/tmp/sdf-ui";
+    expect(
+      shouldShowFileExplorer({
+        relativePath: null,
+        explorerOpen: false,
+        attachmentOpen: false,
+        hostFolderRoot,
+      }),
+    ).toBe(true);
+    for (const explorerOpen of [false, true]) {
+      expect(
+        shouldShowFileExplorer({
+          relativePath: "/tmp/sdf-ui/preview.png",
+          explorerOpen,
+          attachmentOpen: false,
+          hostFolderRoot,
+        }),
+      ).toBe(explorerOpen);
+    }
+  });
+
   it("hides the workspace tree for host files and attachments", () => {
     expect(
       shouldShowFileExplorer({
@@ -104,6 +129,42 @@ describe("shouldShowFileExplorer", () => {
         attachmentOpen: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("host folder navigation", () => {
+  it.each(["/tmp/sdf-ui", "/tmp/assets.png", "/tmp/docs.md"])(
+    "browses %s, opens children by their absolute path, and returns to the folder",
+    (folder) => {
+      const root = resolveHostFolderRoot(folder, true, null);
+      expect(root).toBe(folder);
+      expect(fileBrowserSelectedPath(folder, root)).toBeNull();
+      const file = fileBrowserLinkPath("nested/preview.png", folder, true);
+      expect(file).toBe(`${folder}/nested/preview.png`);
+      expect(resolveHostFolderRoot(file, false, root)).toBe(folder);
+      expect(fileBrowserSelectedPath(file, root)).toBe("nested/preview.png");
+      expect(resolveHostFolderRoot(`${folder}/nested`, true, root)).toBe(folder);
+      expect(resolveHostFolderRoot(folder, true, root)).toBe(folder);
+    },
+  );
+
+  it("requires directory confirmation and clears the root on unrelated navigation", () => {
+    expect(resolveHostFolderRoot("/tmp/pipe", false, null)).toBeNull();
+    expect(resolveHostFolderRoot("/tmp/sdf-ui", false, "/tmp/sdf-ui")).toBeNull();
+    expect(resolveHostFolderRoot("/tmp/sdf-ui-other/image.png", false, "/tmp/sdf-ui")).toBeNull();
+    expect(resolveHostFolderRoot("src/main.ts", false, "/tmp/sdf-ui")).toBeNull();
+    expect(resolveHostFolderRoot(null, false, "/tmp/sdf-ui")).toBeNull();
+    expect(resolveHostFolderRoot("/tmp/other", true, "/tmp/sdf-ui")).toBe("/tmp/other");
+    expect(fileBrowserLinkPath("src/main.ts", "/repo", false)).toBe("src/main.ts");
+  });
+
+  it("maps Windows host paths to relative tree rows without changing the root", () => {
+    const root = "C:\\Temp\\sdf-ui";
+    const file = fileBrowserLinkPath("nested/preview.png", root, true);
+    expect(file).toBe("C:\\Temp\\sdf-ui\\nested\\preview.png");
+    expect(fileBrowserSelectedPath(file, root)).toBe("nested/preview.png");
+    expect(resolveHostFolderRoot(file.toLowerCase(), false, root)).toBe(root);
+    expect(resolveHostFolderRoot("C:\\Temp\\sdf-ui-other", false, root)).toBeNull();
   });
 });
 

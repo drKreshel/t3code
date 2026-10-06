@@ -21,6 +21,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
+import { fileBasename } from "@t3tools/client-runtime/markdown-links";
 import { Code2, Eye, FolderTree, Globe2, Table2, WrapTextIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -80,8 +81,10 @@ import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
 import {
+  fileBrowserSelectedPath,
   isMarkdownPreviewFile,
   resolveFilePreviewPath,
+  resolveHostFolderRoot,
   setMarkdownTaskChecked,
   shouldShowFileExplorer,
 } from "./filePreviewMode";
@@ -89,6 +92,7 @@ import { useFileSaveCoordinator } from "./useFileSaveCoordinator";
 import {
   getOptimisticProjectFileQueryData,
   setProjectFileQueryData,
+  useProjectEntriesQuery,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 
@@ -124,13 +128,15 @@ function WorkspaceImagePreview(props: {
   readonly alt: string;
   readonly workspaceMutationId: string | null;
 }) {
+  const insideWorkspace =
+    mediaFileReference(props.absolutePath, props.workspaceRoot).relativePath !== undefined;
   const resource = useMemo(
     () => ({
-      _tag: "workspace-file" as const,
+      _tag: insideWorkspace ? ("workspace-file" as const) : ("media-file" as const),
       threadId: props.threadRef.threadId,
       path: props.absolutePath,
     }),
-    [props.threadRef.threadId, props.absolutePath],
+    [insideWorkspace, props.threadRef.threadId, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -923,6 +929,8 @@ export default function FilePreviewPanel({
 }: FilePreviewPanelProps) {
   const relativePath =
     attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
+  const absolutePath =
+    relativePath && attachment === undefined ? resolvePathLinkTarget(relativePath, cwd) : null;
   const { resolvedTheme } = useTheme();
   const wordWrap = useClientSettings((settings) => settings.wordWrap);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -954,12 +962,23 @@ export default function FilePreviewPanel({
     relativePath,
     attachment === undefined && relativePath !== null,
   );
-  // A chat link cannot tell a folder from a file, so a folder arrives here as
-  // a file surface and the read fails. Keep the breadcrumbs, drop the preview
-  // pane, and let the tree fill the surface with the folder revealed. Mutation
-  // refresh stays on so the surface notices if the path becomes a file. A host
-  // path cannot be revealed in the workspace tree, so it keeps the read error.
-  const isDirectory = file.isNotFile && !isHostFile;
+  // Non-file entries also include pipes and devices. A successful immediate
+  // listing confirms a directory without attempting to read those as files.
+  const directory = useProjectEntriesQuery(
+    environmentId,
+    absolutePath ?? cwd,
+    "",
+    attachment === undefined && file.isNotFile && absolutePath !== null,
+  );
+  const isDirectory = file.isNotFile && directory.data !== null && directory.error === null;
+  const [previousHostRoot, setPreviousHostRoot] = useState<string | null>(null);
+  const hostFolderRoot = resolveHostFolderRoot(
+    attachment === undefined ? relativePath : null,
+    isDirectory,
+    previousHostRoot,
+  );
+  if (previousHostRoot !== hostFolderRoot) setPreviousHostRoot(hostFolderRoot);
+  const browserCwd = hostFolderRoot ?? cwd;
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isDirectory ? null : relativePath;
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
@@ -967,6 +986,7 @@ export default function FilePreviewPanel({
     relativePath: previewPath,
     explorerOpen,
     attachmentOpen: attachment !== undefined,
+    hostFolderRoot,
   });
   // Reading markdown rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
@@ -1032,8 +1052,6 @@ export default function FilePreviewPanel({
     !isVideo &&
     isPreviewSupportedInRuntime() &&
     isBrowserPreviewFile(previewPath);
-  const absolutePath =
-    relativePath && attachment === undefined ? resolvePathLinkTarget(relativePath, cwd) : null;
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
   useWorkspaceMutationRefresh({
     enabled:
@@ -1042,10 +1060,13 @@ export default function FilePreviewPanel({
       // Media and PDFs never show their contents, so re-reading them on every
       // workspace mutation is waste. A folder named like one still re-reads, so
       // it notices when the path becomes a file.
-      (isDirectory || (!isMedia && !isPdf)) &&
+      (file.isNotFile || (!isMedia && !isPdf)) &&
       !selectedFilePending,
     mutationId: workspaceMutationId,
-    refresh: file.refresh,
+    refresh: () => {
+      file.refresh();
+      if (file.isNotFile) directory.refresh();
+    },
     resourceKey: `file:${environmentId}:${cwd}:${relativePath ?? ""}`,
   });
 
@@ -1163,7 +1184,7 @@ export default function FilePreviewPanel({
               <Globe2 className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
-          {!isHostFile && previewPath !== null ? (
+          {(!isHostFile || hostFolderRoot !== null) && previewPath !== null ? (
             <FileSurfaceAction
               label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
               pressed={explorerOpen}
@@ -1187,7 +1208,13 @@ export default function FilePreviewPanel({
         <div
           className={cn("min-w-0 flex-1 flex-col overflow-hidden", previewPath ? "flex" : "hidden")}
         >
-          {isDirectory ? null : relativePath && attachment ? (
+          {isDirectory ? null : file.isNotFile ? (
+            directory.error ? (
+              <FileSurfaceFailure message={directory.error} onRetry={directory.refresh} />
+            ) : (
+              <FileSurfaceLoading />
+            )
+          ) : relativePath && attachment ? (
             <AttachmentFilePreview
               key={`${environmentId}:${attachment.id}`}
               name={attachment.name}
@@ -1300,14 +1327,16 @@ export default function FilePreviewPanel({
             )}
           >
             <FileBrowserPanel
-              key={`${environmentId}:${cwd}`}
+              key={`${environmentId}:${browserCwd}`}
               environmentId={environmentId}
-              cwd={cwd}
-              projectName={projectName}
-              selectedPath={relativePath}
+              cwd={browserCwd}
+              projectName={hostFolderRoot ? fileBasename(hostFolderRoot) : projectName}
+              selectedPath={fileBrowserSelectedPath(relativePath, hostFolderRoot)}
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
               workspaceMutationId={workspaceMutationId}
+              absolutePaths={hostFolderRoot !== null}
+              {...(hostFolderRoot ? { onOpenRoot: () => onOpenFile(hostFolderRoot) } : {})}
               {...(previewPath && !isMedia && !isPdf
                 ? { onRefreshSelectedFile: file.refresh }
                 : {})}

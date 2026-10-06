@@ -281,6 +281,43 @@ describe("project query refresh", () => {
     }
   });
 
+  it("only probes directory contents after a non-file read and uses the host folder as cwd", async () => {
+    let requests = 0;
+    const entriesAtom = Atom.make(
+      Effect.sync(() => {
+        requests++;
+        return projectEntries(["preview.png"]);
+      }),
+    );
+    const registry = AtomRegistry.make();
+    projectMocks.listEntries.mockReturnValue(entriesAtom);
+    atomHooks.registry = registry;
+    try {
+      reactHooks.beginRender();
+      const disabled = useProjectEntriesQuery(environmentId, "/tmp/assets.png", "", false);
+      disabled.refresh();
+      await flushEffects();
+      expect(requests).toBe(0);
+      expect(disabled.data).toBeNull();
+      expect(projectMocks.listEntries).not.toHaveBeenCalled();
+
+      reactHooks.beginRender();
+      useProjectEntriesQuery(environmentId, "/tmp/assets.png", "", true);
+      await flushEffects();
+      reactHooks.beginRender();
+      const directory = useProjectEntriesQuery(environmentId, "/tmp/assets.png", "", true);
+      expect(requests).toBe(1);
+      expect(directory.data?.entries).toEqual([{ path: "preview.png", kind: "file" }]);
+      expect(projectMocks.listEntries).toHaveBeenCalledWith({
+        environmentId,
+        input: { cwd: "/tmp/assets.png", directoryPath: "" },
+      });
+    } finally {
+      registry.dispose();
+      atomHooks.registry = null;
+    }
+  });
+
   it("reports a directory read as not a file", async () => {
     const readAtom = Atom.make(
       Effect.fail(
