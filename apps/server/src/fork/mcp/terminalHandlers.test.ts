@@ -29,15 +29,19 @@ const PROVIDER = ProviderInstanceId.make("claudeAgent");
 
 const invocation: McpInvocationContext.McpInvocationScope = {
   environmentId: EnvironmentId.make("environment-1"),
-  threadId: THREAD_ID,
-  providerSessionId: "provider-session-1",
-  providerInstanceId: PROVIDER,
+  requestNamespace: "provider-session-1",
+  client: undefined,
+  thread: {
+    threadId: THREAD_ID,
+    providerSessionId: "provider-session-1",
+    providerInstanceId: PROVIDER,
+  },
   capabilities: new Set(["orchestration"]),
   issuedAt: 1,
 };
 
 /** Records what the tools ask of the terminal manager and fakes the terminal it would run. */
-const makeHarness = (runtimeMode: RuntimeMode) =>
+const makeHarness = (runtimeMode: RuntimeMode, scope = invocation) =>
   Effect.gen(function* () {
     const writes: Array<string> = [];
     const opened: Array<string> = [];
@@ -95,13 +99,31 @@ const makeHarness = (runtimeMode: RuntimeMode) =>
         Stream.unwrap,
         Stream.runCollect,
         Effect.map((chunk) => chunk.at(-1)!.result as Record<string, unknown>),
-        Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+        Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
         Effect.provide(services),
       );
     return { call, writes, opened };
   });
 
 describe("agent terminal tools", () => {
+  it.effect("external clients cannot start a terminal or read an implicit thread", () =>
+    Effect.gen(function* () {
+      const { call, writes, opened } = yield* makeHarness("full-access", {
+        ...invocation,
+        thread: undefined,
+        client: { sessionId: "external", label: "External", runtimeModeCeiling: "full-access" },
+      });
+      expect(yield* call("t3_terminal_start", { name: "dev", command: "pnpm dev" })).toMatchObject({
+        code: "capability_denied",
+      });
+      expect(yield* call("t3_terminal_read", { name: "dev" })).toMatchObject({
+        code: "invalid_request",
+      });
+      expect(writes).toEqual([]);
+      expect(opened).toEqual([]);
+    }),
+  );
+
   it.effect("starts a command in the thread's workspace, reads it, and interrupts it", () =>
     Effect.gen(function* () {
       const { call, writes, opened } = yield* makeHarness("full-access");

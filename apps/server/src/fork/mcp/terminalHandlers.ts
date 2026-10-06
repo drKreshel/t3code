@@ -38,6 +38,7 @@ const commandCaller = Effect.gen(function* () {
   const context = yield* readMutationCaller();
   const { caller } = context;
   if (
+    caller === undefined ||
     (caller.runtimeMode !== "full-access" && caller.runtimeMode !== "auto") ||
     caller.interactionMode !== "default"
   )
@@ -45,7 +46,7 @@ const commandCaller = Effect.gen(function* () {
       code: "capability_denied",
       message: "Agent terminals require a full-access or auto calling thread in default mode.",
     });
-  return context;
+  return { ...context, caller };
 });
 
 export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
@@ -105,7 +106,13 @@ export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
       const id = yield* terminalId(input.name);
       const threadId =
         input.threadId === undefined
-          ? (yield* readCaller()).caller.id
+          ? yield* readCaller().pipe(
+              Effect.flatMap(({ caller }) =>
+                caller === undefined
+                  ? Effect.fail(invalid("Pass threadId when calling from outside a T3 thread."))
+                  : Effect.succeed(caller.id),
+              ),
+            )
           : (yield* readThread(input.threadId)).projection.thread.id;
       const terminals = yield* TerminalManager.TerminalManager;
       const { summary, history } = yield* terminals

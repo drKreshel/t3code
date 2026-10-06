@@ -20,13 +20,13 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { expandHomePath } from "../../pathExpansion.ts";
 import * as ProcessRunner from "../../processRunner.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
-import * as ProviderInstanceRegistry from "../../provider/Services/ProviderInstanceRegistry.ts";
-import * as ProviderRegistry from "../../provider/Services/ProviderRegistry.ts";
+import * as ProviderInstanceRegistry from "../../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
 import * as ForkDatabase from "../ForkDatabase.ts";
 import { frontmatterDescription, mergeSkills, type SkillScan } from "./skillsLogic.ts";
 

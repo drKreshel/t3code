@@ -5,7 +5,7 @@
  * with T3; saved ones live in the environment's `fork.sqlite`.
  */
 import * as Schema from "effect/Schema";
-import * as Rpc from "effect/unstable/rpc/Rpc";
+import * as Rpc from "effect/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";

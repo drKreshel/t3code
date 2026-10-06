@@ -20,7 +20,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
-import type { Tool } from "effect/unstable/ai";
+import type { Tool } from "effect/ai";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
@@ -217,9 +217,13 @@ describe("AutomationEngine", () => {
       );
       const invocation: McpInvocationContext.McpInvocationScope = {
         environmentId: ENVIRONMENT_ID,
-        threadId: caller,
-        providerSessionId: "test",
-        providerInstanceId: ProviderInstanceId.make("codex"),
+        requestNamespace: "test",
+        client: undefined,
+        thread: {
+          threadId: caller,
+          providerSessionId: "test",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
         capabilities: new Set(["orchestration"]),
         issuedAt: 1,
       };

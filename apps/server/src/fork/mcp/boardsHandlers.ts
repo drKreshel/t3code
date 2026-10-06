@@ -84,8 +84,10 @@ const make = Effect.gen(function* () {
 
   /** The calling chat, as the key boards store and the actor the timeline shows. */
   const caller = McpInvocationContext.McpInvocationContext.pipe(
+    Effect.flatMap((scope) => McpInvocationContext.requireThreadScope(scope, "Board tools")),
+    Effect.mapError(() => invalid("Board tools require an agent running in a T3 thread.")),
     Effect.map((scope) => {
-      const threadKey = `${scope.environmentId}:${scope.threadId}`;
+      const threadKey = `${scope.environmentId}:${scope.thread.threadId}`;
       return { scope, threadKey, actor: `thread:${threadKey}` };
     }),
   );
@@ -97,7 +99,7 @@ const make = Effect.gen(function* () {
   const callerProjectKey = Effect.gen(function* () {
     const { scope } = yield* caller;
     const thread = yield* threads
-      .getThreadShell(scope.threadId)
+      .getThreadShell(scope.thread.threadId)
       .pipe(Effect.mapError(storage("Could not read this chat.")));
     if (thread === null) return yield* notFound("This chat was not found.");
     return `${scope.environmentId}:${thread.projectId}`;
@@ -563,13 +565,13 @@ const make = Effect.gen(function* () {
           .dispatch({
             type: "thread.request-human",
             commandId: CommandId.make(`request-human:${id}`),
-            threadId: scope.threadId,
+            threadId: scope.thread.threadId,
             reason: input.reason,
           })
           .pipe(Effect.mapError(storage("Could not request help in this chat.")));
         return {
-          threadId: scope.threadId,
-          path: `/${scope.environmentId}/${scope.threadId}`,
+          threadId: scope.thread.threadId,
+          path: `/${scope.environmentId}/${scope.thread.threadId}`,
         };
       }),
 

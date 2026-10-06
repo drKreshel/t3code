@@ -12,7 +12,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
-import type { Tool } from "effect/unstable/ai";
+import type { Tool } from "effect/ai";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
@@ -28,9 +28,13 @@ const THREAD_KEY = `${ENVIRONMENT_ID}:${THREAD_ID}`;
 
 const invocation: McpInvocationContext.McpInvocationScope = {
   environmentId: ENVIRONMENT_ID,
-  threadId: THREAD_ID,
-  providerSessionId: "provider-session-1",
-  providerInstanceId: ProviderInstanceId.make("codex"),
+  requestNamespace: "provider-session-1",
+  client: undefined,
+  thread: {
+    threadId: THREAD_ID,
+    providerSessionId: "provider-session-1",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
   capabilities: new Set(["pull-requests"]),
   issuedAt: 1,
 };
@@ -61,6 +65,7 @@ const makeHarness = Effect.gen(function* () {
   const call = <Name extends keyof typeof BoardsToolkit.tools>(
     name: Name,
     params: Parameters<typeof toolkit.handle<Name>>[1],
+    scope = invocation,
   ) =>
     toolkit.handle(name, params).pipe(
       Stream.unwrap,
@@ -69,7 +74,7 @@ const makeHarness = Effect.gen(function* () {
       Effect.map(
         (chunk) => chunk.at(-1)!.result as Tool.Success<(typeof BoardsToolkit.tools)[Name]>,
       ),
-      Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+      Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
       Effect.provide(snapshotQuery),
     );
   return { call };
@@ -78,6 +83,23 @@ const makeHarness = Effect.gen(function* () {
 const BoardsTestLayer = layerMemory.pipe(Layer.provide(NodeServices.layer));
 
 describe("boards toolkit handlers", () => {
+  it.effect("rejects threadless board mutations without creating a board", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      const error = yield* call(
+        "create_board",
+        { name: "External", key: "EXT" },
+        {
+          ...invocation,
+          thread: undefined,
+          client: { sessionId: "external", label: "External", runtimeModeCeiling: "full-access" },
+        },
+      ).pipe(Effect.flip);
+      expect(error).toMatchObject({ code: "invalid" });
+      expect((yield* call("list_boards", {})).boards).toEqual([]);
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
+
   it.effect("lets a skill assign, change, and clear a ticket folder through board tools", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

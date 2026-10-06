@@ -14,7 +14,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Effect from "effect/Effect";
 
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
-import * as ProviderInstanceRegistry from "../../provider/Services/ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistry from "../../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { agentInstructions, t3Tools } from "./agentContextLogic.ts";
 

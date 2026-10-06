@@ -4,7 +4,7 @@
  */
 import type { AgentContextInstruction, AgentContextTool } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import { Tool } from "effect/unstable/ai";
+import { Tool } from "effect/ai";
 
 import { claudeSystemPromptAppend } from "../../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import {

@@ -27,10 +27,10 @@ import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2, layer as projectStoreLayer } from "../../orchestration-v2/ProjectStore.ts";
 import { EventStoreV2, layer as eventStoreLayer } from "../../orchestration-v2/EventStore.ts";
 import { CodexProviderCapabilitiesV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
-import { makeLayer as registryLayer } from "../../orchestration-v2/ProviderAdapterRegistry.ts";
+import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import type { ProviderAdapterV2Shape } from "../../orchestration-v2/ProviderAdapter.ts";
-import { makeOrchestratorV2ReplayLayerWithRegistry } from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import * as ProviderReplayHarness from "../../orchestration-v2/testkit/ProviderReplayHarness.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { AutomationEngine, layerManual } from "./AutomationEngine.ts";
@@ -47,7 +47,7 @@ const action: AutomationAction = {
   checkout: "local",
 };
 
-const database = SqlitePersistenceMemory;
+const database = SqlitePersistence.layerMemory;
 const adapter = {
   instanceId: ProviderInstanceId.make("codex"),
   driver: ProviderDriverKind.make("codex"),
@@ -58,10 +58,14 @@ const adapter = {
 const OrchestrationLayer = Layer.mergeAll(
   projectStoreLayer.pipe(Layer.provide(database)),
   eventStoreLayer.pipe(Layer.provide(database)),
-  makeOrchestratorV2ReplayLayerWithRegistry({ name: "fork-automation" }, registryLayer([adapter]), {
-    databaseLayer: database,
-    runEffectWorker: false,
-  }),
+  ProviderReplayHarness.layerWithRegistry(
+    { name: "fork-automation" },
+    ProviderAdapterRegistry.layerFromAdapters([adapter]),
+    {
+      databaseLayer: database,
+      runEffectWorker: false,
+    },
+  ),
 );
 
 const Stubs = Layer.mergeAll(

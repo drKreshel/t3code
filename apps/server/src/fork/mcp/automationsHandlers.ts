@@ -85,9 +85,14 @@ const make = Effect.gen(function* () {
   });
 
   const callerProjectKey = Effect.gen(function* () {
-    const scope = yield* McpInvocationContext.McpInvocationContext;
+    const scope = yield* McpInvocationContext.McpInvocationContext.pipe(
+      Effect.flatMap((scope) =>
+        McpInvocationContext.requireThreadScope(scope, "This chat's project"),
+      ),
+      Effect.mapError(() => invalid("Choosing this chat's project requires a T3 thread.")),
+    );
     const thread = yield* threads
-      .getThreadShell(scope.threadId)
+      .getThreadShell(scope.thread.threadId)
       .pipe(Effect.mapError(() => unavailable));
     if (thread === null) return yield* notFound("This chat was not found.");
     return `${scope.environmentId}:${thread.projectId}`;
