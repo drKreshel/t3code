@@ -14,7 +14,6 @@ import { Link } from "@tanstack/react-router";
 import { RefreshCwIcon } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 
-import { cn } from "~/lib/utils";
 import { useProviderWorkspaceSkillsScan, useThreadAgentContext } from "~/state/agentContext";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
@@ -121,23 +120,34 @@ function SkillGroups({
       <p className="px-1 pt-1 text-2xs font-medium text-muted-foreground">
         {group.label} · {group.skills.length}
       </p>
-      {group.skills.map((skill) => (
-        <Link
-          key={skill.path}
-          to="/skills"
-          search={{ q: skill.name, ...(projectId === null ? {} : { project: projectId }) }}
-          title={`${skill.description ?? "No description."}\n${skill.path}`}
-          className={cn(
-            "truncate rounded-sm px-1 py-0.5 font-mono text-xs hover:bg-accent/60",
-            !skill.enabled && "opacity-60",
-          )}
-        >
-          {skill.name}
-          {skill.enabled ? null : (
-            <span className="ml-1.5 text-2xs text-muted-foreground">off</span>
-          )}
-        </Link>
-      ))}
+      {group.skills.map((skill) => {
+        const hidden = !skill.enabled || skill.userInvocationOnly === true;
+        return (
+          <details key={skill.path} className={hidden ? "opacity-60" : undefined}>
+            <summary className="cursor-pointer truncate rounded-sm px-1 py-0.5 text-xs hover:bg-accent/60">
+              <span className="font-mono">{skill.name}</span>
+              {hidden ? (
+                <span className="ml-1.5 text-2xs text-muted-foreground">
+                  {skill.enabled ? "user only" : "off"}
+                </span>
+              ) : null}
+            </summary>
+            <div className="flex flex-col gap-1 px-1 pt-0.5 pb-1.5">
+              <pre className="font-mono text-2xs whitespace-pre-wrap text-muted-foreground">
+                {skill.description ?? "No description."}
+              </pre>
+              <p className="font-mono text-2xs break-all text-muted-foreground">{skill.path}</p>
+              <Link
+                to="/skills"
+                search={{ q: skill.name, ...(projectId === null ? {} : { project: projectId }) }}
+                className="text-2xs text-foreground underline-offset-2 hover:underline"
+              >
+                Full SKILL.md
+              </Link>
+            </div>
+          </details>
+        );
+      })}
     </div>
   ));
 }
@@ -198,7 +208,7 @@ export function AgentContextPanel(props: {
             count={skills.length}
             note={
               props.provider
-                ? `What ${props.provider.displayName ?? "the provider"} loads for ${props.cwd ?? "this thread"}.`
+                ? `What ${props.provider.displayName ?? "the provider"} loads for ${props.cwd ?? "this thread"}. The agent sees each skill's name and description${props.provider.driver === "codex" ? ", plus its file path" : ""}; it reads the full SKILL.md only when it uses the skill. Skills marked off or user only are not listed to the agent.`
                 : "The thread's provider is not available on this server."
             }
           >
