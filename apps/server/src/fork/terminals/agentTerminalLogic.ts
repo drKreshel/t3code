@@ -1,7 +1,8 @@
 /**
- * Fork: pure helpers for agent-owned terminals. Agents start long-running
+ * Fork: pure helpers for agent terminals. Agents start long-running
  * processes in thread terminals named `agent-<name>`, so they show up as tabs
- * the user can watch, and only ever touch terminals carrying that prefix.
+ * the user can watch, and only start or stop terminals carrying that prefix.
+ * Reading reaches every terminal of the thread, including the user's `term-N`.
  */
 import type { TerminalSummary } from "@t3tools/contracts";
 
@@ -20,6 +21,15 @@ export function resolveAgentTerminalId(nameOrId: string): string | null {
     ? nameOrId.slice(AGENT_TERMINAL_PREFIX.length)
     : nameOrId;
   return AGENT_TERMINAL_NAME_PATTERN.test(name) ? agentTerminalId(name) : null;
+}
+
+/**
+ * Terminal ids to try, in order, when an agent reads `nameOrId`: the exact id
+ * (a user terminal such as `term-1`), then the agent terminal of that name.
+ */
+export function readableTerminalIds(nameOrId: string): ReadonlyArray<string> {
+  const agentId = resolveAgentTerminalId(nameOrId);
+  return agentId === null || agentId === nameOrId ? [nameOrId] : [nameOrId, agentId];
 }
 
 export type AgentTerminalState = "running" | "idle" | "exited" | "closed";

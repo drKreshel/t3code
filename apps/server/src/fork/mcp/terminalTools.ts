@@ -1,7 +1,8 @@
 /**
- * Fork: `t3-code` MCP tools for agent-owned terminals. An agent starts a
+ * Fork: `t3-code` MCP tools for thread terminals. An agent starts a
  * long-running process (dev server, watcher) in a terminal tab of its thread,
- * where the user can watch it, and reads its output while debugging.
+ * where the user can watch it, and reads its output, or the output of a
+ * terminal the user opened, while debugging.
  */
 import { OrchestratorMcpFailure, ThreadId } from "@t3tools/contracts";
 import * as Path from "effect/Path";
@@ -37,6 +38,29 @@ const AgentTerminalState = Schema.Literals(["running", "idle", "exited", "closed
     "running: the command is still alive. idle: the command ended and the shell waits at its prompt. exited: the shell ended. closed: the terminal was closed; its saved output is still readable.",
 });
 
+const ReadThreadId = Schema.optional(ThreadId).annotate({
+  description: "Another thread in this project. Defaults to the calling thread.",
+});
+
+const TerminalListTool = Tool.make("t3_terminal_list", {
+  ...shared,
+  description:
+    "List the terminals of a thread: the user's own terminal tabs (term-1, term-2, ...) and agent terminals (agent-<name>), open or closed. A closed terminal is listed while its output is still saved. Read one with t3_terminal_read.",
+  parameters: Schema.Struct({ threadId: ReadThreadId }),
+  success: Schema.Struct({
+    terminals: Schema.Array(
+      Schema.Struct({
+        terminalId: Schema.String,
+        state: AgentTerminalState,
+        label: Schema.NullOr(Schema.String),
+        cwd: Schema.NullOr(Schema.String),
+      }),
+    ),
+  }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
 const TerminalStartTool = Tool.make("t3_terminal_start", {
   ...shared,
   description:
@@ -60,15 +84,18 @@ const TerminalStartTool = Tool.make("t3_terminal_start", {
 const TerminalReadTool = Tool.make("t3_terminal_read", {
   ...shared,
   description:
-    "Read the recent output of an agent terminal as plain text, with whether its command is still running. Pass threadId to read a terminal another thread in this project started.",
+    "Read the recent output of a thread terminal as plain text, with whether its command is still running. Reads the user's own terminal tabs as well as agent terminals, open or closed. When the user mentions a terminal without naming it, call t3_terminal_list to find it.",
   parameters: Schema.Struct({
-    name: TerminalName,
+    name: Schema.String.annotate({
+      description:
+        "A terminal id from t3_terminal_list, such as 'term-1' or 'agent-dev', or an agent terminal name such as 'dev'.",
+    }),
     lines: Schema.optional(
       Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
         .check(Schema.isLessThanOrEqualTo(MAX_READ_LINES))
         .annotate({ description: "Lines from the end to return. Defaults to 200." }),
     ),
-    threadId: Schema.optional(ThreadId),
+    threadId: ReadThreadId,
   }),
   success: Schema.Struct({
     terminalId: Schema.String,
@@ -100,6 +127,7 @@ const TerminalStopTool = Tool.make("t3_terminal_stop", {
 }).annotate(Tool.Destructive, true);
 
 export const AgentTerminalToolkit = Toolkit.make(
+  TerminalListTool,
   TerminalStartTool,
   TerminalReadTool,
   TerminalStopTool,

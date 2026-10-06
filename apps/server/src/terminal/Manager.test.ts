@@ -1368,6 +1368,31 @@ it.layer(
     }),
   );
 
+  it.effect("lists open terminals and closed ones whose output is saved", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter, getEvents } = yield* createManager();
+      const userTerminal = { threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID };
+      yield* manager.open(openInput(userTerminal));
+      yield* manager.open(openInput({ threadId: "thread-1", terminalId: "agent-dev" }));
+      yield* manager.open(openInput({ threadId: "thread-1", terminalId: "term-2" }));
+      yield* manager.open(openInput({ threadId: "thread-2", terminalId: "term-3" }));
+      ptyAdapter.processes[0]!.emitData("port in use\n");
+      yield* waitFor(
+        Effect.map(getEvents, (events) => events.some((event) => event.type === "output")),
+      );
+      yield* manager.close(userTerminal);
+      yield* manager.close({ threadId: "thread-1", terminalId: "agent-dev", deleteHistory: true });
+
+      const listed = yield* manager.list({ threadId: "thread-1" });
+      expect(
+        listed.map(({ terminalId, summary }) => [terminalId, summary?.status ?? null]),
+      ).toEqual([
+        [DEFAULT_TERMINAL_ID, null],
+        ["term-2", "running"],
+      ]);
+    }),
+  );
+
   it.effect("backs off the spawned fallback when the resource monitor snapshot fails", () =>
     Effect.gen(function* () {
       const fallbackCalls: Array<number> = [];

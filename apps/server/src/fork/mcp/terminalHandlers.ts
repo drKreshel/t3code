@@ -1,4 +1,4 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { OrchestratorMcpFailure, type ThreadId } from "@t3tools/contracts";
 import { projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -12,6 +12,7 @@ import {
   commandInput,
   DEFAULT_READ_LINES,
   plainTerminalTail,
+  readableTerminalIds,
   resolveAgentTerminalId,
 } from "../terminals/agentTerminalLogic.ts";
 import { AgentTerminalToolkit } from "./terminalTools.ts";
@@ -33,6 +34,18 @@ const terminalFailure = (error: TerminalManager.TerminalError) =>
     ? invalid(error.message)
     : new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message });
 
+/** The thread to read terminals of: the one passed, else the calling thread. */
+const readThreadId = (threadId: ThreadId | undefined) =>
+  threadId === undefined
+    ? readCaller().pipe(
+        Effect.flatMap(({ caller }) =>
+          caller === undefined
+            ? Effect.fail(invalid("Pass threadId when calling from outside a T3 thread."))
+            : Effect.succeed(caller.id),
+        ),
+      )
+    : readThread(threadId).pipe(Effect.map(({ projection }) => projection.thread.id));
+
 /** Starting and stopping commands is shell access, so it follows the thread's runtime mode. */
 const commandCaller = Effect.gen(function* () {
   const context = yield* readMutationCaller();
@@ -50,6 +63,20 @@ const commandCaller = Effect.gen(function* () {
 });
 
 export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
+  t3_terminal_list: (input) =>
+    Effect.gen(function* () {
+      const threadId = yield* readThreadId(input.threadId);
+      const terminals = yield* TerminalManager.TerminalManager;
+      const listed = yield* terminals.list({ threadId });
+      return {
+        terminals: listed.map(({ terminalId, summary }) => ({
+          terminalId,
+          state: agentTerminalState(summary),
+          label: summary?.label ?? null,
+          cwd: summary?.cwd ?? null,
+        })),
+      };
+    }),
   t3_terminal_start: (input) =>
     Effect.gen(function* () {
       const { caller } = yield* commandCaller;
@@ -103,30 +130,29 @@ export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
     }),
   t3_terminal_read: (input) =>
     Effect.gen(function* () {
-      const id = yield* terminalId(input.name);
-      const threadId =
-        input.threadId === undefined
-          ? yield* readCaller().pipe(
-              Effect.flatMap(({ caller }) =>
-                caller === undefined
-                  ? Effect.fail(invalid("Pass threadId when calling from outside a T3 thread."))
-                  : Effect.succeed(caller.id),
-              ),
-            )
-          : (yield* readThread(input.threadId)).projection.thread.id;
+      const name = input.name.trim();
+      if (name.length === 0 || name.length > 128)
+        return yield* invalid(
+          "Pass a terminal id from t3_terminal_list or an agent terminal name.",
+        );
+      const threadId = yield* readThreadId(input.threadId);
       const terminals = yield* TerminalManager.TerminalManager;
-      const { summary, history } = yield* terminals
-        .read({ threadId, terminalId: id })
-        .pipe(Effect.mapError(terminalFailure));
-      if (summary === null && history.length === 0)
-        return yield* invalid(`No terminal ${id} exists on this thread.`);
-      return {
-        terminalId: id,
-        state: agentTerminalState(summary),
-        cwd: summary?.cwd ?? null,
-        exitCode: summary?.exitCode ?? null,
-        ...plainTerminalTail(history, input.lines ?? DEFAULT_READ_LINES),
-      };
+      for (const id of readableTerminalIds(name)) {
+        const { summary, history } = yield* terminals
+          .read({ threadId, terminalId: id })
+          .pipe(Effect.mapError(terminalFailure));
+        if (summary === null && history.length === 0) continue;
+        return {
+          terminalId: id,
+          state: agentTerminalState(summary),
+          cwd: summary?.cwd ?? null,
+          exitCode: summary?.exitCode ?? null,
+          ...plainTerminalTail(history, input.lines ?? DEFAULT_READ_LINES),
+        };
+      }
+      return yield* invalid(
+        `No terminal ${name} exists on this thread. Call t3_terminal_list to see its terminals.`,
+      );
     }),
   t3_terminal_stop: (input) =>
     Effect.gen(function* () {

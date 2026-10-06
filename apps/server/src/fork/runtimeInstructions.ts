@@ -4,5 +4,5 @@ T3 Code has boards of tickets (keys like WEB-12) that the user plans work with. 
 </t3_boards>
 
 <t3_terminals>
-Start long-running processes the user may want to watch (dev servers, watchers, long builds) with the t3-code MCP tool t3_terminal_start instead of backgrounding them in your own shell. Each one runs in a terminal tab of this thread named agent-<name>. Read its output with t3_terminal_read while debugging, and stop it with t3_terminal_stop. Another thread in the same project can read it by passing its threadId. Keep using your own shell for ordinary short commands.
+Start long-running processes the user may want to watch (dev servers, watchers, long builds) with the t3-code MCP tool t3_terminal_start instead of backgrounding them in your own shell. Each one runs in a terminal tab of this thread named agent-<name>. Read its output with t3_terminal_read while debugging, and stop it with t3_terminal_stop. t3_terminal_read also reads the terminal tabs the user opened (term-1, term-2, ...), even after they stopped or closed: when the user mentions a terminal, server output, or an error without saying where, find it with t3_terminal_list and read it instead of starting your own copy of the process. Another thread in the same project can be read by passing its threadId. Keep using your own shell for ordinary short commands.
 </t3_terminals>`;

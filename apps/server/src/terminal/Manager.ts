@@ -57,6 +57,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as SynchronizedRef from "effect/SynchronizedRef";
@@ -224,6 +225,16 @@ export class TerminalManager extends Context.Service<
     }) => Effect.Effect<
       { readonly summary: TerminalSummary | null; readonly history: string },
       TerminalError
+    >;
+
+    /**
+     * List a thread's terminals: open sessions plus closed ones whose output
+     * history is still saved. Used by agents finding a terminal to read.
+     */
+    readonly list: (input: {
+      readonly threadId: string;
+    }) => Effect.Effect<
+      ReadonlyArray<{ readonly terminalId: string; readonly summary: TerminalSummary | null }>
     >;
 
     /**
@@ -3192,6 +3203,32 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       }),
     );
 
+  const list: TerminalManager["Service"]["list"] = (input) =>
+    withThreadLock(
+      input.threadId,
+      Effect.gen(function* () {
+        const sessions = yield* sessionsForThread(input.threadId);
+        const threadPart = toSafeThreadId(input.threadId);
+        const entries = yield* fileSystem
+          .readDirectory(logsDir, { recursive: false })
+          .pipe(Effect.orElseSucceed(() => [] as Array<string>));
+        const saved = entries.flatMap((name) => {
+          if (name === `${threadPart}.log` || name === `${legacySafeThreadId(input.threadId)}.log`)
+            return [DEFAULT_TERMINAL_ID];
+          if (!name.startsWith(`${threadPart}_`) || !name.endsWith(".log")) return [];
+          const terminalId = Base64Url.decodeString(name.slice(threadPart.length + 1, -4));
+          return Result.isSuccess(terminalId) ? [terminalId.success] : [];
+        });
+        const terminals = new Map<string, TerminalSummary | null>(
+          saved.map((terminalId) => [terminalId, null]),
+        );
+        for (const session of sessions) terminals.set(session.terminalId, summary(session));
+        return [...terminals]
+          .map(([terminalId, summary]) => ({ terminalId, summary }))
+          .toSorted((a, b) => a.terminalId.localeCompare(b.terminalId, "en", { numeric: true }));
+      }),
+    );
+
   return TerminalManager.of({
     open,
     attachStream,
@@ -3202,6 +3239,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     close,
     closeIdle,
     read,
+    list,
     subscribe,
     subscribeMetadata,
   });

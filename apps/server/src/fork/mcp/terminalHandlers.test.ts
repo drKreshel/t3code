@@ -65,7 +65,20 @@ const makeHarness = (runtimeMode: RuntimeMode, scope = invocation) =>
         getById: () => Effect.succeed(Option.some({ workspaceRoot: "/work/root" } as Project)),
       }),
       Layer.mock(TerminalManager.TerminalManager)({
-        read: () => Effect.succeed({ summary, history: summary ? "$ pnpm dev\r\nready\r\n" : "" }),
+        // The user's own terminal closed earlier; only its saved output is left.
+        read: ({ terminalId }) =>
+          Effect.succeed(
+            terminalId === "term-1"
+              ? { summary: null, history: "$ pnpm dev\r\nError: port 5173 in use\r\n" }
+              : terminalId === summary?.terminalId
+                ? { summary, history: "$ pnpm dev\r\nready\r\n" }
+                : { summary: null, history: "" },
+          ),
+        list: () =>
+          Effect.succeed([
+            { terminalId: "term-1", summary: null },
+            ...(summary ? [{ terminalId: summary.terminalId, summary }] : []),
+          ]),
         open: (input) =>
           Effect.sync(() => {
             opened.push(input.cwd);
@@ -134,7 +147,8 @@ describe("agent terminal tools", () => {
       });
       expect(writes).toEqual(["pnpm dev\r"]);
 
-      expect(yield* call("t3_terminal_read", { name: "agent-dev" })).toMatchObject({
+      expect(yield* call("t3_terminal_read", { name: "dev" })).toMatchObject({
+        terminalId: "agent-dev",
         state: "running",
         output: "$ pnpm dev\nready",
       });
@@ -162,9 +176,17 @@ describe("agent terminal tools", () => {
     }),
   );
 
-  it.effect("rejects names outside the agent terminal namespace", () =>
+  it.effect("lists and reads the user's own terminal after it closed", () =>
     Effect.gen(function* () {
-      const { call } = yield* makeHarness("full-access");
+      const { call } = yield* makeHarness("approval-required");
+      expect(yield* call("t3_terminal_list", {})).toEqual({
+        terminals: [{ terminalId: "term-1", state: "closed", label: null, cwd: null }],
+      });
+      expect(yield* call("t3_terminal_read", { name: "term-1" })).toMatchObject({
+        terminalId: "term-1",
+        state: "closed",
+        output: "$ pnpm dev\nError: port 5173 in use",
+      });
       expect(yield* call("t3_terminal_read", { name: "My Shell" })).toMatchObject({
         code: "invalid_request",
       });
