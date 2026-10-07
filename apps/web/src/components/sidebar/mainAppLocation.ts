@@ -1,8 +1,8 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 
-// Settings, Usage, and Pull Requests are side trips: Escape returns to the
-// main app, which is everything else.
+// Settings, Usage, and Pull Requests are side trips: Escape (and Settings'
+// sidebar Back button) returns to the main app, which is everything else.
 // Legacy `/projects/<key>` links redirect into settings, so they count too and
 // are never remembered.
 export function isSidebarUtilityPage(pathname: string) {

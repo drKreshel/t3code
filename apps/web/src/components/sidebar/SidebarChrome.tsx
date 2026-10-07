@@ -1,4 +1,5 @@
 import {
+  ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   SettingsIcon,
   SparklesIcon,
@@ -30,6 +31,7 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
+import { useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -191,12 +193,10 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
+  const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
   // Only the first path segment, so switching threads does not re-render the row.
   const page = useLocation({ select: (location) => location.pathname.split("/")[1] });
-  const onScheduledTasks = useLocation({
-    select: (location) => location.pathname === "/settings/scheduled-tasks",
-  });
   const pullRequestsSupported = usePullRequestsSupported();
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
@@ -238,14 +238,29 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/usage" });
   }, [isMobile, navigate, setOpenMobile]);
 
+  const handleBackClick = useCallback(() => {
+    closeMobileSidebar();
+    void navigateToMainApp();
+  }, [closeMobileSidebar, navigateToMainApp]);
+
+  // Settings replaces the thread list, so it offers a way back instead.
+  if (page === "settings") {
+    return (
+      <SidebarMenu className="flex-row items-center">
+        <SidebarMenuItem className="min-w-0 flex-1">
+          <SidebarMenuButton onClick={handleBackClick}>
+            <ArrowLeftIcon />
+            <span>Back</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarUpdatePill />
+      </SidebarMenu>
+    );
+  }
+
   return (
     <SidebarMenu className="flex-row items-center">
-      <SidebarUtilityItem
-        icon={<SettingsIcon />}
-        label="Settings"
-        isActive={page === "settings" && !onScheduledTasks}
-        onClick={handleSettingsClick}
-      />
+      <SidebarUtilityItem icon={<SettingsIcon />} label="Settings" onClick={handleSettingsClick} />
       {pullRequestsSupported ? (
         <SidebarUtilityItem
           icon={<PullRequestGlyph.pullRequest />}
@@ -264,7 +279,6 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       <SidebarUtilityItem
         icon={<CalendarClockIcon />}
         label="Scheduled Tasks"
-        isActive={onScheduledTasks}
         onClick={handleScheduledTasksClick}
       />
       <SidebarUtilityItem
