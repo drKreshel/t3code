@@ -21,31 +21,16 @@ import { ScheduledTaskService } from "../../scheduledTasks/ScheduledTaskService.
 import * as ServerSettings from "../../serverSettings.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { ForkDatabaseMemory } from "../ForkDatabase.ts";
-import { migrateLegacyAutomations, scheduleFromCron } from "./LegacyAutomations.ts";
+import { migrateLegacyAutomations, onceWallClock } from "./LegacyAutomations.ts";
 
 const ENVIRONMENT_ID = EnvironmentId.make("env-1");
 const PROJECT_ID = ProjectId.make("project-1");
 const toJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-describe("scheduleFromCron", () => {
-  it("maps times, weekdays, and steady intervals; refuses calendar days", () => {
-    expect(scheduleFromCron("0 4 * * *")).toEqual({ type: "fixed_time", timeOfDay: "04:00" });
-    expect(scheduleFromCron("30 9 * * 1-5")).toEqual({
-      type: "fixed_time",
-      timeOfDay: "09:30",
-      weekdays: [1, 2, 3, 4, 5],
-    });
-    expect(scheduleFromCron("0 18 * * 5,7")).toEqual({
-      type: "fixed_time",
-      timeOfDay: "18:00",
-      weekdays: [0, 5],
-    });
-    expect(scheduleFromCron("0 * * * *")).toEqual({ type: "interval", everyMs: 3_600_000 });
-    expect(scheduleFromCron("*/15 * * * *")).toEqual({ type: "interval", everyMs: 900_000 });
-    expect(scheduleFromCron("0 */6 * * *")).toEqual({ type: "interval", everyMs: 21_600_000 });
-    expect(scheduleFromCron("0 9 1 * *")).toBeNull();
-    expect(scheduleFromCron("0 9 * * MON")).toBeNull();
-    expect(scheduleFromCron("not a cron")).toBeNull();
+describe("onceWallClock", () => {
+  it("reads a one-off's instant as wall-clock time in its zone", () => {
+    expect(onceWallClock("2026-10-09T16:00:00.000Z", "America/Vancouver")).toBe("2026-10-09T09:00");
+    expect(onceWallClock("not a date", "UTC")).toBeNull();
   });
 });
 
@@ -136,21 +121,26 @@ describe("migrateLegacyAutomations", () => {
       yield* migrateLegacyAutomations.pipe(Effect.provide(fakes));
 
       const tasks = yield* Ref.get(upserts);
-      expect(tasks).toHaveLength(2);
+      expect(tasks).toHaveLength(3);
+      // Schedules carry over exactly, in their own timezone.
       expect(tasks[0]).toMatchObject({
         id: "update",
         prompt: "Update T3 Code.",
         enabled: true,
-        schedule: { type: "fixed_time", timeOfDay: "04:00" },
+        schedule: { type: "cron", expression: "0 4 * * *", timezone: "America/Vancouver" },
         projectId: PROJECT_ID,
         workspaceStrategy: { type: "root" },
         modelSelection: { instanceId: ProviderInstanceId.make("codex") },
       });
-      // A calendar-day schedule has no equivalent: kept, paused for a new time.
       expect(tasks[1]).toMatchObject({
         id: "monthly",
-        enabled: false,
+        enabled: true,
+        schedule: { type: "cron", expression: "0 9 1 * *" },
         workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      expect(tasks[2]).toMatchObject({
+        id: "once",
+        schedule: { type: "once", at: "2026-10-09T09:00", timezone: "UTC" },
       });
 
       const columns = (yield* boards.snapshot).boards[0]!.columns;

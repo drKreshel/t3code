@@ -65,7 +65,7 @@ const OrchestratorMcpSchedule = Schema.Union([
   OrchestratorMcpScheduleFromJsonString,
 ]).annotate({
   description:
-    "Trigger object: {type:'interval', everyMs}, {type:'fixed_time', timeOfDay, weekdays?}, or {type:'webhook'} to run on each request to a generated URL. Never stringify it unless the provider requires the compatibility form.",
+    "Trigger object: {type:'interval', everyMs}, {type:'fixed_time', timeOfDay, weekdays?, timezone?}, {type:'cron', expression, timezone?} for any five-field cron, {type:'once', at:'YYYY-MM-DDTHH:MM', timezone?} for a single run, or {type:'webhook'} to run on each request to a generated URL. timezone is an IANA name; omitted, the server's timezone. Never stringify it unless the provider requires the compatibility form.",
 });
 
 /**
@@ -513,6 +513,12 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   }),
   schedule: OrchestratorMcpSchedule,
   title: Schema.optional(OrchestratorMcpTitle),
+  target: Schema.optional(
+    OrchestratorMcpTarget.annotate({
+      description:
+        "Provider instance, model, and options (such as reasoning effort) each run uses, as in delegate_task. Omit to use this chat's model.",
+    }),
+  ),
   enabled: Schema.optional(
     Schema.Boolean.annotate({ description: "Whether the schedule starts enabled; defaults true." }),
   ),
@@ -540,6 +546,11 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   projectId: ProjectId,
   boundThreadId: Schema.NullOr(ThreadId),
   schedule: ScheduledTaskSchedule,
+  target: Schema.Struct({
+    providerInstanceId: ProviderInstanceId,
+    model: Schema.String,
+    options: Schema.optional(Schema.Array(ProviderOptionSelection)),
+  }).annotate({ description: "The provider instance, model, and options each run uses." }),
   nextRunAt: Schema.NullOr(IsoDateTime),
   lastRunStatus: ScheduledTaskRunStatus,
   /** For webhook tasks: the public T3 Connect URL. Absent when this environment has no managed tunnel. */
@@ -578,6 +589,12 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   prompt: Schema.optional(OrchestratorMcpPrompt),
   title: Schema.optional(OrchestratorMcpTitle),
   schedule: Schema.optional(OrchestratorMcpSchedule),
+  target: Schema.optional(
+    OrchestratorMcpTarget.annotate({
+      description:
+        "New provider instance, model, and options for each run, as in delegate_task. Omitted parts keep the task's current model.",
+    }),
+  ),
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
 });

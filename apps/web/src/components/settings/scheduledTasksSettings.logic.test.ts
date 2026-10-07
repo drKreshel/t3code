@@ -169,6 +169,29 @@ describe("editing scheduled task branch settings", () => {
   });
 });
 
+describe("cron and one-off scheduled tasks", () => {
+  it.each([
+    { type: "cron", expression: "15,45 2-19 * * *", timezone: "America/Vancouver" },
+    { type: "once", at: "2026-10-09T09:00", timezone: "Europe/Berlin" },
+    { type: "fixed_time", timeOfDay: "06:00", timezone: "Asia/Tokyo" },
+    { type: "cron", expression: "0 9 1 * *" },
+  ] as const)("round-trips $type schedules with their timezone", (schedule) => {
+    const draft = taskToDraft({ ...legacyTask, schedule });
+    expect(scheduleFromDraft(draft)).toEqual(schedule);
+  });
+
+  it("drops a blank timezone so the server's applies", () => {
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "cron", expression: "0 9 * * *" },
+    });
+    expect(scheduleFromDraft({ ...draft, timezone: "  " })).toEqual({
+      type: "cron",
+      expression: "0 9 * * *",
+    });
+  });
+});
+
 describe("webhook scheduled tasks", () => {
   const signature = { header: "x-signature", encoding: "base64", prefix: "" } as const;
   const webhookTask: ScheduledTask = {

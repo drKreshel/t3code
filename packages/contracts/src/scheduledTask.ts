@@ -38,11 +38,46 @@ const ScheduledTaskIntervalSchedule = Schema.Struct({
   description: "Run repeatedly after a fixed number of milliseconds.",
 });
 
+/** IANA timezone a schedule's times are read in. Omitted: the server's own timezone. */
+const ScheduledTaskTimezone = TrimmedNonEmptyString.annotate({
+  description: "IANA timezone such as America/Vancouver. Omit to use the server's timezone.",
+});
+
+/** Five-field cron: minute hour day-of-month month day-of-week. */
+const CronExpression = TrimmedNonEmptyString.check(Schema.isPattern(/^\S+(?:\s+\S+){4}$/)).annotate(
+  {
+    description:
+      "Five-field cron expression (minute hour day-of-month month day-of-week), such as '15,45 2-19 * * *' or '0 9 * * 1-5'.",
+  },
+);
+
+/** Wall-clock date and time, read in the schedule's timezone. */
+const LocalDateTime = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/),
+).annotate({
+  description: "Local date and time in YYYY-MM-DDTHH:MM form, such as 2026-10-09T09:00.",
+});
+
+const ScheduledTaskCronSchedule = Schema.Struct({
+  type: Schema.Literal("cron").annotate({ description: "Select cron scheduling." }),
+  expression: CronExpression,
+  timezone: Schema.optional(ScheduledTaskTimezone),
+}).annotate({
+  description: "Run whenever a cron expression matches, read in the given timezone.",
+});
+
+const ScheduledTaskOnceSchedule = Schema.Struct({
+  type: Schema.Literal("once").annotate({ description: "Select a single run." }),
+  at: LocalDateTime,
+  timezone: Schema.optional(ScheduledTaskTimezone),
+}).annotate({ description: "Run once at a local date and time, then stay idle." });
+
 const ScheduledTaskFixedTimeSchedule = Schema.Struct({
   type: Schema.Literal("fixed_time").annotate({
     description: "Select a fixed local wall-clock time.",
   }),
   timeOfDay: TimeOfDay,
+  timezone: Schema.optional(ScheduledTaskTimezone),
   weekdays: Schema.optional(
     Schema.Array(
       Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })).annotate({
@@ -129,10 +164,12 @@ const ScheduledTaskUpsertWebhookSchedule = Schema.Struct({
 export const ScheduledTaskSchedule = Schema.Union([
   ScheduledTaskIntervalSchedule,
   ScheduledTaskFixedTimeSchedule,
+  ScheduledTaskCronSchedule,
+  ScheduledTaskOnceSchedule,
   ScheduledTaskWebhookSchedule,
 ]).annotate({
   description:
-    "Structured trigger. Pass an object with type 'interval', 'fixed_time' or 'webhook'.",
+    "Structured trigger. Pass an object with type 'interval', 'fixed_time', 'cron', 'once' or 'webhook'.",
 });
 export type ScheduledTaskSchedule = typeof ScheduledTaskSchedule.Type;
 
@@ -151,9 +188,12 @@ export const ScheduledTaskUpsertSchedule = Schema.Union([
     description: "Run repeatedly after a fixed number of milliseconds.",
   }),
   ScheduledTaskFixedTimeSchedule,
+  ScheduledTaskCronSchedule,
+  ScheduledTaskOnceSchedule,
   ScheduledTaskUpsertWebhookSchedule,
 ]).annotate({
-  description: "Writable trigger. Pass an object with type 'interval', 'fixed_time' or 'webhook'.",
+  description:
+    "Writable trigger. Pass an object with type 'interval', 'fixed_time', 'cron', 'once' or 'webhook'.",
 });
 export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Type;
 

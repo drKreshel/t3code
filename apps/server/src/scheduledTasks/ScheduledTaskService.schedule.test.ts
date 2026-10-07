@@ -108,3 +108,53 @@ it.effect("preserves a due run when a save only pads the scheduled hour", () =>
     }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
+
+it.effect("saves cron schedules with their next run, and refuses ones that cannot run", () =>
+  Effect.gen(function* () {
+    const layerDependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Scheduler.layer,
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+      Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+      Layer.mock(SecretRequests.SecretRequests)({}),
+    );
+    yield* TestClock.setTime(
+      DateTime.toEpochMillis(DateTime.makeUnsafe("2026-07-01T12:00:00.000Z")),
+    );
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const save = (schedule: unknown) =>
+        decodeUpsertInput({
+          title: "SERP checks",
+          prompt: "Run the adaptive SERP check.",
+          enabled: true,
+          schedule,
+          projectId: "project-cron",
+          workspaceStrategy: { type: "root" },
+          modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        }).pipe(Effect.flatMap(service.upsert));
+
+      const { task } = yield* save({
+        type: "cron",
+        expression: "15,45 2-19 * * *",
+        timezone: "America/Vancouver",
+      });
+      // 05:00 Vancouver (PDT): the next match is 05:15.
+      expect(task.nextRunAt).toBe("2026-07-01T12:15:00.000Z");
+
+      const refused = yield* save({
+        type: "cron",
+        expression: "0 9 * * *",
+        timezone: "Nowhere/City",
+      }).pipe(Effect.flip);
+      expect(refused.message).toMatch(/Unknown timezone/);
+      const past = yield* save({ type: "once", at: "2026-06-30T09:00", timezone: "UTC" }).pipe(
+        Effect.flip,
+      );
+      expect(past.message).toMatch(/already passed/);
+      expect((yield* service.list()).tasks).toHaveLength(1);
+    }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);

@@ -45,7 +45,7 @@ export function validateScheduledTasksSearch(raw: Record<string, unknown>) {
   };
 }
 
-export type ScheduleMode = "fixed" | "interval" | "webhook";
+export type ScheduleMode = "fixed" | "interval" | "cron" | "once" | "webhook";
 export type WorkspaceMode = "root" | "worktree" | "existing_worktree";
 
 export interface DraftState {
@@ -57,6 +57,11 @@ export interface DraftState {
   readonly intervalMinutes: string;
   readonly timeOfDay: string;
   readonly weekdays: ReadonlySet<number>;
+  readonly cronExpression: string;
+  /** `datetime-local` value, YYYY-MM-DDTHH:MM. */
+  readonly onceAt: string;
+  /** IANA timezone for fixed, cron, and one-off times; empty uses the server's. */
+  readonly timezone: string;
   readonly projectId: string;
   readonly threadId: string;
   readonly workspaceMode: WorkspaceMode;
@@ -82,6 +87,9 @@ export interface DraftState {
   /** Minutes as typed; empty runs every held request regardless of age. */
   readonly maxDeliveryAgeMinutes: string;
 }
+
+/** Weekdays at 09:00: a cron a person can read and adjust. */
+export const DEFAULT_CRON_EXPRESSION = "0 9 * * 1-5";
 
 /** GitHub's signature settings, the most common sender. */
 export const WEBHOOK_SIGNATURE_DEFAULTS = {
@@ -113,11 +121,18 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
     const everyMs = Math.round(Number(draft.intervalMinutes) * 60_000);
     return { type: "interval", everyMs };
   }
+  const timezone = draft.timezone.trim();
+  const zone = timezone ? { timezone } : {};
+  if (draft.scheduleMode === "cron") {
+    return { type: "cron", expression: draft.cronExpression.trim(), ...zone };
+  }
+  if (draft.scheduleMode === "once") return { type: "once", at: draft.onceAt, ...zone };
   const selectedEveryDay = draft.weekdays.size === 0 || draft.weekdays.size === 7;
   return {
     type: "fixed_time",
     timeOfDay: draft.timeOfDay || "09:00",
     ...(selectedEveryDay ? {} : { weekdays: [...draft.weekdays].toSorted() }),
+    ...zone,
   };
 }
 
@@ -132,12 +147,17 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     title: task.title,
     prompt: task.prompt,
     enabled: task.enabled,
-    scheduleMode:
-      schedule.type === "interval" ? "interval" : schedule.type === "webhook" ? "webhook" : "fixed",
+    scheduleMode: schedule.type === "fixed_time" ? "fixed" : schedule.type,
     intervalMinutes:
       schedule.type === "interval" ? String(Math.max(1, schedule.everyMs / 60_000)) : "15",
     timeOfDay: schedule.type === "fixed_time" ? schedule.timeOfDay : "09:00",
     weekdays,
+    cronExpression: schedule.type === "cron" ? schedule.expression : DEFAULT_CRON_EXPRESSION,
+    onceAt: schedule.type === "once" ? schedule.at : "",
+    timezone:
+      schedule.type === "fixed_time" || schedule.type === "cron" || schedule.type === "once"
+        ? (schedule.timezone ?? "")
+        : "",
     projectId: task.projectId,
     threadId: task.threadId ?? "",
     workspaceMode: task.workspaceStrategy.type,

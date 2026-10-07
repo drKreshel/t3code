@@ -45,7 +45,12 @@ import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
-import { isMissedFixedTimeRun, isSameSchedule, nextScheduledRunAt } from "./Schedule.ts";
+import {
+  isMissedFixedTimeRun,
+  isSameSchedule,
+  nextScheduledRunAt,
+  scheduleProblem,
+} from "./Schedule.ts";
 import {
   redactHeaders,
   redactQuery,
@@ -1001,6 +1006,13 @@ export const layer = Layer.effect(
     const upsert: ScheduledTaskService["Service"]["upsert"] = (input) =>
       Effect.gen(function* () {
         const now = yield* localNow;
+        const problem = scheduleProblem(input.schedule, now);
+        if (problem !== null) {
+          return yield* taskError(
+            problem,
+            input.id === undefined ? undefined : { taskId: input.id },
+          );
+        }
         const uuid =
           input.commandId === undefined
             ? yield* crypto.randomUUIDv4.pipe(

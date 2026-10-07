@@ -100,10 +100,14 @@ const DAYS = [
 ] as const;
 
 function describeSchedule(task: ScheduledTask): string {
-  if (task.schedule.type === "webhook") return "On webhook";
-  if (task.schedule.type === "interval") return formatScheduledTaskInterval(task.schedule.everyMs);
-  const days = task.schedule.weekdays?.length ? repeatLabel(task.schedule.weekdays) : "Every day";
-  return `${days} at ${formatTime(task.schedule.timeOfDay)}`;
+  const schedule = task.schedule;
+  if (schedule.type === "webhook") return "On webhook";
+  if (schedule.type === "interval") return formatScheduledTaskInterval(schedule.everyMs);
+  const zone = schedule.timezone ? ` (${schedule.timezone})` : "";
+  if (schedule.type === "cron") return `Cron ${schedule.expression}${zone}`;
+  if (schedule.type === "once") return `Once on ${schedule.at.replace("T", " at ")}${zone}`;
+  const days = schedule.weekdays?.length ? repeatLabel(schedule.weekdays) : "Every day";
+  return `${days} at ${formatTime(schedule.timeOfDay)}${zone}`;
 }
 
 function formatTime(value: string): string {
@@ -145,6 +149,8 @@ function FormField(props: {
   readonly disabled?: boolean;
   readonly placeholder?: string;
   readonly borderTop?: boolean;
+  /** For codes and names, like cron or timezones: no autocapitalize or autocorrect. */
+  readonly verbatim?: boolean;
 }) {
   return (
     <View
@@ -160,6 +166,8 @@ function FormField(props: {
         onChangeText={props.onChange}
         textAlignVertical="center"
         keyboardType={props.keyboardType}
+        autoCapitalize={props.verbatim ? "none" : undefined}
+        autoCorrect={props.verbatim ? false : undefined}
         placeholder={props.placeholder}
         placeholderTextColorClassName="accent-foreground-muted"
         className="min-h-8 font-sans text-base text-foreground"
@@ -846,6 +854,8 @@ function TaskForm({
             options={[
               { value: "fixed_time", label: "At a time" },
               { value: "interval", label: "Interval" },
+              { value: "cron", label: "Cron" },
+              { value: "once", label: "Once" },
               { value: "webhook", label: "On webhook" },
             ]}
             selected={draft.schedule.mode}
@@ -932,6 +942,28 @@ function TaskForm({
               }}
             />
           </>
+        ) : draft.schedule.mode === "cron" ? (
+          <FormField
+            label="Cron (minute hour day month weekday)"
+            value={draft.schedule.cronExpression}
+            placeholder="15,45 2-19 * * *"
+            verbatim
+            disabled={saving}
+            borderTop
+            onChange={(cronExpression) =>
+              setDraft({ ...draft, schedule: { ...draft.schedule, cronExpression } })
+            }
+          />
+        ) : draft.schedule.mode === "once" ? (
+          <FormField
+            label="Date and time"
+            value={draft.schedule.onceAt}
+            placeholder="2026-10-09T09:00"
+            verbatim
+            disabled={saving}
+            borderTop
+            onChange={(onceAt) => setDraft({ ...draft, schedule: { ...draft.schedule, onceAt } })}
+          />
         ) : draft.schedule.mode === "webhook" ? (
           <>
             <WebhookScheduleDetails
@@ -982,6 +1014,21 @@ function TaskForm({
             ) : null}
           </>
         )}
+        {draft.schedule.mode === "fixed_time" ||
+        draft.schedule.mode === "cron" ||
+        draft.schedule.mode === "once" ? (
+          <FormField
+            label="Timezone"
+            value={draft.schedule.timezone}
+            placeholder="Environment's time zone"
+            verbatim
+            disabled={saving}
+            borderTop
+            onChange={(timezone) =>
+              setDraft({ ...draft, schedule: { ...draft.schedule, timezone } })
+            }
+          />
+        ) : null}
         <View className="min-h-14 flex-row items-center gap-3 border-t border-border-subtle px-4 py-3">
           <Text className="min-w-0 flex-1 text-lg text-foreground">Enabled</Text>
           <ThemedSwitch
@@ -991,9 +1038,12 @@ function TaskForm({
           />
         </View>
       </SettingsSection>
-      {draft.schedule.mode === "fixed_time" ? (
+      {draft.schedule.mode === "fixed_time" ||
+      draft.schedule.mode === "cron" ||
+      draft.schedule.mode === "once" ? (
         <Text className="px-2 text-sm text-foreground-muted">
-          Time uses the environment's time zone, which may differ from your phone's.
+          Times use the timezone above, an IANA name such as America/Vancouver. Left empty, they use
+          the environment's time zone, which may differ from your phone's.
         </Text>
       ) : null}
       <Pressable

@@ -39,10 +39,15 @@ export function scheduledTaskDefaultModel(
 }
 
 export type ScheduleDraft = {
-  readonly mode: "fixed_time" | "interval" | "webhook";
+  readonly mode: "fixed_time" | "interval" | "cron" | "once" | "webhook";
   readonly timeOfDay: string;
   readonly weekdays: ReadonlyArray<number>;
   readonly intervalMinutes: string;
+  readonly cronExpression: string;
+  /** YYYY-MM-DDTHH:MM, read in `timezone`. */
+  readonly onceAt: string;
+  /** IANA timezone for times, cron, and one-offs; empty uses the environment's. */
+  readonly timezone: string;
   /** A webhook signature check configured elsewhere; mobile keeps it but does not edit it. */
   readonly signature: ScheduledTaskWebhookSignature | null;
   /** Minutes as typed; empty runs every held request regardless of age. */
@@ -54,6 +59,9 @@ export const DEFAULT_SCHEDULE: ScheduleDraft = {
   timeOfDay: "09:00",
   weekdays: [1, 2, 3, 4, 5],
   intervalMinutes: "15",
+  cronExpression: "0 9 * * 1-5",
+  onceAt: "",
+  timezone: "",
   signature: null,
   maxDeliveryAgeMinutes: "",
 };
@@ -67,6 +75,21 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
         weekdays: task.schedule.weekdays?.length
           ? [...new Set(task.schedule.weekdays)].sort((a, b) => a - b)
           : [0, 1, 2, 3, 4, 5, 6],
+        timezone: task.schedule.timezone ?? "",
+      };
+    case "cron":
+      return {
+        ...DEFAULT_SCHEDULE,
+        mode: "cron",
+        cronExpression: task.schedule.expression,
+        timezone: task.schedule.timezone ?? "",
+      };
+    case "once":
+      return {
+        ...DEFAULT_SCHEDULE,
+        mode: "once",
+        onceAt: task.schedule.at,
+        timezone: task.schedule.timezone ?? "",
       };
     case "interval":
       return {
@@ -111,6 +134,18 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
     const everyMs = Math.round(minutes * 60_000);
     return minutes >= 1 && Number.isSafeInteger(everyMs) ? { type: "interval", everyMs } : null;
   }
+  const timezone = draft.timezone.trim();
+  const zone = timezone ? { timezone } : {};
+  if (draft.mode === "cron") {
+    const expression = draft.cronExpression.trim();
+    return expression.split(/\s+/).length === 5 ? { type: "cron", expression, ...zone } : null;
+  }
+  if (draft.mode === "once") {
+    const at = draft.onceAt.trim();
+    return /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(at)
+      ? { type: "once", at, ...zone }
+      : null;
+  }
   const weekdays = [...new Set(draft.weekdays)].sort((a, b) => a - b);
   if (
     !/^([01]?\d|2[0-3]):[0-5]\d$/.test(draft.timeOfDay) ||
@@ -123,6 +158,7 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
     type: "fixed_time",
     timeOfDay: draft.timeOfDay,
     ...(weekdays.length === 7 ? {} : { weekdays }),
+    ...zone,
   };
 }
 
@@ -157,6 +193,9 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.schedule.timeOfDay,
     [...draft.schedule.weekdays].sort((a, b) => a - b),
     draft.schedule.intervalMinutes,
+    draft.schedule.cronExpression,
+    draft.schedule.onceAt,
+    draft.schedule.timezone,
     draft.schedule.maxDeliveryAgeMinutes,
     draft.workspace,
     draft.baseRef,

@@ -1537,6 +1537,30 @@ describe("orchestrator MCP toolkit", () => {
               enabled: false,
             });
 
+            // A cron schedule in its own timezone, and a model option, can be set later.
+            const cronUpdateCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              schedule: {
+                type: "cron",
+                expression: "15,45 2-19 * * *",
+                timezone: "America/Vancouver",
+              },
+              target: { options: { reasoning: "low" } },
+            });
+            expect(cronUpdateCall.isError).toBe(false);
+            expect(cronUpdateCall.structuredContent).toMatchObject({
+              schedule: {
+                type: "cron",
+                expression: "15,45 2-19 * * *",
+                timezone: "America/Vancouver",
+              },
+              target: {
+                providerInstanceId: codexInstanceId,
+                model: codexModel,
+                options: [{ id: "reasoning", value: "low" }],
+              },
+            });
+
             // delete_scheduled_task removes it entirely.
             const scheduledDeleteCall = yield* invoke("delete_scheduled_task", { scheduledTaskId });
             expect(scheduledDeleteCall.isError).toBe(false);

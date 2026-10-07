@@ -245,6 +245,13 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     projectId: task.projectId,
     boundThreadId: task.threadId,
     schedule: task.schedule,
+    target: {
+      providerInstanceId: task.modelSelection.instanceId,
+      model: task.modelSelection.model,
+      ...(task.modelSelection.options === undefined
+        ? {}
+        : { options: task.modelSelection.options }),
+    },
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
     // A bare path is not a URL anyone can call, so agents never get one to share.
@@ -1046,9 +1053,7 @@ const make = Effect.gen(function* () {
   const resolveTargetRechecking = (input: Parameters<typeof resolveTarget>[0]) => {
     const instanceId =
       input.target?.providerInstanceId ??
-      (input.target?.driverKind === undefined
-        ? input.parent.thread.modelSelection.instanceId
-        : undefined);
+      (input.target?.driverKind === undefined ? input.inherited.instanceId : undefined);
     const resolved = resolveTarget(input);
     if (instanceId === undefined) return resolved;
     return resolved.pipe(
@@ -1062,8 +1067,9 @@ const make = Effect.gen(function* () {
     );
   };
 
+  /** `inherited` is the selection an omitted provider or model falls back to: the caller's, usually. */
   const resolveTarget = (input: {
-    readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
+    readonly inherited: ModelSelection;
     readonly target: OrchestratorMcpTarget | undefined;
     readonly providers: ReadonlyArray<ServerProvider>;
   }): Effect.Effect<ResolvedTarget, OrchestratorMcpFailure> =>
@@ -1090,7 +1096,7 @@ const make = Effect.gen(function* () {
         // requested driver rather than failing the delegation.
         const inheritedCandidate = candidates.find(
           (candidate) =>
-            candidate.instanceId === input.parent.thread.modelSelection.instanceId &&
+            candidate.instanceId === input.inherited.instanceId &&
             providerConstraints(candidate, true).length === 0,
         );
         const availableCandidate = candidates.find(
@@ -1104,7 +1110,7 @@ const make = Effect.gen(function* () {
           );
         }
       }
-      instanceId ??= input.parent.thread.modelSelection.instanceId;
+      instanceId ??= input.inherited.instanceId;
 
       const provider = input.providers.find((candidate) => candidate.instanceId === instanceId);
       if (provider === undefined) {
@@ -1130,7 +1136,7 @@ const make = Effect.gen(function* () {
         );
       }
 
-      const inheritedSelection = input.parent.thread.modelSelection;
+      const inheritedSelection = input.inherited;
       const requestedModel = input.target?.model;
       const model =
         requestedModel ??
@@ -1485,8 +1491,16 @@ const make = Effect.gen(function* () {
               : "bindToCurrentThread binds to this thread, which belongs to a different project.",
           );
         }
-        const modelSelection =
+        const inherited =
           parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project));
+        const modelSelection =
+          input.target === undefined
+            ? inherited
+            : (yield* resolveTargetRechecking({
+                inherited,
+                target: input.target,
+                providers: yield* loadProviders,
+              })).modelSelection;
         const derivedTitle = input.prompt.split("\n")[0]?.trim() ?? "";
         const title =
           input.title ?? (derivedTitle.length > 0 ? derivedTitle.slice(0, 80) : "Scheduled task");
@@ -1580,7 +1594,14 @@ const make = Effect.gen(function* () {
           projectId: existing.projectId,
           threadId,
           workspaceStrategy,
-          modelSelection: existing.modelSelection,
+          modelSelection:
+            input.target === undefined
+              ? existing.modelSelection
+              : (yield* resolveTargetRechecking({
+                  inherited: existing.modelSelection,
+                  target: input.target,
+                  providers: yield* loadProviders,
+                })).modelSelection,
           runtimeMode: existing.runtimeMode,
           interactionMode: existing.interactionMode,
           createdBy: existing.createdBy,
@@ -1806,7 +1827,7 @@ const make = Effect.gen(function* () {
         }
         const providers = yield* loadProviders;
         const target = yield* resolveTargetRechecking({
-          parent,
+          inherited: parent.thread.modelSelection,
           target: input.target,
           providers,
         });
@@ -2088,7 +2109,7 @@ const make = Effect.gen(function* () {
           (request, index) =>
             Effect.gen(function* () {
               const target = yield* resolveTargetRechecking({
-                parent,
+                inherited: parent.thread.modelSelection,
                 target: request.target,
                 providers,
               });
