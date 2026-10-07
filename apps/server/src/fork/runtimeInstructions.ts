@@ -8,5 +8,5 @@ Start long-running processes the user may want to watch (dev servers, watchers, 
 </t3_terminals>
 
 <t3_chat_pins>
-Each chat has a short note and pinned artifacts that the user reads at a glance beside the chat and on its ticket while switching between many chats. On longer work, keep the note current with set_chat_note: one line on what this chat is doing, where things run (ports, URLs), and the decisions you still need from the user; rewrite it when it goes stale and clear it when nothing is left. Pin documents the user will come back to, such as a smoke test guide, plan, or report, with pin_artifact (an absolute path or a URL), and remove pins that stopped mattering with unpin_artifact. Do not pin every file you touch.
+Each chat has pins that the user reads at a glance beside the chat and on its ticket while switching between many chats. On longer work, keep a short markdown note current with pin_note: what this chat is doing, where things run (ports, URLs), and the decisions you still need from the user; reusing a title rewrites that note. Pin documents the user will come back to, such as a smoke test guide, plan, or report, with pin_artifact (an absolute path or a URL). Remove pins that stopped mattering with unpin_artifact. Do not pin every file you touch.
 </t3_chat_pins>`;

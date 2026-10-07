@@ -1,8 +1,8 @@
 /**
- * Chat pins (fork feature): a short note and a few pinned artifacts that an
- * agent keeps current on its chat, so the user sees them at a glance in the
- * thread details card and on the chat's ticket. They live on the thread's own
- * environment in `fork.sqlite`.
+ * Chat pins (fork feature): the artifacts an agent pins on its chat, either a
+ * file or URL, or a short markdown note it keeps current, so the user sees
+ * them at a glance in the thread details card and on the chat's ticket. They
+ * live on the thread's own environment in `fork.sqlite`.
  */
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
@@ -20,24 +20,22 @@ export const THREAD_PIN_TITLE_MAX_LENGTH = 200;
 export const THREAD_PIN_TARGET_MAX_LENGTH = 4096;
 export const THREAD_PINS_MAX = 30;
 
+/** Exactly one of `target` (a file or URL pin) and `text` (a note pin) is set. */
 export const ThreadPin = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   /** An absolute host path or an http(s) URL. */
-  target: Schema.String,
+  target: Schema.NullOr(Schema.String),
+  /** Markdown. */
+  text: Schema.NullOr(Schema.String),
   createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
 });
 export type ThreadPin = typeof ThreadPin.Type;
 
-export const ThreadNote = Schema.Struct({
-  text: Schema.String,
-  updatedAt: IsoDateTime,
-});
-export type ThreadNote = typeof ThreadNote.Type;
-
+/** A chat's pins in the order they were first pinned. */
 export const ThreadPins = Schema.Struct({
   threadId: ThreadId,
-  note: Schema.NullOr(ThreadNote),
   pins: Schema.Array(ThreadPin),
 });
 export type ThreadPins = typeof ThreadPins.Type;
@@ -48,10 +46,11 @@ const command = <Type extends string, Fields extends Schema.Struct.Fields>(
 ) => Schema.Struct({ type: Schema.Literal(type), ...fields });
 
 export const ThreadPinsCommand = Schema.Union([
-  /** Replaces the note; blank text clears it. */
+  /** Pins a note, or replaces the text of the chat's note with the same title. */
   command("note.set", {
     threadId: ThreadId,
-    text: Schema.String.check(Schema.isMaxLength(THREAD_NOTE_MAX_LENGTH)),
+    title: TrimmedNonEmptyString.check(Schema.isMaxLength(THREAD_PIN_TITLE_MAX_LENGTH)),
+    text: TrimmedNonEmptyString.check(Schema.isMaxLength(THREAD_NOTE_MAX_LENGTH)),
   }),
   /** Pinning a target the chat already pins renames that pin. */
   command("pin.add", {

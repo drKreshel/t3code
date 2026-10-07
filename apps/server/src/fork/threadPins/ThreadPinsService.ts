@@ -1,5 +1,5 @@
 /**
- * Chat pins, stored in `fork.sqlite`: each thread's note and pinned artifacts.
+ * Chat pins, stored in `fork.sqlite`: each thread's pinned files, URLs, and notes.
  *
  * Every write publishes the thread it changed; subscribers to that thread
  * reload its whole (small) pin set.
@@ -59,42 +59,59 @@ const make = Effect.gen(function* () {
 
   const load = (threadId: ThreadId) =>
     Effect.gen(function* () {
-      const notes = yield* sql<{ readonly text: string; readonly updated_at: string }>`
-        SELECT text, updated_at FROM fork_thread_notes WHERE thread_id = ${threadId}`;
-      const pins = yield* sql<{
+      const rows = yield* sql<{
         readonly id: string;
         readonly title: string;
-        readonly target: string;
+        readonly target: string | null;
+        readonly text: string | null;
         readonly created_at: string;
-      }>`SELECT id, title, target, created_at FROM fork_thread_pins
+        readonly updated_at: string;
+      }>`SELECT id, title, target, text, created_at, updated_at FROM fork_thread_pins
         WHERE thread_id = ${threadId} ORDER BY rowid`;
-      const note = notes[0];
       return {
         threadId,
-        note: note === undefined ? null : { text: note.text, updatedAt: note.updated_at },
-        pins: pins.map((pin) => ({
-          id: pin.id,
-          title: pin.title,
-          target: pin.target,
-          createdAt: pin.created_at,
+        pins: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          target: row.target,
+          text: row.text,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
         })),
       } satisfies ThreadPins;
     }).pipe(Effect.mapError(toPinsError));
+
+  const assertRoom = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const [count] = yield* sql<{ readonly n: number }>`
+        SELECT COUNT(*) AS n FROM fork_thread_pins WHERE thread_id = ${threadId}`;
+      if ((count?.n ?? 0) >= THREAD_PINS_MAX)
+        return yield* fail(
+          "invalid",
+          `A chat holds at most ${THREAD_PINS_MAX} pins. Unpin one first.`,
+        );
+    });
 
   const run = (command: ThreadPinsCommand) =>
     Effect.gen(function* () {
       const now = yield* nowIso;
       switch (command.type) {
         case "note.set": {
-          const text = command.text.trim();
-          if (text.length === 0) {
-            yield* sql`DELETE FROM fork_thread_notes WHERE thread_id = ${command.threadId}`;
-          } else {
-            yield* sql`
-              INSERT INTO fork_thread_notes (thread_id, text, updated_at)
-              VALUES (${command.threadId}, ${text}, ${now})
-              ON CONFLICT (thread_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`;
+          // A note keeps its place in the list when its text changes.
+          const existing = yield* sql<{ readonly id: string }>`
+            SELECT id FROM fork_thread_pins
+            WHERE thread_id = ${command.threadId} AND target IS NULL AND title = ${command.title}`;
+          const id = existing[0]?.id;
+          if (id !== undefined) {
+            yield* sql`UPDATE fork_thread_pins SET text = ${command.text}, updated_at = ${now}
+              WHERE id = ${id}`;
+            return;
           }
+          yield* assertRoom(command.threadId);
+          yield* sql`
+            INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
+            VALUES (${yield* crypto.randomUUIDv4}, ${command.threadId}, ${command.title}, NULL,
+              ${command.text}, ${now}, ${now})`;
           return;
         }
         case "pin.add": {
@@ -103,22 +120,17 @@ const make = Effect.gen(function* () {
           const existing = yield* sql<{ readonly id: string }>`
             SELECT id FROM fork_thread_pins
             WHERE thread_id = ${command.threadId} AND target = ${command.target}`;
-          if (existing.length > 0) {
-            yield* sql`UPDATE fork_thread_pins SET title = ${command.title}
-              WHERE thread_id = ${command.threadId} AND target = ${command.target}`;
+          const id = existing[0]?.id;
+          if (id !== undefined) {
+            yield* sql`UPDATE fork_thread_pins SET title = ${command.title}, updated_at = ${now}
+              WHERE id = ${id}`;
             return;
           }
-          const [count] = yield* sql<{ readonly n: number }>`
-            SELECT COUNT(*) AS n FROM fork_thread_pins WHERE thread_id = ${command.threadId}`;
-          if ((count?.n ?? 0) >= THREAD_PINS_MAX)
-            return yield* fail(
-              "invalid",
-              `A chat holds at most ${THREAD_PINS_MAX} pins. Unpin one first.`,
-            );
+          yield* assertRoom(command.threadId);
           yield* sql`
-            INSERT INTO fork_thread_pins (id, thread_id, title, target, created_at)
+            INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
             VALUES (${yield* crypto.randomUUIDv4}, ${command.threadId}, ${command.title},
-              ${command.target}, ${now})`;
+              ${command.target}, NULL, ${now}, ${now})`;
           return;
         }
         case "pin.remove": {

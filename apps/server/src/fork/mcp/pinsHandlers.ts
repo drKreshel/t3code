@@ -10,7 +10,6 @@ const failure = (code: ThreadPinsError["code"], message: string) =>
   new ThreadPinsError({ code, message });
 
 const toResult = (pins: ThreadPins) => ({
-  note: pins.note?.text ?? null,
   pins: pins.pins.map(({ id, title, target }) => ({ id, title, target })),
 });
 
@@ -37,9 +36,9 @@ const make = Effect.gen(function* () {
     withService((pins) => pins.dispatch(command).pipe(Effect.map(toResult)));
 
   return ThreadPinsToolkit.of({
-    set_chat_note: ({ note }) =>
+    pin_note: ({ title, text }) =>
       Effect.flatMap(callerThreadId, (threadId) =>
-        dispatch({ type: "note.set", threadId, text: note }),
+        dispatch({ type: "note.set", threadId, title, text }),
       ),
     pin_artifact: ({ title, target }) =>
       Effect.flatMap(callerThreadId, (threadId) =>
@@ -49,9 +48,14 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const threadId = yield* callerThreadId;
         const current = yield* withService((pins) => pins.get(threadId));
-        const match = current.pins.find((entry) => entry.id === pin || entry.target === pin);
+        const match =
+          current.pins.find((entry) => entry.id === pin || entry.target === pin) ??
+          current.pins.find((entry) => entry.text !== null && entry.title === pin);
         if (match === undefined)
-          return yield* failure("not-found", "This chat has no pin with that id or target.");
+          return yield* failure(
+            "not-found",
+            "This chat has no pin with that id, target, or title.",
+          );
         return yield* dispatch({ type: "pin.remove", threadId, pinId: match.id });
       }),
   });

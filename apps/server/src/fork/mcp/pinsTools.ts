@@ -1,8 +1,8 @@
 /**
- * Fork: `t3-code` MCP tools for chat pins. An agent keeps a short note and
- * pins the artifacts that matter on its chat; the user sees both at a glance
- * in the thread details card and on the chat's ticket, however far the
- * transcript scrolls.
+ * Fork: `t3-code` MCP tools for chat pins. An agent pins the files and URLs
+ * that matter on its chat and keeps short markdown notes current there; the
+ * user sees them at a glance in the thread details card and on the chat's
+ * ticket, however far the transcript scrolls.
  */
 import {
   THREAD_NOTE_MAX_LENGTH,
@@ -23,24 +23,31 @@ const shared = {
 };
 
 const ChatPins = Schema.Struct({
-  note: Schema.NullOr(Schema.String),
   pins: Schema.Array(
-    Schema.Struct({ id: Schema.String, title: Schema.String, target: Schema.String }),
+    Schema.Struct({
+      id: Schema.String,
+      title: Schema.String,
+      target: Schema.NullOr(Schema.String).annotate({ description: "Null for a note." }),
+    }),
   ),
-}).annotate({ description: "This chat's note and pins after the change." });
+}).annotate({ description: "This chat's pins, in order, after the change." });
 
-const SetChatNoteTool = Tool.make("set_chat_note", {
+const PinNoteTool = Tool.make("pin_note", {
   ...shared,
   description:
-    "Replace this chat's note: a few short lines the user reads at a glance beside the chat and on its ticket, such as where things run ('dev server on :4000'), current status, or the decisions you need from them. Rewrite it whenever it goes stale; an empty note clears it. Short markdown (bold, lists, links, inline code), not a file.",
+    "Pin a short markdown note on this chat, or rewrite the note with the same title. The user reads pinned notes at a glance beside the chat and on its ticket, such as where things run ('dev server on :4000'), current status, or the decisions you need from them. Absolute file paths written as markdown links and $skill names show as chips. Rewrite a note when it goes stale and unpin it when nothing is left.",
   parameters: Schema.Struct({
-    note: Schema.String.check(Schema.isMaxLength(THREAD_NOTE_MAX_LENGTH)).annotate({
-      description: "The whole note; it replaces the previous one. Empty clears it.",
+    title: TrimmedNonEmptyString.check(Schema.isMaxLength(THREAD_PIN_TITLE_MAX_LENGTH)).annotate({
+      description:
+        "Short label such as 'Status' or 'Decisions needed'. Reusing a title replaces that note.",
+    }),
+    text: TrimmedNonEmptyString.check(Schema.isMaxLength(THREAD_NOTE_MAX_LENGTH)).annotate({
+      description: "The whole note in markdown; it replaces the previous text.",
     }),
   }),
   success: ChatPins,
 })
-  .annotate(Tool.Title, "Set chat note")
+  .annotate(Tool.Title, "Pin note")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
@@ -68,9 +75,12 @@ const PinArtifactTool = Tool.make("pin_artifact", {
 
 const UnpinArtifactTool = Tool.make("unpin_artifact", {
   ...shared,
-  description: "Remove a pin from this chat when it no longer matters. The file itself stays.",
+  description:
+    "Remove a pin (file, URL, or note) from this chat when it no longer matters. A pinned file itself stays.",
   parameters: Schema.Struct({
-    pin: TrimmedNonEmptyString.annotate({ description: "The pin's id or its target." }),
+    pin: TrimmedNonEmptyString.annotate({
+      description: "The pin's id, its file path or URL, or a note's title.",
+    }),
   }),
   success: ChatPins,
 })
@@ -80,4 +90,4 @@ const UnpinArtifactTool = Tool.make("unpin_artifact", {
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
-export const ThreadPinsToolkit = Toolkit.make(SetChatNoteTool, PinArtifactTool, UnpinArtifactTool);
+export const ThreadPinsToolkit = Toolkit.make(PinNoteTool, PinArtifactTool, UnpinArtifactTool);

@@ -299,6 +299,34 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       )`,
     ],
   },
+  {
+    // Notes become pins with markdown text, so a chat can hold several and
+    // order them among its files and URLs. The old single note per chat
+    // moves in as a pin titled "Note".
+    version: 13,
+    statements: [
+      `CREATE TABLE fork_thread_pins_next (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        target TEXT,
+        text TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (thread_id, target),
+        CHECK ((target IS NULL) <> (text IS NULL))
+      )`,
+      `INSERT INTO fork_thread_pins_next (id, thread_id, title, target, text, created_at, updated_at)
+        SELECT id, thread_id, title, target, NULL, created_at, created_at
+        FROM fork_thread_pins ORDER BY rowid`,
+      `INSERT INTO fork_thread_pins_next (id, thread_id, title, target, text, created_at, updated_at)
+        SELECT 'note-' || thread_id, thread_id, 'Note', NULL, text, updated_at, updated_at
+        FROM fork_thread_notes`,
+      `DROP TABLE fork_thread_pins`,
+      `DROP TABLE fork_thread_notes`,
+      `ALTER TABLE fork_thread_pins_next RENAME TO fork_thread_pins`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

@@ -5,13 +5,13 @@ import { useRightPanelStore } from "../../rightPanelStore";
 import { ThreadPinsContent } from "../threadPins/ThreadPinsContent";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 
-/** True when a chat has a note or pins to show. */
+/** True when a chat has pins to show. */
 export const hasThreadPins = (pins: ThreadPins | null): pins is ThreadPins =>
-  pins !== null && (pins.note !== null || pins.pins.length > 0);
+  pins !== null && pins.pins.length > 0;
 
 /**
- * Fork: thread details card section with the chat's note and pinned
- * artifacts, last in the card so the controls above keep their place.
+ * Fork: thread details card section with the chat's pinned files, URLs, and
+ * notes, last in the card so the controls above keep their place.
  */
 export function ThreadPinsSection({
   threadRef,

@@ -46,17 +46,20 @@ const TestLayer = ThreadPinsToolkitHandlersLive.pipe(
 
 describe("chat pins tools", () => {
   it.layer(TestLayer)((it) => {
-    it.effect("pins to the calling chat and unpins by target", () =>
+    it.effect("pins files and notes to the calling chat and unpins by target or title", () =>
       Effect.gen(function* () {
         const call = yield* tools;
         yield* call("pin_artifact", { title: "Smoke test guide", target: "/tmp/smoke.md" });
-        expect(yield* call("set_chat_note", { note: "Dev server on :4000" })).toMatchObject({
-          note: "Dev server on :4000",
-          pins: [{ title: "Smoke test guide", target: "/tmp/smoke.md" }],
+        expect(
+          yield* call("pin_note", { title: "Status", text: "Dev server on :4000" }),
+        ).toMatchObject({
+          pins: [
+            { title: "Smoke test guide", target: "/tmp/smoke.md" },
+            { title: "Status", target: null },
+          ],
         });
-        expect(yield* call("unpin_artifact", { pin: "/tmp/smoke.md" })).toMatchObject({
-          pins: [],
-        });
+        yield* call("unpin_artifact", { pin: "/tmp/smoke.md" });
+        expect(yield* call("unpin_artifact", { pin: "Status" })).toMatchObject({ pins: [] });
       }),
     );
 
@@ -64,8 +67,8 @@ describe("chat pins tools", () => {
       Effect.gen(function* () {
         const call = yield* tools;
         const error = yield* call(
-          "set_chat_note",
-          { note: "hello" },
+          "pin_note",
+          { title: "Note", text: "hello" },
           { ...invocation, thread: undefined },
         ).pipe(Effect.flip);
         expect(error).toMatchObject({ _tag: "ThreadPinsError", code: "invalid" });

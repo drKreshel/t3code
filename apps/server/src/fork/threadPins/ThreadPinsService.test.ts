@@ -17,19 +17,24 @@ const dispatch = (command: ThreadPinsCommand) =>
   });
 
 it.layer(TestLayer)("ThreadPinsService", (it) => {
-  it.effect("keeps one note per chat and clears it with blank text", () =>
+  it.effect("rewrites a note by title in place among the other pins", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("note-thread");
-      yield* dispatch({ type: "note.set", threadId, text: "Dev server on :4000" });
+      yield* dispatch({ type: "note.set", threadId, title: "Status", text: "Dev server on :4000" });
+      yield* dispatch({ type: "pin.add", threadId, title: "Guide", target: "/tmp/guide.md" });
       const updated = yield* dispatch({
         type: "note.set",
         threadId,
-        text: "  Need from you: a) keep v1 API?  ",
+        title: "Status",
+        text: "Need from you: a) keep v1 API?",
       });
-      assert.strictEqual(updated.note?.text, "Need from you: a) keep v1 API?");
-
-      const cleared = yield* dispatch({ type: "note.set", threadId, text: "   " });
-      assert.isNull(cleared.note);
+      assert.deepStrictEqual(
+        updated.pins.map((pin) => [pin.title, pin.text ?? pin.target]),
+        [
+          ["Status", "Need from you: a) keep v1 API?"],
+          ["Guide", "/tmp/guide.md"],
+        ],
+      );
     }),
   );
 
@@ -81,16 +86,16 @@ it.layer(TestLayer)("ThreadPinsService", (it) => {
       const pins = yield* ThreadPinsService;
       const watched = ThreadId.make("watched-thread");
       const other = ThreadId.make("other-thread");
-      const received = yield* Queue.unbounded<string | null>();
+      const received = yield* Queue.unbounded<number>();
       yield* pins.stream(watched).pipe(
-        Stream.runForEach((state) => Queue.offer(received, state.note?.text ?? null)),
+        Stream.runForEach((state) => Queue.offer(received, state.pins.length)),
         Effect.forkScoped,
       );
       // The first emission comes after the subscription is in place.
-      assert.isNull(yield* Queue.take(received));
-      yield* dispatch({ type: "note.set", threadId: other, text: "Unrelated" });
-      yield* dispatch({ type: "note.set", threadId: watched, text: "Watched" });
-      assert.strictEqual(yield* Queue.take(received), "Watched");
+      assert.strictEqual(yield* Queue.take(received), 0);
+      yield* dispatch({ type: "note.set", threadId: other, title: "Note", text: "Unrelated" });
+      yield* dispatch({ type: "note.set", threadId: watched, title: "Note", text: "Watched" });
+      assert.strictEqual(yield* Queue.take(received), 1);
     }),
   );
 });
