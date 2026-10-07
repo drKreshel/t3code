@@ -74,6 +74,7 @@ Stop and ask only when a choice cannot be made safely without Kreshel: switching
 
 - `build [ref]` builds `main` (or `ref`) in the build worktree. Needs Rust (`cargo`, found automatically).
 - `restart` quits, installs the last build, and reopens. Safe to run from a chat inside the app.
+- `relaunch` quits, backs up, and reopens the installed app without installing. Use it when the running app is not the installed build (`restart` now checks this itself).
 - `ship [ref]` runs `build`, then `restart`.
 - `install` alone refuses while the app runs; Kreshel can use it from Terminal after ⌘Q.
 - `rollback` swaps back to the previous app. `backup` and `status` do what they say.

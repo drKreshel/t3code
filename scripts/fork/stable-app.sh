@@ -45,6 +45,7 @@ Usage: $(basename "$0") <command>
   build [ref]   Build the app from a git ref (default: main) in $STABLE_DIR
   install       Back up chats + folders, then install the last build (quit T3 Code first)
   restart       Quit T3 Code, install the last build, and reopen it (safe to run from a chat)
+  relaunch      Quit and reopen the installed app without installing (safe to run from a chat)
   ship [ref]    build, then restart
   backup        Back up chats (database) and folders/settings (app profile)
   rollback      Reinstall the app that was installed before the last install
@@ -56,6 +57,37 @@ stable_app_running() {
   # Detection only: never kill by pattern. Fixed-string match, since the
   # app name contains regex characters.
   ps -axo command= | grep -F "$APP_PATH/Contents/MacOS/" | grep -vqF "grep -F"
+}
+
+# PIDs of running T3 Code processes started from the /Applications path.
+# Detection only, like stable_app_running.
+stable_app_pids() {
+  ps -axo pid=,command= | grep -F "$APP_PATH/Contents/MacOS/" | grep -vF "grep -F" | awk '{print $1}'
+}
+
+# A process keeps the bundle it launched from even after that bundle is moved,
+# so an app relaunched mid-install runs the old build from the rollback copy
+# while its command still names /Applications.
+stable_app_runs_previous_build() {
+  local pid
+  for pid in $(stable_app_pids); do
+    if lsof -p "$pid" 2>/dev/null | grep -qF "$PREVIOUS_APP_DIR/"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+quit_app() {
+  stable_app_running || return 0
+  log "Quitting T3 Code"
+  osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
+  local waited=0
+  while stable_app_running && [ "$waited" -lt 90 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  ! stable_app_running
 }
 
 require_app_quit() {
@@ -133,6 +165,15 @@ cmd_install() {
   [ -n "$zip" ] || die "No build found. Run: $0 build"
   require_app_quit
   cmd_backup || die "Backup failed; nothing was installed."
+  # The backup takes a while; if T3 Code was reopened meanwhile, moving its
+  # bundle aside would leave the old build running after the install.
+  if stable_app_running; then
+    if [ "${T3_STABLE_DETACHED:-}" = 1 ]; then
+      quit_app || die "T3 Code was reopened during the backup and did not quit; nothing was installed."
+    else
+      die "T3 Code was reopened during the backup; nothing was installed. Quit it and run this again."
+    fi
+  fi
   if [ -d "$APP_PATH" ]; then
     log "Keeping the current app for rollback"
     rm -rf "$PREVIOUS_APP_DIR"
@@ -158,7 +199,7 @@ notify() {
 # survives T3 Code quitting (and taking the chat that called it down with it).
 detach_restart() {
   mkdir -p "$BACKUP_ROOT"
-  T3_STABLE_DETACHED=1 python3 - "$SCRIPT_PATH" "$RESTART_LOG" <<'PY'
+  T3_STABLE_DETACHED=1 python3 - "$SCRIPT_PATH" "$RESTART_LOG" "${1:-restart}" <<'PY'
 import os, sys
 if os.fork():
     sys.exit(0)
@@ -169,7 +210,7 @@ log = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
 os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
 os.dup2(log, 1)
 os.dup2(log, 2)
-os.execvp("bash", ["bash", sys.argv[1], "restart"])
+os.execvp("bash", ["bash", sys.argv[1], sys.argv[3]])
 PY
 }
 
@@ -185,18 +226,9 @@ cmd_restart() {
   # Leave a trace if anything below ends the script early.
   trap 'echo "restart exited with status $? (last command: $BASH_COMMAND) at $(date +%T)"' EXIT
   sleep "$RESTART_DELAY"
-  if stable_app_running; then
-    log "Quitting T3 Code"
-    osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
-    local waited=0
-    while stable_app_running && [ "$waited" -lt 90 ]; do
-      sleep 1
-      waited=$((waited + 1))
-    done
-    if stable_app_running; then
-      notify "Update cancelled: T3 Code did not quit."
-      die "T3 Code did not quit within 90s; nothing was installed."
-    fi
+  if ! quit_app; then
+    notify "Update cancelled: T3 Code did not quit."
+    die "T3 Code did not quit within 90s; nothing was installed."
   fi
   local result="Updated and reopened."
   local installed=false
@@ -231,12 +263,40 @@ reopen_app() {
     # Launch Services can still remember the instance that has just quit.
     open -n "$APP_PATH" || log "open exited with status $?"
     sleep 5
+    if stable_app_runs_previous_build; then
+      # The old instance holds the single-instance lock, so the new one exits.
+      log "The previous build is still running; quitting it"
+      quit_app || return 1
+      continue
+    fi
     if stable_app_running; then
       log "T3 Code is running"
       return 0
     fi
   done
   return 1
+}
+
+# Quits and reopens the installed app without installing anything.
+cmd_relaunch() {
+  if [ "${T3_STABLE_DETACHED:-}" != 1 ]; then
+    detach_restart relaunch
+    log "In ${RESTART_DELAY}s T3 Code quits and reopens."
+    log "Progress: $RESTART_LOG"
+    return
+  fi
+  echo "---- relaunch $(date '+%Y-%m-%d %H:%M:%S')"
+  trap 'echo "relaunch exited with status $? (last command: $BASH_COMMAND) at $(date +%T)"' EXIT
+  sleep "$RESTART_DELAY"
+  if ! quit_app; then
+    notify "Relaunch cancelled: T3 Code did not quit."
+    die "T3 Code did not quit within 90s."
+  fi
+  cmd_backup || log "Backup failed; reopening anyway."
+  local result="Reopened."
+  reopen_app || result="T3 Code did not reopen. Open it from Applications."
+  log "$result"
+  notify "$result"
 }
 
 cmd_ship() {
@@ -279,6 +339,7 @@ case "${1:-}" in
   build) shift; cmd_build "$@" ;;
   install) cmd_install ;;
   restart) cmd_restart ;;
+  relaunch) cmd_relaunch ;;
   ship) shift; cmd_ship "$@" ;;
   backup) cmd_backup ;;
   rollback) cmd_rollback ;;
