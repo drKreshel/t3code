@@ -4,7 +4,7 @@ What this fork (`drKreshel/t3code`) adds to upstream `pingdotgg/t3code`, where e
 
 Fork code lives in new files: `apps/server/src/fork/**`, `packages/contracts/src/fork*.ts`, `apps/web/src/components/{boards,skills,agentContext,threadPins}`, `apps/web/src/state/{boards,workspaces,skills,agentContext,threadPins}.ts`, and `scripts/fork/`. Upstream files only get thin hooks, usually marked `Fork:`. Every fork feature also registers in the shared hooks below, so they are not repeated per feature.
 
-**Shared hooks:** `packages/contracts/src/{rpc,index}.ts` (RPC group and exports), `apps/server/src/auth/RpcAuthorization.ts` (scope per method), `packages/client-runtime/src/rpc/client.ts` (stream methods), `apps/server/src/ws.ts` (`makeForkRpcHandlers`), `apps/server/src/server.ts` (service layers), `apps/server/src/mcp/McpHttpServer.ts` (fork toolkits), `apps/server/src/provider/RuntimeInstructions.ts` (appends `fork/runtimeInstructions.ts`).
+**Shared hooks:** `packages/contracts/src/{rpc,index}.ts` (RPC group and exports), `apps/server/src/auth/RpcAuthorization.ts` (scope per method), `apps/server/src/observability/RpcInstrumentation.ts` (trace aggregate per method), `packages/client-runtime/src/rpc/client.ts` (stream methods), `apps/server/src/ws.ts` (`makeForkRpcHandlers`), `apps/server/src/server.ts` (service layers), `apps/server/src/mcp/McpHttpServer.ts` (fork toolkits via `toolkitRegistration`; their handlers declare caller access with `McpToolAccess`), `apps/server/src/provider/RuntimeInstructions.ts` (appends `fork/runtimeInstructions.ts`).
 
 ## Features
 

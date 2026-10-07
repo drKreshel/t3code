@@ -59,14 +59,14 @@ export function plainTerminalTail(
 ): { readonly output: string; readonly truncated: boolean } {
   const plain = history
     .replace(
-      // eslint-disable-next-line no-control-regex
+      // eslint-disable-next-line no-control-regex -- matching ANSI escape sequences is the point
       /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>]/g,
       "",
     )
     .split(/\r?\n/)
     .map((line) => (line.split("\r").findLast((segment) => segment.length > 0) ?? "").trimEnd())
     .map((line) =>
-      // eslint-disable-next-line no-control-regex
+      // eslint-disable-next-line no-control-regex -- strips control characters from terminal output
       line.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ""),
     );
   while (plain.length > 0 && plain.at(-1) === "") plain.pop();

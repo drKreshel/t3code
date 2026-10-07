@@ -2,7 +2,7 @@
  * A SKILL.md shown two ways: rendered, with its frontmatter as fields, or as
  * highlighted markdown source in the same editor the Files panel uses.
  */
-import { Editor } from "@pierre/diffs/editor";
+import { Editor, type EditorChangeEvent, type EditorFactory } from "@pierre/diffs/edit";
 import { EditProvider, File, Virtualizer } from "@pierre/diffs/react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -14,6 +14,12 @@ import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { ScrollArea } from "../ui/scroll-area";
 import { splitFrontmatter } from "./skillFrontmatter";
+
+const createSkillEditor: EditorFactory<undefined, undefined> = (
+  editorType,
+  options,
+  editStateKey,
+) => new Editor(editorType, options, editStateKey);
 
 export function SkillPreview(props: { readonly path: string; readonly text: string }) {
   const { fields, body } = useMemo(() => splitFrontmatter(props.text), [props.text]);
@@ -51,17 +57,13 @@ export function SkillSourceEditor(props: {
   const { onChange } = props;
   // The editor owns the text after mount; feeding edits back would reset it.
   const [initialContents] = useState(props.contents);
-  const editor = useMemo(
-    () =>
-      new Editor({
-        onChange: (file) => onChange?.(file.contents),
-      }),
-    [onChange],
-  );
-  useEffect(() => () => editor.cleanUp(), [editor]);
   const file = (
     <File
       file={{ name: "SKILL.md", contents: initialContents, cacheKey: `skill:${props.path}` }}
+      edit={onChange !== undefined}
+      onEditChange={(event: EditorChangeEvent<"file", undefined, undefined>) =>
+        onChange?.(event.file.contents)
+      }
       options={{
         disableFileHeader: true,
         overflow: wordWrap ? "wrap" : "scroll",
@@ -70,7 +72,6 @@ export function SkillSourceEditor(props: {
         themeType: resolvedTheme,
       }}
       className="min-h-full"
-      contentEditable={onChange !== undefined}
     />
   );
   const surface = (
@@ -84,7 +85,11 @@ export function SkillSourceEditor(props: {
   );
   return (
     <DiffWorkerPoolProvider>
-      {onChange === undefined ? surface : <EditProvider editor={editor}>{surface}</EditProvider>}
+      {onChange === undefined ? (
+        surface
+      ) : (
+        <EditProvider createEditor={createSkillEditor}>{surface}</EditProvider>
+      )}
     </DiffWorkerPoolProvider>
   );
 }

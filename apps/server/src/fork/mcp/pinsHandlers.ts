@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
+import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
 import { ThreadPinsService } from "../threadPins/ThreadPinsService.ts";
 import { ThreadPinsToolkit } from "./pinsTools.ts";
 
@@ -35,16 +36,18 @@ const make = Effect.gen(function* () {
   const dispatch = (command: ThreadPinsCommand) =>
     withService((pins) => pins.dispatch(command).pipe(Effect.map(toResult)));
 
-  return ThreadPinsToolkit.of({
-    pin_note: ({ title, text }) =>
+  return {
+    pin_note: McpToolAccess.actsAsCaller(({ title, text }) =>
       Effect.flatMap(callerThreadId, (threadId) =>
         dispatch({ type: "note.set", threadId, title, text }),
       ),
-    pin_artifact: ({ title, target }) =>
+    ),
+    pin_artifact: McpToolAccess.actsAsCaller(({ title, target }) =>
       Effect.flatMap(callerThreadId, (threadId) =>
         dispatch({ type: "pin.add", threadId, title, target }),
       ),
-    unpin_artifact: ({ pin }) =>
+    ),
+    unpin_artifact: McpToolAccess.actsAsCaller(({ pin }) =>
       Effect.gen(function* () {
         const threadId = yield* callerThreadId;
         const current = yield* withService((pins) => pins.get(threadId));
@@ -58,7 +61,8 @@ const make = Effect.gen(function* () {
           );
         return yield* dispatch({ type: "pin.remove", threadId, pinId: match.id });
       }),
-  });
+    ),
+  } satisfies McpToolAccess.Handlers<typeof ThreadPinsToolkit.tools>;
 });
 
-export const ThreadPinsToolkitHandlersLive = ThreadPinsToolkit.toLayer(make);
+export const ThreadPinsToolkitHandlersLive = McpToolAccess.toLayer(ThreadPinsToolkit, make);

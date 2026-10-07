@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
+  RunId,
   ThreadId,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
@@ -15,8 +16,10 @@ import * as Stream from "effect/Stream";
 import type { Tool } from "effect/ai";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
+import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
 import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
+import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
 import { BoardsService, layerMemory } from "../boards/BoardsService.ts";
 import { BoardsToolkitHandlersLive } from "./boardsHandlers.ts";
 import { BoardsToolkit } from "./boardsTools.ts";
@@ -35,20 +38,30 @@ const invocation: McpInvocationContext.McpInvocationScope = {
     providerSessionId: "provider-session-1",
     providerInstanceId: ProviderInstanceId.make("codex"),
   },
-  capabilities: new Set(["pull-requests"]),
+  capabilities: new Set(["orchestration"]),
   issuedAt: 1,
 };
 
 const project = { id: PROJECT_ID, title: "Atlas" } as OrchestrationProjectShell;
+// A live run in full-access/default mode, so McpToolAccess lets it act.
 const thread = {
   id: THREAD_ID,
   projectId: PROJECT_ID,
   title: "Plan atlas",
-} as OrchestrationV2ThreadShell;
+  providerInstanceId: ProviderInstanceId.make("codex"),
+  activeRunId: RunId.make("run-1"),
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  archivedAt: null,
+  deletedAt: null,
+} as unknown as OrchestrationV2ThreadShell;
 
 const snapshotQuery = Layer.mergeAll(
   Layer.mock(OrchestratorV2)({
     dispatch: () => Effect.succeed({ sequence: 1, storedEvents: [] }),
+    getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? thread : null),
+  }),
+  Layer.mock(ThreadManagement.ThreadManagementService)({
     getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? thread : null),
   }),
   Layer.mock(ProjectStoreV2)({
@@ -60,7 +73,11 @@ const snapshotQuery = Layer.mergeAll(
 /** Calls tools as the chat THREAD_ID; the test provides the in-memory boards database. */
 const makeHarness = Effect.gen(function* () {
   const toolkit = yield* BoardsToolkit.pipe(
-    Effect.provide(BoardsToolkitHandlersLive.pipe(Layer.provide(snapshotQuery))),
+    Effect.provide(
+      McpToolAccess.HandlersLayer.layer(BoardsToolkitHandlersLive).pipe(
+        Layer.provide(snapshotQuery),
+      ),
+    ),
   );
   const call = <Name extends keyof typeof BoardsToolkit.tools>(
     name: Name,
@@ -92,7 +109,7 @@ describe("boards toolkit handlers", () => {
         {
           ...invocation,
           thread: undefined,
-          client: { sessionId: "external", label: "External", runtimeModeCeiling: "full-access" },
+          client: { sessionId: "external", label: "External", access: "full-access" },
         },
       ).pipe(Effect.flip);
       expect(error).toMatchObject({ code: "invalid" });

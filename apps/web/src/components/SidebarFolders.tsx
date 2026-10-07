@@ -475,7 +475,7 @@ export function applySidebarFolderMenuSelection(
   value: string,
   threadKey: string,
   onThreadFiled: (threadKey: string) => void,
-): boolean {
+): value is SidebarFolderMenuId {
   const store = useSidebarFolderStore.getState();
   if (value === "folder-remove") {
     store.moveThread(threadKey, null);

@@ -1,11 +1,19 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type OrchestrationV2ThreadShell,
+  ProviderInstanceId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
+import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
+import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
 import { layerMemory } from "../threadPins/ThreadPinsService.ts";
 import { ThreadPinsToolkitHandlersLive } from "./pinsHandlers.ts";
 import { ThreadPinsToolkit } from "./pinsTools.ts";
@@ -39,8 +47,24 @@ const tools = Effect.gen(function* () {
     );
 });
 
-const TestLayer = ThreadPinsToolkitHandlersLive.pipe(
+// The calling thread has a live run, so McpToolAccess lets it act.
+const liveThread = {
+  id: ThreadId.make("thread-1"),
+  providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+  activeRunId: RunId.make("run-1"),
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  archivedAt: null,
+  deletedAt: null,
+} as unknown as OrchestrationV2ThreadShell;
+
+const TestLayer = McpToolAccess.HandlersLayer.layer(ThreadPinsToolkitHandlersLive).pipe(
   Layer.provideMerge(layerMemory),
+  Layer.provideMerge(
+    Layer.mock(ThreadManagement.ThreadManagementService)({
+      getThreadShell: () => Effect.succeed(liveThread),
+    }),
+  ),
   Layer.provide(NodeServices.layer),
 );
 
@@ -71,7 +95,7 @@ describe("chat pins tools", () => {
           { title: "Note", text: "hello" },
           { ...invocation, thread: undefined },
         ).pipe(Effect.flip);
-        expect(error).toMatchObject({ _tag: "ThreadPinsError", code: "invalid" });
+        expect(error).toMatchObject({ code: "thread_credential_required" });
       }),
     );
   });

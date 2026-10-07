@@ -14,6 +14,7 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
+import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import { randomUuidV4 } from "../../orchestration-v2/RandomUuid.ts";
@@ -190,8 +191,8 @@ const make = Effect.gen(function* () {
     };
   };
 
-  return BoardsToolkit.of({
-    list_boards: ({ includeArchived }) =>
+  return {
+    list_boards: McpToolAccess.reads(({ includeArchived }) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const visible = snapshot.boards
@@ -201,8 +202,8 @@ const make = Effect.gen(function* () {
           boards: yield* Effect.forEach(visible, (board) => summarizeBoard(snapshot, board)),
         };
       }),
-
-    list_tickets: (input) =>
+    ),
+    list_tickets: McpToolAccess.reads((input) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const board =
@@ -226,8 +227,8 @@ const make = Effect.gen(function* () {
           }).map((ticket) => summarizeTicket(snapshot, ticket)),
         };
       }),
-
-    get_ticket: ({ ticket: ref }) =>
+    ),
+    get_ticket: McpToolAccess.reads(({ ticket: ref }) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, ref);
@@ -310,8 +311,8 @@ const make = Effect.gen(function* () {
           path: ticketPath(board, ticket),
         } satisfies TicketDetailResult;
       }),
-
-    create_board: (input) =>
+    ),
+    create_board: McpToolAccess.writes((input) =>
       Effect.gen(function* () {
         if (input.template !== undefined && input.columns !== undefined) {
           return yield* invalid("Pass either template or columns.");
@@ -361,8 +362,8 @@ const make = Effect.gen(function* () {
         const board = yield* unwrap(findBoard(snapshot, input.key));
         return yield* summarizeBoard(snapshot, board);
       }),
-
-    update_board: (input) =>
+    ),
+    update_board: McpToolAccess.writes((input) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const board = yield* unwrap(findBoard(snapshot, input.board));
@@ -453,8 +454,8 @@ const make = Effect.gen(function* () {
         if (!updated) return yield* notFound("The board is missing.");
         return yield* summarizeBoard(after, updated);
       }),
-
-    create_ticket: (input) =>
+    ),
+    create_ticket: McpToolAccess.writes((input) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const board = yield* unwrap(findBoard(snapshot, input.board));
@@ -486,8 +487,8 @@ const make = Effect.gen(function* () {
         }
         return yield* changed(ticketId);
       }),
-
-    update_ticket: (input) =>
+    ),
+    update_ticket: McpToolAccess.writes((input) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, input.ticket);
@@ -550,8 +551,8 @@ const make = Effect.gen(function* () {
         }
         return yield* changed(ticket.id);
       }),
-
-    move_ticket: (input) =>
+    ),
+    move_ticket: McpToolAccess.writes((input) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, input.ticket);
@@ -562,8 +563,8 @@ const make = Effect.gen(function* () {
         }
         return yield* changed(ticket.id);
       }),
-
-    add_comment: (input) =>
+    ),
+    add_comment: McpToolAccess.writes((input) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, input.ticket);
@@ -575,8 +576,8 @@ const make = Effect.gen(function* () {
         });
         return yield* changed(ticket.id);
       }),
-
-    request_human: (input) =>
+    ),
+    request_human: McpToolAccess.actsAsCaller((input) =>
       Effect.gen(function* () {
         const { scope } = yield* caller;
         const id = yield* randomUuidV4;
@@ -594,8 +595,8 @@ const make = Effect.gen(function* () {
           path: `/${scope.environmentId}/${scope.thread.threadId}`,
         };
       }),
-
-    link_thread_to_ticket: ({ ticket: ref }) =>
+    ),
+    link_thread_to_ticket: McpToolAccess.actsAsCaller(({ ticket: ref }) =>
       Effect.gen(function* () {
         const { threadKey } = yield* caller;
         if (ref === undefined) {
@@ -607,8 +608,8 @@ const make = Effect.gen(function* () {
         yield* dispatch({ type: "thread.link", threadKey, ticketId: ticket.id });
         return { linkedTo: labelOf(snapshot, ticket) };
       }),
-
-    remove_ticket_workspace: ({ ticket: ref, force }) =>
+    ),
+    remove_ticket_workspace: McpToolAccess.writes(({ ticket: ref, force }) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, ref);
@@ -633,7 +634,8 @@ const make = Effect.gen(function* () {
           );
         return { removed: true };
       }),
-  });
+    ),
+  } satisfies McpToolAccess.Handlers<typeof BoardsToolkit.tools>;
 });
 
-export const BoardsToolkitHandlersLive = BoardsToolkit.toLayer(make);
+export const BoardsToolkitHandlersLive = McpToolAccess.toLayer(BoardsToolkit, make);

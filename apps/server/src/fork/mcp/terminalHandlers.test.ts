@@ -17,6 +17,7 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
+import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
 import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
@@ -102,7 +103,7 @@ const makeHarness = (runtimeMode: RuntimeMode, scope = invocation) =>
       NodeServices.layer,
     );
     const toolkit = yield* AgentTerminalToolkit.pipe(
-      Effect.provide(AgentTerminalToolkitHandlersLive),
+      Effect.provide(McpToolAccess.HandlersLayer.layer(AgentTerminalToolkitHandlersLive)),
     );
     const call = <Name extends keyof typeof AgentTerminalToolkit.tools>(
       name: Name,
@@ -124,10 +125,10 @@ describe("agent terminal tools", () => {
       const { call, writes, opened } = yield* makeHarness("full-access", {
         ...invocation,
         thread: undefined,
-        client: { sessionId: "external", label: "External", runtimeModeCeiling: "full-access" },
+        client: { sessionId: "external", label: "External", access: "full-access" },
       });
       expect(yield* call("t3_terminal_start", { name: "dev", command: "pnpm dev" })).toMatchObject({
-        code: "capability_denied",
+        code: "thread_credential_required",
       });
       expect(yield* call("t3_terminal_read", { name: "dev" })).toMatchObject({
         code: "invalid_request",

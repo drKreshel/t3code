@@ -1,7 +1,7 @@
 /**
  * WebSocket handlers for fork RPCs, spread into `WsRpcGroup.of({...})` in
- * `ws.ts`. The observers are ws.ts's own, so fork methods get the same
- * authorization and tracing as upstream ones.
+ * `ws.ts`. The group's middleware authorizes and traces them like upstream
+ * methods (see `RpcAuthorization` and `RpcInstrumentation`).
  */
 import {
   BoardsCommandError,
@@ -11,7 +11,6 @@ import {
   type SkillFile,
   SkillsError,
   type SkillsSettings,
-  type EnvironmentAuthorizationError,
   FORK_BOARDS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
@@ -34,24 +33,6 @@ import { ThreadPinsService } from "./threadPins/ThreadPinsService.ts";
 import { BoardTemplates } from "./templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "./workspaces/TicketWorkspaces.ts";
 
-interface RpcObservers {
-  readonly observeRpcEffect: <A, E, R>(
-    method: string,
-    effect: Effect.Effect<A, E, R>,
-    traceAttributes?: Readonly<Record<string, unknown>>,
-  ) => Effect.Effect<A, E | EnvironmentAuthorizationError, R>;
-  readonly observeRpcStream: <A, E, R>(
-    method: string,
-    stream: Stream.Stream<A, E, R>,
-    traceAttributes?: Readonly<Record<string, unknown>>,
-  ) => Stream.Stream<A, E | EnvironmentAuthorizationError, R>;
-}
-
-const TRACE = { "rpc.aggregate": "fork-boards" } as const;
-const WORKSPACES_TRACE = { "rpc.aggregate": "fork-workspaces" } as const;
-
-const SKILLS_TRACE = { "rpc.aggregate": "fork-skills" } as const;
-
 const skillsUnavailable = new SkillsError({
   code: "storage",
   message: "Skills are not available on this server.",
@@ -66,8 +47,6 @@ const pinsUnavailable = new ThreadPinsError({
   code: "storage",
   message: "Chat pins are not available on this server.",
 });
-const PINS_TRACE = { "rpc.aggregate": "fork-thread-pins" } as const;
-
 const unavailable = new BoardsCommandError({
   code: "storage",
   message: "Boards are not available on this server.",
@@ -80,7 +59,7 @@ export const unavailableBoards: BoardsService["Service"] = {
   dispatch: () => Effect.fail(unavailable),
 };
 
-export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcObservers) =>
+export const makeForkRpcHandlers = () =>
   Effect.gen(function* () {
     // Optional so runtimes that do not provide fork services (upstream's own
     // server tests) still build; there, fork methods report unavailability.
@@ -99,106 +78,54 @@ export const makeForkRpcHandlers = ({ observeRpcEffect, observeRpcStream }: RpcO
         onSome: run,
       });
     return {
-      [FORK_SKILLS_WS_METHODS.list]: () =>
-        observeRpcEffect(
-          FORK_SKILLS_WS_METHODS.list,
-          withSkills((service) => service.list),
-          SKILLS_TRACE,
-        ),
+      [FORK_SKILLS_WS_METHODS.list]: () => withSkills((service) => service.list),
       [FORK_SKILLS_WS_METHODS.read]: (input: { readonly path: string }) =>
-        observeRpcEffect(
-          FORK_SKILLS_WS_METHODS.read,
-          withSkills((service) => service.read(input.path)),
-          SKILLS_TRACE,
-        ),
+        withSkills((service) => service.read(input.path)),
       [FORK_SKILLS_WS_METHODS.save]: (file: SkillFile) =>
-        observeRpcEffect(
-          FORK_SKILLS_WS_METHODS.save,
-          withSkills((service) => service.save(file)),
-          SKILLS_TRACE,
-        ),
+        withSkills((service) => service.save(file)),
       [FORK_SKILLS_WS_METHODS.saveSettings]: (settings: SkillsSettings) =>
-        observeRpcEffect(
-          FORK_SKILLS_WS_METHODS.saveSettings,
-          withSkills((service) => service.saveSettings(settings)),
-          SKILLS_TRACE,
-        ),
+        withSkills((service) => service.saveSettings(settings)),
       [FORK_AGENT_CONTEXT_WS_METHODS.thread]: (input: { readonly threadId: ThreadId }) =>
-        observeRpcEffect(FORK_AGENT_CONTEXT_WS_METHODS.thread, threadAgentContext(input.threadId), {
-          "rpc.aggregate": "fork-agent-context",
-        }),
-      [FORK_BOARDS_WS_METHODS.subscribe]: () =>
-        observeRpcStream(FORK_BOARDS_WS_METHODS.subscribe, boards.stream, TRACE),
+        threadAgentContext(input.threadId),
+      [FORK_BOARDS_WS_METHODS.subscribe]: () => boards.stream,
       [FORK_BOARDS_WS_METHODS.subscribeTicket]: (input: { readonly ticketId: string }) =>
-        observeRpcStream(
-          FORK_BOARDS_WS_METHODS.subscribeTicket,
-          boards.ticketDetailStream(input.ticketId),
-          TRACE,
-        ),
+        boards.ticketDetailStream(input.ticketId),
       [FORK_BOARDS_WS_METHODS.dispatch]: (command: BoardsCommand) =>
-        observeRpcEffect(FORK_BOARDS_WS_METHODS.dispatch, boards.dispatch(command, "user"), TRACE),
+        boards.dispatch(command, "user"),
       [FORK_WORKSPACES_WS_METHODS.subscribe]: () =>
-        observeRpcStream(
-          FORK_WORKSPACES_WS_METHODS.subscribe,
-          Option.match(workspaces, {
-            onNone: () => Stream.fail(workspacesUnavailable),
-            onSome: (service) => service.stream,
-          }),
-          WORKSPACES_TRACE,
-        ),
+        Option.match(workspaces, {
+          onNone: () => Stream.fail(workspacesUnavailable),
+          onSome: (service) => service.stream,
+        }),
       [FORK_WORKSPACES_WS_METHODS.dispatch]: (command: WorkspacesCommand) =>
-        observeRpcEffect(
-          FORK_WORKSPACES_WS_METHODS.dispatch,
-          Option.match(workspaces, {
-            onNone: () => Effect.fail(workspacesUnavailable),
-            onSome: (service) => service.dispatch(command),
-          }),
-          WORKSPACES_TRACE,
-        ),
+        Option.match(workspaces, {
+          onNone: () => Effect.fail(workspacesUnavailable),
+          onSome: (service) => service.dispatch(command),
+        }),
       [FORK_WORKSPACES_WS_METHODS.listRepos]: (input: { readonly projectKey: string }) =>
-        observeRpcEffect(
-          FORK_WORKSPACES_WS_METHODS.listRepos,
-          Option.match(workspaces, {
-            onNone: () => Effect.fail(workspacesUnavailable),
-            onSome: (service) => service.listRepos(input.projectKey),
-          }),
-          WORKSPACES_TRACE,
-        ),
+        Option.match(workspaces, {
+          onNone: () => Effect.fail(workspacesUnavailable),
+          onSome: (service) => service.listRepos(input.projectKey),
+        }),
       [FORK_THREAD_PINS_WS_METHODS.subscribe]: (input: { readonly threadId: ThreadId }) =>
-        observeRpcStream(
-          FORK_THREAD_PINS_WS_METHODS.subscribe,
-          Option.match(pins, {
-            onNone: () => Stream.fail(pinsUnavailable),
-            onSome: (service) => service.stream(input.threadId),
-          }),
-          PINS_TRACE,
-        ),
+        Option.match(pins, {
+          onNone: () => Stream.fail(pinsUnavailable),
+          onSome: (service) => service.stream(input.threadId),
+        }),
       [FORK_THREAD_PINS_WS_METHODS.dispatch]: (command: ThreadPinsCommand) =>
-        observeRpcEffect(
-          FORK_THREAD_PINS_WS_METHODS.dispatch,
-          Option.match(pins, {
-            onNone: () => Effect.fail(pinsUnavailable),
-            onSome: (service) => service.dispatch(command),
-          }),
-          PINS_TRACE,
-        ),
+        Option.match(pins, {
+          onNone: () => Effect.fail(pinsUnavailable),
+          onSome: (service) => service.dispatch(command),
+        }),
       [FORK_TEMPLATES_WS_METHODS.subscribe]: () =>
-        observeRpcStream(
-          FORK_TEMPLATES_WS_METHODS.subscribe,
-          Option.match(templates, {
-            onNone: () => Stream.fail(unavailable),
-            onSome: (service) => service.stream,
-          }),
-          TRACE,
-        ),
+        Option.match(templates, {
+          onNone: () => Stream.fail(unavailable),
+          onSome: (service) => service.stream,
+        }),
       [FORK_TEMPLATES_WS_METHODS.dispatch]: (command: TemplatesCommand) =>
-        observeRpcEffect(
-          FORK_TEMPLATES_WS_METHODS.dispatch,
-          Option.match(templates, {
-            onNone: () => Effect.fail(unavailable),
-            onSome: (service) => service.dispatch(command, "user"),
-          }),
-          TRACE,
-        ),
+        Option.match(templates, {
+          onNone: () => Effect.fail(unavailable),
+          onSome: (service) => service.dispatch(command, "user"),
+        }),
     };
   });

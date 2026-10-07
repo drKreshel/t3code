@@ -4,7 +4,8 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
-import { readCaller, readMutationCaller, readThread, unavailable } from "../../mcp/threadAccess.ts";
+import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
+import { loadCaller, readCaller, readThread, unavailable } from "../../mcp/threadAccess.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as TerminalManager from "../../terminal/Manager.ts";
 import {
@@ -46,9 +47,12 @@ const readThreadId = (threadId: ThreadId | undefined) =>
       )
     : readThread(threadId).pipe(Effect.map(({ projection }) => projection.thread.id));
 
-/** Starting and stopping commands is shell access, so it follows the thread's runtime mode. */
+/**
+ * Starting and stopping commands is shell access, so beyond acting as the
+ * live calling thread it follows that thread's runtime mode.
+ */
 const commandCaller = Effect.gen(function* () {
-  const context = yield* readMutationCaller();
+  const context = yield* loadCaller();
   const { caller } = context;
   if (
     caller === undefined ||
@@ -62,8 +66,8 @@ const commandCaller = Effect.gen(function* () {
   return { ...context, caller };
 });
 
-export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
-  t3_terminal_list: (input) =>
+export const AgentTerminalToolkitHandlersLive = McpToolAccess.toLayer(AgentTerminalToolkit, {
+  t3_terminal_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const threadId = yield* readThreadId(input.threadId);
       const terminals = yield* TerminalManager.TerminalManager;
@@ -77,7 +81,8 @@ export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
         })),
       };
     }),
-  t3_terminal_start: (input) =>
+  ),
+  t3_terminal_start: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const { caller } = yield* commandCaller;
       const id = yield* terminalId(input.name);
@@ -128,7 +133,8 @@ export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
         .pipe(Effect.mapError(terminalFailure));
       return { terminalId: id, cwd };
     }),
-  t3_terminal_read: (input) =>
+  ),
+  t3_terminal_read: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const name = input.name.trim();
       if (name.length === 0 || name.length > 128)
@@ -154,7 +160,8 @@ export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
         `No terminal ${name} exists on this thread. Call t3_terminal_list to see its terminals.`,
       );
     }),
-  t3_terminal_stop: (input) =>
+  ),
+  t3_terminal_stop: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const { caller } = yield* commandCaller;
       const id = yield* terminalId(input.name);
@@ -172,4 +179,5 @@ export const AgentTerminalToolkitHandlersLive = AgentTerminalToolkit.toLayer({
         yield* terminals.write({ ...target, data: "\x03" }).pipe(Effect.mapError(terminalFailure));
       return { terminalId: id, interrupted: running, closed: false };
     }),
+  ),
 });

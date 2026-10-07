@@ -7,6 +7,7 @@ import {
   BoardColumnColor,
   BoardKey,
   BoardsCommandError,
+  OrchestratorMcpFailure,
   PositiveInt,
   TicketPriority,
   TicketFolderPath,
@@ -19,14 +20,18 @@ import * as Toolkit from "effect/ai/Toolkit";
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
+import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 
+// McpToolAccess checks the caller before each handler, so every tool may also
+// fail with its refusal and needs ThreadManagementService to look the caller up.
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
   Orchestrator.OrchestratorV2,
   ProjectStore.ProjectStoreV2,
+  ThreadManagementService.ThreadManagementService,
 ];
 
-const failure = BoardsCommandError;
+const failure = Schema.Union([BoardsCommandError, OrchestratorMcpFailure]);
 
 const TicketRef = TrimmedNonEmptyString.annotate({
   description: "Ticket key like WEB-12.",

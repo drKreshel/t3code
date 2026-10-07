@@ -5,6 +5,7 @@
  * ticket, however far the transcript scrolls.
  */
 import {
+  OrchestratorMcpFailure,
   THREAD_NOTE_MAX_LENGTH,
   THREAD_PIN_TARGET_MAX_LENGTH,
   THREAD_PIN_TITLE_MAX_LENGTH,
@@ -16,10 +17,15 @@ import * as Tool from "effect/ai/Tool";
 import * as Toolkit from "effect/ai/Toolkit";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
+import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 
+// Pin tools act as the calling thread, so McpToolAccess may refuse the caller first.
 const shared = {
-  failure: ThreadPinsError,
-  dependencies: [McpInvocationContext.McpInvocationContext],
+  failure: Schema.Union([ThreadPinsError, OrchestratorMcpFailure]),
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+  ],
 };
 
 const ChatPins = Schema.Struct({
