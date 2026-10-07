@@ -6,6 +6,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
 import { isUrlPinTarget, useThreadPinsDispatch } from "../../state/threadPins";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import ChatMarkdown from "../ChatMarkdown";
 import { PierreEntryIcon } from "../chat/PierreEntryIcon";
 import { THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS } from "../chat/threadDetailsPanelStyles";
 import { Button } from "../ui/button";
@@ -55,6 +56,7 @@ export function ThreadPinsContent({
       ) : null}
       {pins.note ? (
         <PinnedNote
+          threadRef={threadRef}
           text={pins.note.text}
           updatedAt={pins.note.updatedAt}
           onSave={(text) => dispatch({ type: "note.set", threadId: threadRef.threadId, text })}
@@ -65,10 +67,12 @@ export function ThreadPinsContent({
 }
 
 function PinnedNote({
+  threadRef,
   text,
   updatedAt,
   onSave,
 }: {
+  readonly threadRef: ScopedThreadRef;
   readonly text: string;
   readonly updatedAt: string;
   readonly onSave: (text: string) => Promise<void>;
@@ -111,9 +115,17 @@ function PinnedNote({
   }
   return (
     <div className="group/note relative rounded-lg px-2.5 py-1.5">
-      <p className="max-h-[40dvh] overflow-y-auto overscroll-contain pe-5 text-xs leading-relaxed break-words whitespace-pre-wrap text-foreground/85">
-        {text}
-      </p>
+      <div className="max-h-[40dvh] overflow-y-auto overscroll-contain pe-5">
+        {/* Agents write notes line by line, so single newlines stay breaks. */}
+        <ChatMarkdown
+          text={text}
+          cwd={undefined}
+          threadRef={threadRef}
+          lineBreaks
+          isStreaming={false}
+          className="text-xs"
+        />
+      </div>
       <p className="mt-1 text-2xs text-muted-foreground">
         Updated {formatRelativeTimeLabel(updatedAt)}
       </p>

@@ -32,7 +32,7 @@ const ChatPins = Schema.Struct({
 const SetChatNoteTool = Tool.make("set_chat_note", {
   ...shared,
   description:
-    "Replace this chat's note: a few short lines the user reads at a glance beside the chat and on its ticket, such as where things run ('dev server on :4000'), current status, or the decisions you need from them. Rewrite it whenever it goes stale; an empty note clears it. Plain text, not a file.",
+    "Replace this chat's note: a few short lines the user reads at a glance beside the chat and on its ticket, such as where things run ('dev server on :4000'), current status, or the decisions you need from them. Rewrite it whenever it goes stale; an empty note clears it. Short markdown (bold, lists, links, inline code), not a file.",
   parameters: Schema.Struct({
     note: Schema.String.check(Schema.isMaxLength(THREAD_NOTE_MAX_LENGTH)).annotate({
       description: "The whole note; it replaces the previous one. Empty clears it.",
