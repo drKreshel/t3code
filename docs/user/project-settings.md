@@ -57,13 +57,27 @@ branch name remains.
 Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
 ones across your connected environments. Use the settings filter to narrow the
 list by environment or project. Each task runs on the environment you choose,
-using its project, model, and workspace settings. Fixed-time schedules use that
-environment's time zone, which may differ from your phone's.
+using its project, model, and workspace settings. Times use the timezone you
+set on the task, or the environment's when you leave it empty, which may differ
+from your phone's.
 
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run
 immediately.
 Leaving an edited form asks before discarding unsaved changes.
+
+## Cron and one-off schedules
+
+Besides a time of day or a fixed interval, a task can run on a **Cron**
+schedule: five fields for minute, hour, day of month, month, and weekday. For
+example, `15,45 2-19 * * *` runs at :15 and :45 from 02:00 to 19:45, and
+`0 9 1 * *` runs at 09:00 on the first of each month. **Once** runs a task a
+single time at the date and time you pick. Both read their times in the task's
+timezone, an IANA name such as `America/Vancouver`.
+
+If T3 Code isn't running when a time-of-day, cron, or one-off run is due, that
+run is skipped rather than started late, unless it was due within the last 10
+minutes.
 
 ## Webhook automations
 

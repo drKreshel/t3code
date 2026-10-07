@@ -3,7 +3,8 @@
  *
  * Chat automations become scheduled tasks with the same id, so a rerun after a
  * crash updates instead of duplicating. "Move stale tickets" steps become the
- * column's `autoMove`. One-off automations are dropped. The fork's automation
+ * column's `autoMove`. Cron and one-off schedules carry over as they are, in
+ * their timezone; a one-off already past is dropped. The fork's automation
  * tables are dropped once everything is moved, which makes later starts a no-op.
  */
 import {
@@ -17,6 +18,7 @@ import {
   type ScheduledTaskUpsertSchedule,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -69,49 +71,14 @@ interface LegacyRow {
   readonly enabled: number;
 }
 
-const PLAIN_NUMBER = /^\d{1,2}$/;
-const WEEKDAY_LIST = /^[0-7](?:-[0-7])?(?:,[0-7](?:-[0-7])?)*$/;
+const pad = (value: number) => String(value).padStart(2, "0");
 
-/**
- * The scheduled-task schedule a cron expression maps onto, or null when it has
- * none: a time on every day or on some weekdays, or every N minutes or hours.
- */
-export function scheduleFromCron(cron: string): ScheduledTaskUpsertSchedule | null {
-  const fields = cron.trim().split(/\s+/);
-  if (fields.length !== 5) return null;
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = fields as [
-    string,
-    string,
-    string,
-    string,
-    string,
-  ];
-  if (dayOfMonth !== "*" || month !== "*") return null;
-  if (PLAIN_NUMBER.test(minute) && PLAIN_NUMBER.test(hour)) {
-    const m = Number(minute);
-    const h = Number(hour);
-    if (m > 59 || h > 23) return null;
-    const timeOfDay = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-    if (dayOfWeek === "*") return { type: "fixed_time", timeOfDay };
-    if (!WEEKDAY_LIST.test(dayOfWeek)) return null;
-    const weekdays = new Set<number>();
-    for (const part of dayOfWeek.split(",")) {
-      const [start, end = start] = part.split("-").map(Number) as [number, number?];
-      if (end < start) return null;
-      for (let day = start; day <= end; day += 1) weekdays.add(day % 7);
-    }
-    return { type: "fixed_time", timeOfDay, weekdays: [...weekdays].toSorted((a, b) => a - b) };
-  }
-  if (dayOfWeek !== "*") return null;
-  // An interval keeps the rhythm, not the exact minute past the hour.
-  const every = (field: string) =>
-    field === "*" ? 1 : Number(/^\*\/(\d+)$/.exec(field)?.[1] ?? 0);
-  if (hour === "*" && every(minute) > 0)
-    return { type: "interval", everyMs: every(minute) * 60_000 };
-  if (PLAIN_NUMBER.test(minute) && every(hour) > 0) {
-    return { type: "interval", everyMs: every(hour) * 60 * 60_000 };
-  }
-  return null;
+/** A legacy one-off's instant as the wall-clock time scheduled tasks store, in its zone. */
+export function onceWallClock(at: string, timezone: string): string | null {
+  const zoned = DateTime.makeZoned(at, { timeZone: timezone });
+  if (Option.isNone(zoned)) return null;
+  const parts = DateTime.toParts(zoned.value);
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
 }
 
 /** Moves every automation, then drops the automation tables. A no-op once they are gone. */
@@ -166,9 +133,16 @@ export const migrateLegacyAutomations = Effect.gen(function* () {
       continue;
     }
 
-    const schedule = trigger.value.schedule;
-    if (schedule.kind === "once") {
-      yield* Effect.logInfo("Dropping a one-off automation", { id: row.id, title: row.title });
+    const { schedule: legacy, timezone } = trigger.value;
+    const at = legacy.kind === "once" ? onceWallClock(legacy.at, timezone) : null;
+    const schedule: ScheduledTaskUpsertSchedule | null =
+      legacy.kind === "cron"
+        ? { type: "cron", expression: legacy.cron, timezone }
+        : at === null
+          ? null
+          : { type: "once", at, timezone };
+    if (schedule === null) {
+      yield* Effect.logWarning("Dropping an automation whose time does not parse", { id: row.id });
       continue;
     }
     const projectKey = action.value.projectKey;
@@ -190,31 +164,33 @@ export const migrateLegacyAutomations = Effect.gen(function* () {
         instanceId: ProviderInstanceId.make("codex"),
         model: DEFAULT_MODEL,
       };
-    // Fixed times run in the server's zone, which is where these automations ran too.
-    const converted = scheduleFromCron(schedule.cron);
-    if (converted === null) {
-      yield* Effect.logWarning("Keeping an automation paused: its schedule needs a new time", {
-        id: row.id,
-        cron: schedule.cron,
-      });
-    }
-    yield* scheduledTasks.upsert({
-      id: ScheduledTaskId.make(row.id),
-      title: row.title,
-      prompt: row.prompt,
-      enabled: row.enabled !== 0 && converted !== null,
-      schedule: converted ?? { type: "fixed_time", timeOfDay: "09:00" },
-      projectId,
-      workspaceStrategy:
-        action.value.checkout === "worktree"
-          ? { type: "worktree", baseRef: "HEAD" }
-          : { type: "root" },
-      modelSelection,
-      runtimeMode: action.value.runtimeMode,
-      interactionMode: action.value.interactionMode,
-      createdBy: "user",
-      creationSource: "server",
-    });
+    yield* scheduledTasks
+      .upsert({
+        id: ScheduledTaskId.make(row.id),
+        title: row.title,
+        prompt: row.prompt,
+        enabled: row.enabled !== 0,
+        schedule,
+        projectId,
+        workspaceStrategy:
+          action.value.checkout === "worktree"
+            ? { type: "worktree", baseRef: "HEAD" }
+            : { type: "root" },
+        modelSelection,
+        runtimeMode: action.value.runtimeMode,
+        interactionMode: action.value.interactionMode,
+        createdBy: "user",
+        creationSource: "server",
+      })
+      .pipe(
+        // A one-off already past, or a schedule scheduled tasks refuse: drop it, keep the rest.
+        Effect.catch((error) =>
+          Effect.logWarning("Dropping an automation scheduled tasks refused", {
+            id: row.id,
+            reason: error.message,
+          }),
+        ),
+      );
   }
 
   yield* sql.withTransaction(

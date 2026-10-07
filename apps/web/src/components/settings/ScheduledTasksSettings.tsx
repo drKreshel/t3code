@@ -63,6 +63,7 @@ import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { readEnvironmentScope } from "~/state/session";
 import { useSettingsScope } from "./SettingsScopeContext";
 import {
+  DEFAULT_CRON_EXPRESSION,
   WEBHOOK_SIGNATURE_DEFAULTS,
   matchesScheduledTaskScope,
   scheduleFromDraft,
@@ -122,6 +123,9 @@ const EMPTY_DRAFT: DraftState = {
   intervalMinutes: "15",
   timeOfDay: "09:00",
   weekdays: new Set([1, 2, 3, 4, 5]),
+  cronExpression: DEFAULT_CRON_EXPRESSION,
+  onceAt: "",
+  timezone: "",
   projectId: "",
   threadId: "",
   workspaceMode: "worktree",
@@ -180,6 +184,9 @@ export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
       ? `Every ${minutes} min`
       : `Every ${Math.round(schedule.everyMs / 1000)} sec`;
   }
+  const zone = schedule.timezone ? ` (${schedule.timezone})` : "";
+  if (schedule.type === "cron") return `Cron ${schedule.expression}${zone}`;
+  if (schedule.type === "once") return `Once on ${schedule.at.replace("T", " at ")}${zone}`;
   const weekdays = schedule.weekdays ?? [];
   const days =
     weekdays.length === 0
@@ -187,8 +194,12 @@ export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
       : weekdays.length === 5 && weekdays.every((day) => day >= 1 && day <= 5)
         ? "Weekdays"
         : weekdays.map((day) => WEEKDAY_LABELS[day]).join(", ");
-  return `${days} at ${schedule.timeOfDay}`;
+  return `${days} at ${schedule.timeOfDay}${zone}`;
 }
+
+/** IANA zones the browser knows, offered while typing a schedule's timezone. */
+const TIMEZONES: ReadonlyArray<string> =
+  typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
 
 /**
  * Human label for a run timestamp. `formatRelativeTime` only handles the
@@ -768,7 +779,7 @@ function WebhookDeliveryMode({ environmentId }: { readonly environmentId: Enviro
   );
 }
 
-function ScheduledTaskEditorDialog({
+export function ScheduledTaskEditorDialog({
   initialEnvironmentId,
   task,
   onClose,
@@ -1144,14 +1155,14 @@ function ScheduledTaskEditorDialog({
                   one minute.
                 </p>
               ) : null}
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Schedule</Label>
                 <ToggleGroup
                   aria-label="Schedule type"
                   value={[draft.scheduleMode]}
                   onValueChange={(values) => {
                     const mode = values[0] as ScheduleMode | undefined;
-                    if (mode === "fixed" || mode === "interval" || mode === "webhook")
+                    if (mode !== undefined)
                       setDraft((current) => ({
                         ...current,
                         scheduleMode: mode,
@@ -1164,6 +1175,8 @@ function ScheduledTaskEditorDialog({
                 >
                   <Toggle value="fixed">At a time</Toggle>
                   <Toggle value="interval">Every interval</Toggle>
+                  <Toggle value="cron">Cron</Toggle>
+                  <Toggle value="once">Once</Toggle>
                   <Toggle value="webhook">On webhook</Toggle>
                 </ToggleGroup>
               </div>
@@ -1317,6 +1330,41 @@ function ScheduledTaskEditorDialog({
                     ))}
                   </ToggleGroup>
                 </div>
+              ) : draft.scheduleMode === "cron" ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="scheduled-task-cron">Cron</Label>
+                    <Input
+                      id="scheduled-task-cron"
+                      nativeInput
+                      className="w-56"
+                      spellCheck={false}
+                      placeholder={DEFAULT_CRON_EXPRESSION}
+                      value={draft.cronExpression}
+                      onChange={(event) =>
+                        setDraft((current) => ({ ...current, cronExpression: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Minute, hour, day of month, month, weekday. For example, 15,45 2-19 * * * runs
+                    at :15 and :45 from 02:00 to 19:45.
+                  </p>
+                </div>
+              ) : draft.scheduleMode === "once" ? (
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="scheduled-task-once">Run on</Label>
+                  <Input
+                    type="datetime-local"
+                    id="scheduled-task-once"
+                    nativeInput
+                    className="w-56"
+                    value={draft.onceAt}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, onceAt: event.target.value }))
+                    }
+                  />
+                </div>
               ) : (
                 <div className="flex items-center gap-2">
                   <Label htmlFor="scheduled-task-interval">Run every</Label>
@@ -1335,6 +1383,29 @@ function ScheduledTaskEditorDialog({
                   <span className="text-xs text-muted-foreground">minutes</span>
                 </div>
               )}
+              {draft.scheduleMode === "fixed" ||
+              draft.scheduleMode === "cron" ||
+              draft.scheduleMode === "once" ? (
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="scheduled-task-timezone">Timezone</Label>
+                  <Input
+                    id="scheduled-task-timezone"
+                    nativeInput
+                    className="w-56"
+                    list="scheduled-task-timezones"
+                    placeholder="Server's timezone"
+                    value={draft.timezone}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, timezone: event.target.value }))
+                    }
+                  />
+                  <datalist id="scheduled-task-timezones">
+                    {TIMEZONES.map((zone) => (
+                      <option key={zone} value={zone} />
+                    ))}
+                  </datalist>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-between gap-4">

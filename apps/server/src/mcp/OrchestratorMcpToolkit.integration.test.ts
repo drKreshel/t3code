@@ -508,6 +508,7 @@ const layerUnusedScheduledTaskStub = Layer.succeed(
     runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),
     rotateWebhookToken: () => Effect.die("unused in this test"),
     listWebhookDeliveries: () => Effect.die("unused in this test"),
+    listRuns: () => Effect.die("unused in this test"),
     getWebhookDelivery: () => Effect.die("unused in this test"),
     triggerWebhook: () => Effect.die("unused in this test"),
   }),
@@ -669,6 +670,7 @@ describe("orchestrator MCP toolkit", () => {
               runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),
               rotateWebhookToken: () => Effect.die("unused in this test"),
               listWebhookDeliveries: () => Effect.die("unused in this test"),
+              listRuns: () => Effect.die("unused in this test"),
               getWebhookDelivery: () => Effect.die("unused in this test"),
               triggerWebhook: () => Effect.die("unused in this test"),
             }),
@@ -1535,6 +1537,30 @@ describe("orchestrator MCP toolkit", () => {
             expect(scheduledUpdateCall.structuredContent).toMatchObject({
               scheduledTaskId,
               enabled: false,
+            });
+
+            // A cron schedule in its own timezone, and a model option, can be set later.
+            const cronUpdateCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              schedule: {
+                type: "cron",
+                expression: "15,45 2-19 * * *",
+                timezone: "America/Vancouver",
+              },
+              target: { options: { reasoning: "low" } },
+            });
+            expect(cronUpdateCall.isError).toBe(false);
+            expect(cronUpdateCall.structuredContent).toMatchObject({
+              schedule: {
+                type: "cron",
+                expression: "15,45 2-19 * * *",
+                timezone: "America/Vancouver",
+              },
+              target: {
+                providerInstanceId: codexInstanceId,
+                model: codexModel,
+                options: [{ id: "reasoning", value: "low" }],
+              },
             });
 
             // delete_scheduled_task removes it entirely.

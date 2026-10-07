@@ -12,7 +12,10 @@ import {
   SkillsError,
   type SkillsSettings,
   FORK_BOARDS_WS_METHODS,
+  FORK_TASK_FOLDERS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
+  type SetTaskFolderInput,
+  TaskFoldersError,
   FORK_WORKSPACES_WS_METHODS,
   FORK_THREAD_PINS_WS_METHODS,
   type TemplatesCommand,
@@ -30,6 +33,7 @@ import { makeThreadAgentContext } from "./agentContext/AgentContext.ts";
 import { BoardsService } from "./boards/BoardsService.ts";
 import { SkillsService } from "./skills/SkillsService.ts";
 import { ThreadPinsService } from "./threadPins/ThreadPinsService.ts";
+import { TaskFolders } from "./taskFolders/TaskFolders.ts";
 import { BoardTemplates } from "./templates/BoardTemplates.ts";
 import { TicketWorkspaces } from "./workspaces/TicketWorkspaces.ts";
 
@@ -47,6 +51,10 @@ const pinsUnavailable = new ThreadPinsError({
   code: "storage",
   message: "Chat pins are not available on this server.",
 });
+const taskFoldersUnavailable = new TaskFoldersError({
+  message: "Task folders are not available on this server.",
+});
+
 const unavailable = new BoardsCommandError({
   code: "storage",
   message: "Boards are not available on this server.",
@@ -67,6 +75,7 @@ export const makeForkRpcHandlers = () =>
     const boards = Option.getOrElse(maybeBoards, () => unavailableBoards);
     const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
     const templates = yield* Effect.serviceOption(BoardTemplates);
+    const taskFolders = yield* Effect.serviceOption(TaskFolders);
     const threadAgentContext = yield* makeThreadAgentContext;
     const skills = yield* Effect.serviceOption(SkillsService);
     const pins = yield* Effect.serviceOption(ThreadPinsService);
@@ -126,6 +135,16 @@ export const makeForkRpcHandlers = () =>
         Option.match(templates, {
           onNone: () => Effect.fail(unavailable),
           onSome: (service) => service.dispatch(command, "user"),
+        }),
+      [FORK_TASK_FOLDERS_WS_METHODS.subscribe]: () =>
+        Option.match(taskFolders, {
+          onNone: () => Stream.fail(taskFoldersUnavailable),
+          onSome: (service) => service.stream,
+        }),
+      [FORK_TASK_FOLDERS_WS_METHODS.set]: (input: SetTaskFolderInput) =>
+        Option.match(taskFolders, {
+          onNone: () => Effect.fail(taskFoldersUnavailable),
+          onSome: (service) => service.set(input),
         }),
     };
   });

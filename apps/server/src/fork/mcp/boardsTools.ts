@@ -9,6 +9,7 @@ import {
   BoardsCommandError,
   OrchestratorMcpFailure,
   PositiveInt,
+  ScheduledTaskId,
   TicketPriority,
   TicketFolderPath,
   TrimmedNonEmptyString,
@@ -491,6 +492,28 @@ const RemoveWorkspaceTool = Tool.make("remove_ticket_workspace", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const FileTaskRunsTool = Tool.make("file_scheduled_task_runs", {
+  description:
+    "Choose the sidebar folder a scheduled task files the chats of its runs into, like 'SERP/Adaptive checks'; null stops filing. Every client creates the folder and files existing and future run chats there.",
+  parameters: Schema.Struct({
+    scheduledTaskId: ScheduledTaskId,
+    folder: Schema.NullOr(
+      TicketFolderPath.annotate({ description: "Folder names separated by /." }),
+    ),
+  }),
+  success: Schema.Struct({
+    scheduledTaskId: ScheduledTaskId,
+    folder: Schema.NullOr(Schema.String),
+  }),
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Title, "File scheduled task runs")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const BoardsToolkit = Toolkit.make(
   ListBoardsTool,
   ListTicketsTool,
@@ -504,4 +527,5 @@ export const BoardsToolkit = Toolkit.make(
   RequestHumanTool,
   LinkThreadTool,
   RemoveWorkspaceTool,
+  FileTaskRunsTool,
 );

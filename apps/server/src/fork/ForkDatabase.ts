@@ -327,6 +327,16 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       `ALTER TABLE fork_thread_pins_next RENAME TO fork_thread_pins`,
     ],
   },
+  {
+    // The sidebar folder each scheduled task files its runs' chats into.
+    version: 14,
+    statements: [
+      `CREATE TABLE fork_task_folders (
+        task_id TEXT PRIMARY KEY,
+        folder TEXT NOT NULL
+      )`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

@@ -21,6 +21,7 @@ import { randomUuidV4 } from "../../orchestration-v2/RandomUuid.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
 import { BoardTemplates } from "../templates/BoardTemplates.ts";
+import { TaskFolders } from "../taskFolders/TaskFolders.ts";
 import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
 import {
   filterTickets,
@@ -77,6 +78,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
   const templates = yield* Effect.serviceOption(BoardTemplates);
+  const taskFolders = yield* Effect.serviceOption(TaskFolders);
   const workspaceOf = (ticketId: string): Effect.Effect<TicketWorkspace | null> =>
     Option.match(workspaces, {
       onNone: () => Effect.succeed(null),
@@ -607,6 +609,24 @@ const make = Effect.gen(function* () {
         const ticket = yield* unwrap(findTicket(snapshot, ref));
         yield* dispatch({ type: "thread.link", threadKey, ticketId: ticket.id });
         return { linkedTo: labelOf(snapshot, ticket) };
+      }),
+    ),
+    file_scheduled_task_runs: McpToolAccess.writes(({ scheduledTaskId, folder }) =>
+      Effect.gen(function* () {
+        if (Option.isNone(taskFolders)) {
+          return yield* new BoardsCommandError({
+            code: "storage",
+            message: "Task folders are not available on this server.",
+          });
+        }
+        yield* taskFolders.value
+          .set({ taskId: scheduledTaskId, folder })
+          .pipe(
+            Effect.mapError(
+              (error) => new BoardsCommandError({ code: "storage", message: error.message }),
+            ),
+          );
+        return { scheduledTaskId, folder };
       }),
     ),
     remove_ticket_workspace: McpToolAccess.writes(({ ticket: ref, force }) =>

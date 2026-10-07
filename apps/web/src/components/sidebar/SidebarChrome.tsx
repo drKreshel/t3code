@@ -223,7 +223,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
 
   const handleScheduledTasksClick = useCallback(() => {
     closeMobileSidebar();
-    void navigate({ to: "/settings/scheduled-tasks" });
+    void navigate({ to: "/scheduled" });
   }, [closeMobileSidebar, navigate]);
 
   const handleSkillsClick = useCallback(() => {
@@ -279,6 +279,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
       <SidebarUtilityItem
         icon={<CalendarClockIcon />}
         label="Scheduled Tasks"
+        isActive={page === "scheduled"}
         onClick={handleScheduledTasksClick}
       />
       <SidebarUtilityItem

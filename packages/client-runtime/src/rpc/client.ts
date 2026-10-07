@@ -1,6 +1,7 @@
 import {
   FORK_BOARDS_WS_METHODS,
   FORK_THREAD_PINS_WS_METHODS,
+  FORK_TASK_FOLDERS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
   EnvironmentAuthorizationError,
@@ -77,6 +78,7 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof FORK_BOARDS_WS_METHODS.subscribeTicket
   | typeof FORK_WORKSPACES_WS_METHODS.subscribe
   | typeof FORK_TEMPLATES_WS_METHODS.subscribe
+  | typeof FORK_TASK_FOLDERS_WS_METHODS.subscribe
   | typeof FORK_THREAD_PINS_WS_METHODS.subscribe;
 
 export type EnvironmentStreamCommandRpcTag =

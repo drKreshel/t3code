@@ -346,3 +346,20 @@ describe("scheduled task model defaults", () => {
     ).toBeNull();
   });
 });
+
+describe("cron and one-off schedule drafts", () => {
+  it.each([
+    { type: "cron", expression: "15,45 2-19 * * *", timezone: "America/Vancouver" },
+    { type: "once", at: "2026-10-09T09:00" },
+    { type: "fixed_time", timeOfDay: "06:00", timezone: "Asia/Tokyo" },
+  ] as const)("round-trips $type schedules", (schedule) => {
+    expect(scheduleFromDraft(scheduleDraftForTask({ schedule }))).toEqual(schedule);
+  });
+
+  it("refuses a cron without five fields and a malformed date", () => {
+    expect(
+      scheduleFromDraft({ ...DEFAULT_SCHEDULE, mode: "cron", cronExpression: "0 9 * *" }),
+    ).toBeNull();
+    expect(scheduleFromDraft({ ...DEFAULT_SCHEDULE, mode: "once", onceAt: "tomorrow" })).toBeNull();
+  });
+});
