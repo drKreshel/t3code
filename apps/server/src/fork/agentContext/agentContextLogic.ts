@@ -25,6 +25,7 @@ import { ThreadToolkit } from "../../mcp/toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "../../mcp/toolkits/worktree/tools.ts";
 import { BoardsToolkit } from "../mcp/boardsTools.ts";
 import { AgentTerminalToolkit } from "../mcp/terminalTools.ts";
+import { ThreadPinsToolkit } from "../mcp/pinsTools.ts";
 
 export interface AgentSessionInput {
   readonly driverKind: string;
@@ -115,6 +116,7 @@ const TOOLKITS = [
   { toolkit: PullRequestsToolkit, capability: null },
   { toolkit: BoardsToolkit, capability: null },
   { toolkit: AgentTerminalToolkit, capability: null },
+  { toolkit: ThreadPinsToolkit, capability: null },
   { toolkit: PreviewToolkit, capability: "browser" },
   { toolkit: DeviceToolkit, capability: "device" },
 ] as const;

@@ -65,5 +65,6 @@ export * from "./forkAgentContext.ts";
 export * from "./forkSkills.ts";
 export * from "./forkWorkspaces.ts";
 export * from "./forkBoardTemplates.ts";
+export * from "./forkThreadPins.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";

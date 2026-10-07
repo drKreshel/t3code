@@ -51,6 +51,8 @@ import { BoardsToolkitHandlersLive } from "../fork/mcp/boardsHandlers.ts";
 import { BoardsToolkit } from "../fork/mcp/boardsTools.ts";
 import { AgentTerminalToolkitHandlersLive } from "../fork/mcp/terminalHandlers.ts";
 import { AgentTerminalToolkit } from "../fork/mcp/terminalTools.ts";
+import { ThreadPinsToolkitHandlersLive } from "../fork/mcp/pinsHandlers.ts";
+import { ThreadPinsToolkit } from "../fork/mcp/pinsTools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -746,10 +748,11 @@ export const layerPullRequestsToolkit = McpServer.toolkit(PullRequestsToolkit).p
   Layer.provide(PullRequestsHandlers.layer),
 );
 
-// Fork: boards, tickets, and agent terminals.
+// Fork: boards, tickets, agent terminals, and chat pins.
 export const BoardsToolkitRegistrationLive = Layer.mergeAll(
   McpServer.toolkit(BoardsToolkit).pipe(Layer.provide(BoardsToolkitHandlersLive)),
   McpServer.toolkit(AgentTerminalToolkit).pipe(Layer.provide(AgentTerminalToolkitHandlersLive)),
+  McpServer.toolkit(ThreadPinsToolkit).pipe(Layer.provide(ThreadPinsToolkitHandlersLive)),
 );
 
 const layerDeviceStandardToolkitRegistration = McpServer.toolkit(DeviceStandardToolkit).pipe(
