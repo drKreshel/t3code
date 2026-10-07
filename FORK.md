@@ -30,6 +30,7 @@ Small fixes to upstream behavior. When upstream fixes the same thing, take upstr
 - External folders preview as directory trees: `files/FilePreviewPanel.tsx`, `filePreviewMode.ts`, `FileBrowserPanel.tsx`, `projectFilesQueryState.ts`, `fileTreeDragMention.ts`.
 - A picked `$skill` or `@file` survives in question answers: `ChatView.tsx`, `ChatComposer.tsx`, `ComposerPrimaryActions.tsx`.
 - User docs additions: `docs/user/composer.md`, `docs/user/thread-sidebar.md`.
+- Pairing credentials bind the optional scope check as a SQLite integer: `persistence/AuthPairingLinks.ts`.
 
 ## Data
 
