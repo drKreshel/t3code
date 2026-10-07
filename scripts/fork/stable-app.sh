@@ -261,7 +261,12 @@ reopen_app() {
   for attempt in 1 2 3; do
     log "Reopening T3 Code (attempt $attempt)"
     # Launch Services can still remember the instance that has just quit.
-    open -n "$APP_PATH" || log "open exited with status $?"
+    # `open` hands the app this script's environment, and a chat's shell sets
+    # ELECTRON_RUN_AS_NODE, which starts the app as plain Node with no window.
+    # Launch it with a login-like environment instead, as the Dock would.
+    env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" TMPDIR="${TMPDIR:-/tmp}" \
+      PATH="/usr/bin:/bin:/usr/sbin:/sbin" LANG="${LANG:-en_US.UTF-8}" \
+      open -n "$APP_PATH" || log "open exited with status $?"
     sleep 5
     if stable_app_runs_previous_build; then
       # The old instance holds the single-instance lock, so the new one exits.
