@@ -24,6 +24,7 @@ import {
   ForkSkillsSaveSettingsRpc,
 } from "./forkSkills.ts";
 import { ForkTemplatesDispatchRpc, ForkTemplatesSubscribeRpc } from "./forkBoardTemplates.ts";
+import { ForkTaskFoldersSetRpc, ForkTaskFoldersSubscribeRpc } from "./forkTaskFolders.ts";
 import {
   ForkWorkspacesDispatchRpc,
   ForkWorkspacesListReposRpc,
@@ -331,6 +332,8 @@ import {
   ScheduledTaskRotateWebhookTokenInput,
   ScheduledTaskListWebhookDeliveriesInput,
   ScheduledTaskListWebhookDeliveriesResult,
+  ScheduledTaskListRunsInput,
+  ScheduledTaskListRunsResult,
   ScheduledTaskGetWebhookDeliveryInput,
   ScheduledTaskGetWebhookDeliveryResult,
   ScheduledTaskRunNowResult,
@@ -501,6 +504,7 @@ export const WS_METHODS = {
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
+  scheduledTasksListRuns: "scheduledTasks.listRuns",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
 
   // Cloud environment methods
@@ -1720,6 +1724,12 @@ const WsScheduledTasksListWebhookDeliveriesRpc = Rpc.make(
   },
 );
 
+const WsScheduledTasksListRunsRpc = Rpc.make(WS_METHODS.scheduledTasksListRuns, {
+  payload: ScheduledTaskListRunsInput,
+  success: ScheduledTaskListRunsResult,
+  error: Schema.Union([ScheduledTaskError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksGetWebhookDeliveryRpc = Rpc.make(
   WS_METHODS.scheduledTasksGetWebhookDelivery,
   {
@@ -1817,6 +1827,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksRotateWebhookTokenRpc,
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
+  WsScheduledTasksListRunsRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
@@ -1947,6 +1958,8 @@ export const WsRpcGroup = RpcGroup.make(
   ForkWorkspacesListReposRpc,
   ForkTemplatesSubscribeRpc,
   ForkTemplatesDispatchRpc,
+  ForkTaskFoldersSubscribeRpc,
+  ForkTaskFoldersSetRpc,
   ForkAgentContextThreadRpc,
   ForkSkillsListRpc,
   ForkSkillsReadRpc,

@@ -4,6 +4,7 @@ import {
   CommandId,
   ForwardCompatibleArray,
   IsoDateTime,
+  MessageId,
   ProjectId,
   ScheduledTaskId,
   SecretRef,
@@ -287,6 +288,46 @@ export const ScheduledTaskRotateWebhookTokenInput = Schema.Struct({
   id: ScheduledTaskId,
 });
 export type ScheduledTaskRotateWebhookTokenInput = typeof ScheduledTaskRotateWebhookTokenInput.Type;
+
+/** How a run's agent turn stands; `queued` waits behind other work in its chat. */
+export const ScheduledTaskRunState = Schema.Literals([
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "stopped",
+]);
+export type ScheduledTaskRunState = typeof ScheduledTaskRunState.Type;
+
+/** One prompt a task sent: into a chat it started, or into its bound chat. */
+export const ScheduledTaskRun = Schema.Struct({
+  messageId: MessageId,
+  taskId: ScheduledTaskId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  threadTitle: Schema.String,
+  startedAt: IsoDateTime,
+  finishedAt: Schema.NullOr(IsoDateTime),
+  state: ScheduledTaskRunState,
+});
+export type ScheduledTaskRun = typeof ScheduledTaskRun.Type;
+
+export const MAX_SCHEDULED_TASK_RUNS = 500;
+
+export const ScheduledTaskListRunsInput = Schema.Struct({
+  /** Omitted: every task's runs. */
+  id: Schema.optional(ScheduledTaskId),
+  limit: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: MAX_SCHEDULED_TASK_RUNS })),
+  ),
+});
+export type ScheduledTaskListRunsInput = typeof ScheduledTaskListRunsInput.Type;
+
+/** Newest first, from chats that still exist. */
+export const ScheduledTaskListRunsResult = Schema.Struct({
+  runs: Schema.Array(ScheduledTaskRun),
+});
+export type ScheduledTaskListRunsResult = typeof ScheduledTaskListRunsResult.Type;
 
 export const ScheduledTaskWebhookDeliveryId = TrimmedNonEmptyString.pipe(
   Schema.brand("ScheduledTaskWebhookDeliveryId"),

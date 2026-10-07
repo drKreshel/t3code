@@ -40,6 +40,7 @@ import * as ForkBoards from "./fork/boards/BoardsService.ts";
 import * as ForkBoardUpkeep from "./fork/boards/BoardUpkeep.ts";
 import * as ForkSkills from "./fork/skills/SkillsService.ts";
 import * as ForkThreadPins from "./fork/threadPins/ThreadPinsService.ts";
+import * as ForkTaskFolders from "./fork/taskFolders/TaskFolders.ts";
 import * as ForkBoardTemplates from "./fork/templates/BoardTemplates.ts";
 import * as ForkTicketWorkspaces from "./fork/workspaces/TicketWorkspaces.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
@@ -532,7 +533,9 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 
 const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer
   .pipe(
-    Layer.provideMerge(Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer)),
+    Layer.provideMerge(
+      Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer, ForkTaskFolders.layer),
+    ),
     Layer.provideMerge(ForkTicketWorkspaces.layer),
     Layer.provideMerge(ForkBoards.layer),
     Layer.provideMerge(ForkSkills.layer),

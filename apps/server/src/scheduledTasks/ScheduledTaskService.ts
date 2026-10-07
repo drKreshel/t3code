@@ -13,6 +13,10 @@ import {
   type ScheduledTaskGetWebhookDeliveryResult,
   type ScheduledTaskListWebhookDeliveriesInput,
   type ScheduledTaskListWebhookDeliveriesResult,
+  type ScheduledTaskListRunsInput,
+  ScheduledTaskListRunsResult,
+  type ScheduledTaskRunState,
+  MAX_SCHEDULED_TASK_RUNS,
   type ScheduledTaskRotateWebhookTokenInput,
   type ScheduledTaskWebhookDeliveryOutcome,
   type ScheduledTaskListResult,
@@ -162,6 +166,47 @@ export type WebhookTriggerResult =
   | { readonly _tag: "expired" };
 
 const decodeTask = Schema.decodeUnknownEffect(ScheduledTask);
+const decodeRuns = Schema.decodeUnknownEffect(ScheduledTaskListRunsResult);
+
+interface ScheduledRunRow {
+  readonly message_id: string;
+  readonly task_id: string;
+  readonly thread_id: string;
+  readonly project_id: string;
+  readonly thread_title: string;
+  readonly created_at: string;
+  readonly run_status: string | null;
+  readonly completed_at: string | null;
+}
+
+/** A run's state from its agent turn's status; no turn yet means it waits its turn. */
+export function scheduledRunState(runStatus: string | null): ScheduledTaskRunState {
+  switch (runStatus) {
+    case null:
+      return "queued";
+    case "completed":
+      return "succeeded";
+    case "failed":
+      return "failed";
+    case "interrupted":
+    case "cancelled":
+    case "rolled_back":
+      return "stopped";
+    default:
+      return "running";
+  }
+}
+
+const runFromRow = (row: ScheduledRunRow) => ({
+  messageId: row.message_id,
+  taskId: row.task_id,
+  threadId: row.thread_id,
+  projectId: row.project_id,
+  threadTitle: row.thread_title,
+  startedAt: row.created_at,
+  finishedAt: row.completed_at,
+  state: scheduledRunState(row.run_status),
+});
 const decodeTaskId = Schema.decodeUnknownOption(ScheduledTaskId);
 const decodeScheduleJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ScheduledTask.fields.schedule),
@@ -247,6 +292,10 @@ export class ScheduledTaskService extends Context.Service<
     readonly listWebhookDeliveries: (
       input: ScheduledTaskListWebhookDeliveriesInput,
     ) => Effect.Effect<ScheduledTaskListWebhookDeliveriesResult, ScheduledTaskError>;
+    /** Recent prompts tasks sent, with how the agent turn each started went. */
+    readonly listRuns: (
+      input: ScheduledTaskListRunsInput,
+    ) => Effect.Effect<ScheduledTaskListRunsResult, ScheduledTaskError>;
     readonly getWebhookDelivery: (
       input: ScheduledTaskGetWebhookDeliveryInput,
     ) => Effect.Effect<ScheduledTaskGetWebhookDeliveryResult, ScheduledTaskError>;
@@ -1241,6 +1290,40 @@ export const layer = Layer.effect(
         ),
       );
 
+    const listRuns: ScheduledTaskService["Service"]["listRuns"] = (input) =>
+      sql<ScheduledRunRow>`
+        SELECT
+          m.message_id,
+          json_extract(m.payload_json, '$.scheduledTaskId') AS task_id,
+          m.thread_id,
+          t.project_id,
+          t.title AS thread_title,
+          m.created_at,
+          r.status AS run_status,
+          r.completed_at
+        FROM orchestration_v2_projection_messages m
+        JOIN orchestration_v2_projection_threads t ON t.thread_id = m.thread_id
+        LEFT JOIN orchestration_v2_projection_runs r
+          ON r.thread_id = m.thread_id
+          AND json_extract(r.payload_json, '$.userMessageId') = m.message_id
+        WHERE m.role = 'user'
+          AND json_extract(m.payload_json, '$.scheduledTaskId') IS NOT NULL
+          AND (${input.id ?? null} IS NULL
+            OR json_extract(m.payload_json, '$.scheduledTaskId') = ${input.id ?? null})
+          AND t.deleted_at IS NULL
+          AND json_extract(t.payload_json, '$.deletedAt') IS NULL
+        ORDER BY m.created_at DESC, m.message_id DESC
+        LIMIT ${input.limit ?? MAX_SCHEDULED_TASK_RUNS}
+      `.pipe(
+        Effect.flatMap((rows) => decodeRuns({ runs: rows.map(runFromRow) })),
+        Effect.mapError((cause) =>
+          taskError("Could not list scheduled task runs.", {
+            ...(input.id === undefined ? {} : { taskId: input.id }),
+            cause,
+          }),
+        ),
+      );
+
     const getWebhookDelivery: ScheduledTaskService["Service"]["getWebhookDelivery"] = (input) =>
       Effect.gen(function* () {
         const rows = yield* sql<WebhookDeliveryRow>`
@@ -1680,6 +1763,7 @@ export const layer = Layer.effect(
       runNow,
       rotateWebhookToken,
       listWebhookDeliveries,
+      listRuns,
       getWebhookDelivery,
       triggerWebhook,
     });

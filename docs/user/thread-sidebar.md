@@ -179,6 +179,17 @@ brings the folder back and keeps its chats settled. While any chat inside is
 active, a settled folder shows with the others. Subfolders offer **Settle all
 chats** instead.
 
+## Organize scheduled task runs
+
+Open **Scheduled Tasks** from the bottom of the sidebar and type a folder next
+to a task, such as `SERP/Adaptive checks`, to file the chats its runs start
+there on web and desktop. Missing folders are created, and an agent can set the
+folder for you. Clearing it stops filing new runs; chats already filed stay put.
+
+The same page lists recent runs in a table you can filter by task, status, and
+project and sort by start time, duration, or status. Select a run to open its
+chat. **New task** and **Edit** open the scheduled task editor.
+
 ## Work on a ticket
 
 On web and desktop, choose **Start session** on a ticket to open a chat linked

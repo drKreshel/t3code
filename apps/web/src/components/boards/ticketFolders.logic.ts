@@ -12,17 +12,21 @@ interface TicketFolderRoute {
   readonly threadKeys: readonly string[];
 }
 
+/** Anything that files chats into a folder: a ticket, or a scheduled task (`task:<id>`). */
+export type FolderRouteSource = Pick<Ticket, "id" | "folder" | "archivedAt" | "threadKeys">;
+
 export interface TicketFolderRoutingState {
   readonly ticketFolderRoutes?: Readonly<Record<string, TicketFolderRoute>>;
 }
 
 /**
- * Applies a ticket's folder when it is assigned or a chat is linked. Remembering
- * the applied route preserves later manual filing and local folder renames.
+ * Applies a ticket's or task's folder when it is assigned or a chat is linked.
+ * Remembering the applied route preserves later manual filing and local folder
+ * renames. Pass every source at once: a source left out loses its route.
  */
 export function syncTicketFolders(
   state: SidebarFolderLayout & TicketFolderRoutingState,
-  tickets: readonly Ticket[],
+  tickets: readonly FolderRouteSource[],
   newId: () => string,
 ): SidebarFolderLayout & TicketFolderRoutingState {
   let layout: SidebarFolderLayout = state;

@@ -1,8 +1,8 @@
-import type { Ticket } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import {
+  type FolderRouteSource,
   syncTicketFolders,
   type TicketFolderRoutingState,
 } from "./components/boards/ticketFolders.logic";
@@ -34,7 +34,7 @@ const SIDEBAR_FOLDER_STORAGE_KEY = "t3code:sidebar-folders:v1";
  * live in this browser or desktop app and never reach a server.
  */
 interface SidebarFolderStoreState extends SidebarFolderLayout, TicketFolderRoutingState {
-  syncTicketFolders: (tickets: readonly Ticket[]) => void;
+  syncTicketFolders: (sources: readonly FolderRouteSource[]) => void;
   createFolder: (input: { name: string; parentId: string | null }) => string;
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
