@@ -39,6 +39,7 @@ Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sq
 - `main` is the fork's stable line: upstream plus merged fork features.
 - Commit finished work and upstream merges on the right branch with conventional messages. Ask before pushing feature work to `origin`; an upstream update pushes `main` on its own (below). Never push to `upstream`.
 - Keep fork changes merge-friendly: logic in new files, thin hooks into upstream files.
+- [`FORK.md`](../../../FORK.md) lists each fork feature, the upstream files it touches, and where its data lives. Update it in the same commit when a fork feature lands, moves, or is dropped.
 
 ## Update from upstream, all in one go
 
@@ -47,16 +48,25 @@ When asked to update, pull upstream, or ship: finish every step below unattended
 Preserve folder and board data using the [update-t3 preservation guidance](../update-t3/SKILL.md). Record their existing state before updating. Verify that backups cover the active Electron profile and the current server/fork persistence, including board data. Prepare any required migration before installing, then compare folders and boards after reopening. Keep their names, structure, ordering, chat assignments, tickets, links, and hooks unchanged unless the user requested a change. An empty sidebar or board after an update is a migration failure to recover, not a successful update. If restart ends this turn, report verification as pending until it is actually checked.
 
 1. In the dev checkout, check `git status` and running dev processes. Carry uncommitted work along (stash it or commit it on its branch) rather than discarding it. Switch to `main`.
-2. `git fetch upstream` and summarize `git log --oneline main..upstream/main`. If there is nothing new and `main` is already installed (`scripts/fork/stable-app.sh status`), say so and stop.
-3. `git merge upstream/main`. Resolve conflicts in the spirit of both sides: keep upstream's change and the fork feature's intent, and adapt fork code to upstream's renamed services, new APIs, and dependency upgrades.
+2. `git fetch upstream` and summarize `git log --oneline main..upstream/main`. If there is nothing new and `main` is already installed (`scripts/fork/stable-app.sh status`), say so and stop. Otherwise compare the new upstream work against `FORK.md` and note every feature or fix that overlaps a fork one.
+3. `git merge upstream/main`. Resolve conflicts in the spirit of both sides: keep upstream's change and the fork feature's intent, and adapt fork code to upstream's renamed services, new APIs, and dependency upgrades. Handle overlaps as described under "Upstream wins by default" below.
 4. Verify only what the merge touched: `pnpm exec tsc --noEmit` in `apps/web` (and the server package if server files changed), plus `pnpm exec vp test run` for the fork's tests (`apps/web/src/components/SidebarFolders.logic.test.ts`) and tests of conflicted files. A failure is work to do, not a stop: fix the fork code (for example imports broken by a library upgrade) and rerun until green.
 5. Commit the merge (keep git's default merge message; put follow-up fixes in the merge or in `fix(fork): ...` commits) and push `main` to `origin`.
 6. `scripts/fork/stable-app.sh build` (a few minutes; the app keeps running). If it fails, fix the cause, commit, push, and build again.
 7. Write the final summary for Kreshel first, then run `scripts/fork/stable-app.sh restart` as the very last action. It detaches from the app, waits 15 seconds so the reply can finish, quits T3 Code, backs up chats and folders, installs the build, and reopens the app. The chat ends when the app quits; everything is back after reopen. Progress and errors go to `~/.t3/backups/restart.log`, and a macOS notification reports the result.
 
-The summary lists the touching points: each place where upstream and a fork feature met, how it was merged, and any fork code adapted to upstream. Keep it to what Kreshel should know or check, not a commit log.
+The summary lists the touching points: each place where upstream and a fork feature met, how it was merged, and any fork code adapted to upstream. Call out every overlap decision (below) on its own line: what upstream shipped, what was kept from the fork and why, and what Kreshel should try. Keep it to what Kreshel should know or check, not a commit log.
 
-Stop and ask only when the features themselves collide, not the code: upstream ships a feature that supersedes or competes with a fork feature (for example its own automations or folders), or merging would change how a fork feature behaves for Kreshel. Then leave `main` clean at its last good commit (abort the merge), keep the stable app running, and call `request_human` with a short markdown summary and options for each way forward. Do the same as a last resort when checks or the build still fail after real attempts to fix them.
+### Upstream wins by default
+
+When upstream ships a feature or fix that overlaps a fork one, prefer upstream's: it will keep being maintained and merged cleanly. Do not stop for this; decide, finish the update, and report.
+
+- Same or better upstream: switch to upstream's, migrate the fork's data into it so nothing Kreshel had is lost, and delete the fork code and its `FORK.md` row. Automations folding into upstream scheduled tasks is the model.
+- Upstream's is better overall, but the fork does something it lacks that Kreshel uses: adopt upstream's as the base and re-add only that piece as a thin fork addition on top (new files, a small hook). Update the `FORK.md` row to describe just that addition.
+- The fork's is clearly better and upstream's adds nothing Kreshel would use: keep the fork's, leave upstream's reachable as upstream ships it, and explain the choice in the summary so Kreshel can overrule it.
+- An upstream fix for a bug the fork also patched (see "Fixes upstream could take" in `FORK.md`): take upstream's and drop the fork patch.
+
+Stop and ask only when a choice cannot be made safely without Kreshel: switching would lose data that cannot be migrated, or would remove something Kreshel relies on that cannot be re-added on top. Do the same as a last resort when checks or the build still fail after real attempts to fix them. Then leave `main` clean at its last good commit (abort the merge), keep the stable app running, and call `request_human` with a short markdown summary and options for each way forward.
 
 ## Ship to stable
 
