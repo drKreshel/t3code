@@ -39,6 +39,7 @@ Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sq
 - `main` is the fork's stable line: upstream plus merged fork features.
 - Commit finished work and upstream merges on the right branch with conventional messages. Ask before pushing feature work to `origin`; an upstream update pushes `main` on its own (below). Never push to `upstream`.
 - Keep fork changes merge-friendly: logic in new files, thin hooks into upstream files.
+- Once a feature branch is merged into `main`, remove its worktree and delete the branch (`git worktree remove <path>`, then `git branch -d <branch>`, which refuses unmerged work). Skip a worktree with uncommitted changes and say so.
 - [`FORK.md`](../../../FORK.md) lists each fork feature, the upstream files it touches, and where its data lives. Update it in the same commit when a fork feature lands, moves, or is dropped.
 
 ## Update from upstream, all in one go
