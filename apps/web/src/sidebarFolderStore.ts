@@ -14,6 +14,7 @@ import {
   moveThreadToSidebarFolder,
   renameSidebarFolder,
   setSidebarFolderDefaultProject,
+  setSidebarFolderSettled,
   toggleSidebarFolderCollapsed,
   toggleSidebarFolderSettledExpanded,
   type SidebarFolder,
@@ -41,6 +42,7 @@ interface SidebarFolderStoreState extends SidebarFolderLayout, TicketFolderRouti
   moveFolder: (folderId: string, target: SidebarFolderMoveTarget) => void;
   toggleFolderCollapsed: (folderId: string) => void;
   toggleFolderSettledExpanded: (folderId: string) => void;
+  setFolderSettled: (folderId: string, settled: boolean) => void;
   moveThread: (threadKey: string, target: SidebarThreadFolderTarget | null) => void;
 }
 
@@ -52,6 +54,7 @@ function layoutOf(
     threadKeysByFolderId: state.threadKeysByFolderId,
     collapsedFolderIds: state.collapsedFolderIds,
     expandedSettledFolderIds: state.expandedSettledFolderIds ?? [],
+    settledFolderIds: state.settledFolderIds ?? [],
     ticketFolderRoutes: state.ticketFolderRoutes ?? {},
   };
 }
@@ -78,6 +81,8 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
         set((state) => toggleSidebarFolderCollapsed(layoutOf(state), folderId)),
       toggleFolderSettledExpanded: (folderId) =>
         set((state) => toggleSidebarFolderSettledExpanded(layoutOf(state), folderId)),
+      setFolderSettled: (folderId, settled) =>
+        set((state) => setSidebarFolderSettled(layoutOf(state), folderId, settled)),
       moveThread: (threadKey, target) =>
         set((state) => moveThreadToSidebarFolder(layoutOf(state), threadKey, target)),
     }),

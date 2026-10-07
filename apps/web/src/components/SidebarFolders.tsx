@@ -86,9 +86,16 @@ export function useSidebarFolderLayout(): SidebarFolderLayout {
   const threadKeysByFolderId = useSidebarFolderStore((state) => state.threadKeysByFolderId);
   const collapsedFolderIds = useSidebarFolderStore((state) => state.collapsedFolderIds);
   const expandedSettledFolderIds = useSidebarFolderStore((state) => state.expandedSettledFolderIds);
+  const settledFolderIds = useSidebarFolderStore((state) => state.settledFolderIds);
   return useMemo(
-    () => ({ folders, threadKeysByFolderId, collapsedFolderIds, expandedSettledFolderIds }),
-    [collapsedFolderIds, expandedSettledFolderIds, folders, threadKeysByFolderId],
+    () => ({
+      folders,
+      threadKeysByFolderId,
+      collapsedFolderIds,
+      expandedSettledFolderIds,
+      settledFolderIds,
+    }),
+    [collapsedFolderIds, expandedSettledFolderIds, folders, settledFolderIds, threadKeysByFolderId],
   );
 }
 
@@ -166,7 +173,7 @@ export function useSidebarFolderTree(input: {
 }
 
 /**
- * Fully settled folders follow the main Settled shelf: collapsed, only the
+ * Settled folders follow the main Settled shelf: collapsed, only the
  * folder holding the open thread stays visible, like the shelf's own rows.
  */
 export function useRenderedSettledSidebarFolders(
@@ -226,7 +233,7 @@ export function useSidebarFolderDnd(input: {
   onDragEnd: (event: DragEndEvent) => void;
   sidebarListItems: readonly SidebarListItem[];
   blockRef: MutableRefObject<HTMLElement | null>;
-  /** Fully settled folders, rendered in the main Settled section. */
+  /** Settled folders, rendered in the main Settled section. */
   settledBlockRef: MutableRefObject<HTMLElement | null>;
   listRef: MutableRefObject<HTMLElement | null>;
   /** The list's pickup clamp; folder drags lift it so rows can reach folders. */
@@ -579,8 +586,12 @@ async function showFolderMenu(
   if (!api) return;
   const layout = useSidebarFolderStore.getState();
   const threadKeys = folderSubtreeThreadKeys(layout, folderId);
-  const ownDefaultKey =
-    layout.folders.find((candidate) => candidate.id === folderId)?.defaultProjectKey ?? null;
+  const folder = layout.folders.find((candidate) => candidate.id === folderId);
+  const ownDefaultKey = folder?.defaultProjectKey ?? null;
+  // Only top-level folders move to the Settled section; a subfolder can only
+  // settle its chats.
+  const isTopLevel = folder?.parentId === null;
+  const isSettled = layout.settledFolderIds?.includes(folderId) ?? false;
   const ownDefault =
     ownDefaultKey === null
       ? null
@@ -610,13 +621,16 @@ async function showFolderMenu(
                   : "Clear default project",
               },
             ]),
-        {
-          id: "settle-folder",
-          label: "Settle folder",
-          disabled: threadKeys.length === 0,
-          separatorBefore: true,
-        },
-        { id: "unsettle-folder", label: "Un-settle folder", disabled: threadKeys.length === 0 },
+        isSettled
+          ? { id: "unsettle-folder", label: "Un-settle folder", separatorBefore: true }
+          : isTopLevel
+            ? { id: "settle-folder", label: "Settle folder", separatorBefore: true }
+            : {
+                id: "settle-chats",
+                label: "Settle all chats",
+                disabled: threadKeys.length === 0,
+                separatorBefore: true,
+              },
         { id: "new-subfolder", label: "New subfolder", icon: "folder", separatorBefore: true },
         { id: "rename", label: "Rename folder", icon: "pencil" },
         {
@@ -635,10 +649,15 @@ async function showFolderMenu(
   const ui = useSidebarFolderUiStore.getState();
   switch (clicked.value) {
     case "settle-folder":
+      store.setFolderSettled(folderId, true);
+      if (threadKeys.length > 0) actions.setThreadsSettled(threadKeys, true);
+      return;
+    case "settle-chats":
       actions.setThreadsSettled(threadKeys, true);
       return;
+    // The folder returns on its own; its chats stay settled.
     case "unsettle-folder":
-      actions.setThreadsSettled(threadKeys, false);
+      store.setFolderSettled(folderId, false);
       return;
     case "new-chat":
       actions.pickProject(folderId, "chat");
@@ -1071,8 +1090,8 @@ export function SidebarFolderBlock<TThread extends SidebarThreadSummary>(props: 
   );
 }
 
-/** Fully settled top-level folders, shown at the end of the main Settled
-    section. Unsettling any of their threads returns them to the Folders block. */
+/** Settled top-level folders, shown at the end of the main Settled section.
+    An active thread inside returns its folder to the Folders block. */
 export function SidebarSettledFolderBlock<TThread extends SidebarThreadSummary>(props: {
   roots: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
   blockRef: MutableRefObject<HTMLElement | null>;

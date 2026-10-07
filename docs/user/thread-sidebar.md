@@ -172,9 +172,12 @@ Changing the ticket's folder moves its linked sessions to the new location.
 Clearing it stops automatic filing and keeps existing sessions where they are.
 You can also move individual sessions afterward.
 
-Choose **Settle folder** from a folder's menu to settle its chats, including those
-in subfolders. **Un-settle folder** brings them back. Folder organization stays in
-place.
+Choose **Settle folder** from a top-level folder's menu to settle its chats,
+including those in subfolders, and move the folder into the Settled section.
+Settling every chat by hand leaves the folder where it is. **Un-settle folder**
+brings the folder back and keeps its chats settled. While any chat inside is
+active, a settled folder shows with the others. Subfolders offer **Settle all
+chats** instead.
 
 ## Work on a ticket
 

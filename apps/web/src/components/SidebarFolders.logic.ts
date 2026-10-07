@@ -18,6 +18,8 @@ export interface SidebarFolderLayout {
   readonly collapsedFolderIds: readonly string[];
   /** Absent in older saved layouts; settled shelves start collapsed. */
   readonly expandedSettledFolderIds?: readonly string[] | undefined;
+  /** Top-level folders the user settled. Absent in older saved layouts. */
+  readonly settledFolderIds?: readonly string[] | undefined;
 }
 
 export const EMPTY_SIDEBAR_FOLDER_LAYOUT: SidebarFolderLayout = {
@@ -25,6 +27,7 @@ export const EMPTY_SIDEBAR_FOLDER_LAYOUT: SidebarFolderLayout = {
   threadKeysByFolderId: {},
   collapsedFolderIds: [],
   expandedSettledFolderIds: [],
+  settledFolderIds: [],
 };
 
 export function folderIdByThreadKey(layout: SidebarFolderLayout): Map<string, string> {
@@ -156,6 +159,7 @@ export function deleteSidebarFolder(
     expandedSettledFolderIds: (layout.expandedSettledFolderIds ?? []).filter(
       (id) => !removed.has(id),
     ),
+    settledFolderIds: (layout.settledFolderIds ?? []).filter((id) => !removed.has(id)),
   };
 }
 
@@ -184,6 +188,25 @@ export function toggleSidebarFolderSettledExpanded(
   };
 }
 
+/** Settling is a top-level folder's own choice: it never follows from its
+    chats being settled. Subfolders always stay with their parent. */
+export function setSidebarFolderSettled(
+  layout: SidebarFolderLayout,
+  folderId: string,
+  settled: boolean,
+): SidebarFolderLayout {
+  const folder = layout.folders.find((candidate) => candidate.id === folderId);
+  if (settled && folder?.parentId !== null) return layout;
+  const rest = (layout.settledFolderIds ?? []).filter((id) => id !== folderId);
+  return { ...layout, settledFolderIds: settled ? [...rest, folderId] : rest };
+}
+
+/** Nesting a folder drops its settled mark, which only top-level folders hold. */
+function unsettleIfNested(layout: SidebarFolderLayout, folderId: string): SidebarFolderLayout {
+  const folder = layout.folders.find((candidate) => candidate.id === folderId);
+  return folder?.parentId == null ? layout : setSidebarFolderSettled(layout, folderId, false);
+}
+
 export type SidebarFolderMoveTarget =
   | { readonly kind: "inside"; readonly folderId: string }
   | { readonly kind: "before" | "after"; readonly folderId: string }
@@ -205,24 +228,30 @@ export function moveSidebarFolder(
   if (target.kind === "root" || target.kind === "inside") {
     const parentId = target.kind === "root" ? null : target.folderId;
     if (parentId !== null && !rest.some((folder) => folder.id === parentId)) return layout;
-    return {
-      ...layout,
-      folders: [...rest, { ...moving, parentId }],
-      collapsedFolderIds: layout.collapsedFolderIds.filter((id) => id !== parentId),
-    };
+    return unsettleIfNested(
+      {
+        ...layout,
+        folders: [...rest, { ...moving, parentId }],
+        collapsedFolderIds: layout.collapsedFolderIds.filter((id) => id !== parentId),
+      },
+      folderId,
+    );
   }
   const anchorIndex = rest.findIndex((folder) => folder.id === target.folderId);
   if (anchorIndex === -1) return layout;
   const anchor = rest[anchorIndex]!;
   const insertAt = target.kind === "before" ? anchorIndex : anchorIndex + 1;
-  return {
-    ...layout,
-    folders: [
-      ...rest.slice(0, insertAt),
-      { ...moving, parentId: anchor.parentId },
-      ...rest.slice(insertAt),
-    ],
-  };
+  return unsettleIfNested(
+    {
+      ...layout,
+      folders: [
+        ...rest.slice(0, insertAt),
+        { ...moving, parentId: anchor.parentId },
+        ...rest.slice(insertAt),
+      ],
+    },
+    folderId,
+  );
 }
 
 export type SidebarThreadFolderTarget =
@@ -429,8 +458,8 @@ export interface SidebarFolderTreeNode<TThread> {
   readonly children: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
   /** This folder's threads in visual order, with settled rows last; empty while collapsed. */
   readonly rows: ReadonlyArray<SidebarFolderThreadRow<TThread>>;
-  /** Rows behind this folder's own Settled shelf. Zero when every row is
-      settled: the shelf only splits a mix, otherwise the rows render directly. */
+  /** Rows behind this folder's own Settled shelf. Zero inside the Settled
+      section, where a folder's rows render directly. */
   readonly settledCount: number;
   readonly settledExpanded: boolean;
   /** Visible threads in this folder and below, for the header rollup. */
@@ -439,8 +468,8 @@ export interface SidebarFolderTreeNode<TThread> {
 
 export interface SidebarFolderTree<TThread> {
   readonly roots: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
-  /** Top-level folders whose every visible thread is settled. They render in
-      the main Settled section and return to `roots` once a thread wakes. */
+  /** Top-level folders the user settled. They render in the main Settled
+      section, and return to `roots` while any of their threads is active. */
   readonly settledRoots: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
   /** Rendered thread rows of `roots` in visual order, for traversal and jump hints. */
   readonly renderedThreads: readonly TThread[];
@@ -494,6 +523,7 @@ export function buildSidebarFolderTree<TThread>(input: {
   const { layout, threadByKey } = input;
   const collapsed = new Set(layout.collapsedFolderIds);
   const expandedSettled = new Set(layout.expandedSettledFolderIds);
+  const settledFolderIds = new Set(layout.settledFolderIds);
   const settledKeys = new Set<string>();
   const snoozedKeys = new Set<string>();
   let visibleThreadCount = 0;
@@ -513,18 +543,21 @@ export function buildSidebarFolderTree<TThread>(input: {
     return [...rows, ...settledRows];
   };
   const ownRowsByFolderId = new Map(layout.folders.map((folder) => [folder.id, rowsOf(folder.id)]));
-  // Empty folders stay with the active ones, where new folders appear.
-  const isSettledSubtree = (folderId: string): boolean => {
-    const rows = [...folderSubtreeIds(layout, folderId)].flatMap(
-      (id) => ownRowsByFolderId.get(id) ?? [],
+  // An active thread keeps a settled folder in view, so live work never hides.
+  const isSettledRoot = (folderId: string): boolean =>
+    settledFolderIds.has(folderId) &&
+    [...folderSubtreeIds(layout, folderId)].every((id) =>
+      (ownRowsByFolderId.get(id) ?? []).every((row) => row.section !== "active"),
     );
-    return rows.length > 0 && rows.every((row) => row.section === "settled");
-  };
 
-  const build = (folder: SidebarFolder, depth: number): SidebarFolderTreeNode<TThread> | null => {
+  const build = (
+    folder: SidebarFolder,
+    depth: number,
+    inSettledSection: boolean,
+  ): SidebarFolderTreeNode<TThread> | null => {
     const children = layout.folders
       .filter((candidate) => candidate.parentId === folder.id)
-      .flatMap((child) => build(child, depth + 1) ?? []);
+      .flatMap((child) => build(child, depth + 1, inSettledSection) ?? []);
     const ownRows = ownRowsByFolderId.get(folder.id) ?? [];
     const subtreeThreads = [
       ...children.flatMap((node) => node.subtreeThreads),
@@ -533,10 +566,9 @@ export function buildSidebarFolderTree<TThread>(input: {
     if (input.hideEmptyFolders && subtreeThreads.length === 0) return null;
     const isCollapsed = collapsed.has(folder.id);
     const settledExpanded = expandedSettled.has(folder.id);
-    const allSettled = ownRows.every((row) => row.section === "settled");
     const rows = isCollapsed
       ? []
-      : allSettled
+      : inSettledSection
         ? ownRows
         : ownRows.filter(
             (row) =>
@@ -548,7 +580,9 @@ export function buildSidebarFolderTree<TThread>(input: {
       collapsed: isCollapsed,
       children: isCollapsed ? [] : children,
       rows,
-      settledCount: allSettled ? 0 : ownRows.filter((row) => row.section === "settled").length,
+      settledCount: inSettledSection
+        ? 0
+        : ownRows.filter((row) => row.section === "settled").length,
       settledExpanded,
       subtreeThreads,
     };
@@ -557,8 +591,8 @@ export function buildSidebarFolderTree<TThread>(input: {
   const settledRoots: SidebarFolderTreeNode<TThread>[] = [];
   for (const folder of layout.folders) {
     if (folder.parentId !== null) continue;
-    const settled = isSettledSubtree(folder.id);
-    const node = build(folder, 0);
+    const settled = isSettledRoot(folder.id);
+    const node = build(folder, 0, settled);
     if (node !== null) (settled ? settledRoots : roots).push(node);
   }
   return {
