@@ -11,7 +11,7 @@ export const hasThreadPins = (pins: ThreadPins | null): pins is ThreadPins =>
 
 /**
  * Fork: thread details card section with the chat's note and pinned
- * artifacts, first in the card so they read at a glance when switching chats.
+ * artifacts, last in the card so the controls above keep their place.
  */
 export function ThreadPinsSection({
   threadRef,
@@ -22,7 +22,7 @@ export function ThreadPinsSection({
 }) {
   const openLink = useOpenLink(threadRef);
   return (
-    <ThreadDetailsSection headingId="thread-details-pins-heading" title="Pinned" separated={false}>
+    <ThreadDetailsSection headingId="thread-details-pins-heading" title="Pinned">
       <ThreadPinsContent
         threadRef={threadRef}
         pins={pins}

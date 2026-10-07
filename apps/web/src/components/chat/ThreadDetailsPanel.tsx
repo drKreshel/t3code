@@ -88,7 +88,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   // Same rule as the composer strip: a lone remote machine still gets a row,
   // shown as a static label because there is nothing to pick.
   const canPickEnvironment = props.availableEnvironments.length > 1;
-  // Fork: the chat's note and pins lead the card. Drafts have none.
+  // Fork: the chat's note and pins close the card. Drafts have none.
   const threadRef = useMemo(
     () => (props.draftId ? null : scopeThreadRef(props.environmentId, props.threadId)),
     [props.draftId, props.environmentId, props.threadId],
@@ -131,13 +131,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     >
       {(density) => (
         <>
-          {threadRef && hasThreadPins(pins) ? (
-            <ThreadPinsSection threadRef={threadRef} pins={pins} />
-          ) : null}
           <ThreadDetailsSection
             headingId="thread-details-workspace-heading"
             title="Workspace"
-            separated={hasThreadPins(pins)}
+            separated={false}
             showHeading={false}
           >
             {props.versionMismatch ? (
@@ -243,6 +240,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               environmentId={props.environmentId}
               threadId={props.threadId}
             />
+          ) : null}
+
+          {threadRef && hasThreadPins(pins) ? (
+            <ThreadPinsSection threadRef={threadRef} pins={pins} />
           ) : null}
         </>
       )}
