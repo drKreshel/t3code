@@ -147,11 +147,11 @@ describe("TicketWorkspaces", () => {
     Effect.gen(function* () {
       const { root, workspaces, ticketOn } = yield* makeHarness;
       const { boardId, ticketId } = yield* ticketOn("multi", "MLT");
-      // Nothing chosen yet: a folder of repos includes none by default.
-      const refused = yield* workspaces
+      // Nothing chosen yet: a folder of repos includes none, so the ticket works in the project checkout.
+      const unpicked = yield* workspaces
         .dispatch({ type: "workspace.ensure", ticketId })
         .pipe(Effect.flip);
-      expect(refused.message).toMatch(/Pick the repos/);
+      expect(unpicked.code).toBe("no-workspace");
 
       yield* workspaces.dispatch({
         type: "rules.set",

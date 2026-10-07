@@ -341,9 +341,10 @@ const make = Effect.gen(function* () {
           yield* rulesFor("ticket", ticketId),
         ]);
         if (plan.length === 0) {
+          // Nothing to isolate: a plain chat in the project folder, until repos are picked.
           return yield* fail(
-            "invalid",
-            "Pick the repos this ticket works on, in the board's or the ticket's workspace settings.",
+            "no-workspace",
+            "No repos are picked for this ticket, so it works in the project checkout.",
           );
         }
         const folder = path.join(
