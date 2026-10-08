@@ -38,7 +38,10 @@ import {
   SearchField,
   SortableHead,
   formatWhen,
-  modelLabel,
+  ModelText,
+  ProjectIcon,
+  formatModelLabel,
+  useModelLabel,
   stateVariant,
 } from "./scheduledTasksShared";
 
@@ -59,10 +62,11 @@ export function ScheduledTasksPage() {
   const folders = useTaskFolders();
   const [creating, setCreating] = useState(false);
   const [sort, setSort] = useState<Sort<TaskSortKey>>(DEFAULT_TASK_SORT);
+  const modelLabel = useModelLabel(environmentId);
 
-  const projectTitle = (projectId: string) =>
-    projects.find((project) => project.environmentId === environmentId && project.id === projectId)
-      ?.title ?? projectId;
+  const projectOf = (projectId: string) =>
+    projects.find((project) => project.environmentId === environmentId && project.id === projectId);
+  const projectTitle = (projectId: string) => projectOf(projectId)?.title ?? projectId;
   const folderOf = (taskId: string) =>
     folders.status === "ready"
       ? (folders.routes.find((route) => route.taskId === taskId)?.folder ?? "")
@@ -71,7 +75,7 @@ export function ScheduledTasksPage() {
     project: projectTitle(task.projectId),
     schedule: scheduleLabel(task.schedule),
     folder: folderOf(task.id),
-    model: modelLabel(task.modelSelection),
+    model: formatModelLabel(modelLabel(task.modelSelection)),
   });
   const projectId = search.project ?? null;
   const shown = visibleTasks(tasks, { query: search.q ?? "", projectId }, sort, labels);
@@ -156,6 +160,7 @@ export function ScheduledTasksPage() {
                   Project
                 </SortableHead>
                 <TableHead>Schedule</TableHead>
+                <TableHead>Model</TableHead>
                 <SortableHead sortKey="lastRun" sort={sort} onSort={onSort}>
                   Last run
                 </SortableHead>
@@ -191,14 +196,18 @@ export function ScheduledTasksPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="block max-w-40 truncate text-muted-foreground">
-                      {projectTitle(task.projectId)}
+                    <ProjectIcon
+                      project={projectOf(task.projectId)}
+                      fallbackTitle={task.projectId}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <span className="block max-w-64 whitespace-normal text-muted-foreground">
+                      {scheduleLabel(task.schedule)}
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="block max-w-56 truncate text-muted-foreground">
-                      {scheduleLabel(task.schedule)}
-                    </span>
+                    <ModelText label={modelLabel(task.modelSelection)} />
                   </TableCell>
                   <TableCell>
                     <span className="flex items-center gap-2">

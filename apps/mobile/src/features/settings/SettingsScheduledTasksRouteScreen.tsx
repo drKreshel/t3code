@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { describeCron } from "@t3tools/shared/cronDescription";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { readEnvironmentScope } from "../../state/session";
 import type {
@@ -104,7 +105,9 @@ function describeSchedule(task: ScheduledTask): string {
   if (schedule.type === "webhook") return "On webhook";
   if (schedule.type === "interval") return formatScheduledTaskInterval(schedule.everyMs);
   const zone = schedule.timezone ? ` (${schedule.timezone})` : "";
-  if (schedule.type === "cron") return `Cron ${schedule.expression}${zone}`;
+  if (schedule.type === "cron") {
+    return `${describeCron(schedule.expression) ?? `Cron ${schedule.expression}`}${zone}`;
+  }
   if (schedule.type === "once") return `Once on ${schedule.at.replace("T", " at ")}${zone}`;
   const days = schedule.weekdays?.length ? repeatLabel(schedule.weekdays) : "Every day";
   return `${days} at ${formatTime(schedule.timeOfDay)}${zone}`;
@@ -151,6 +154,8 @@ function FormField(props: {
   readonly borderTop?: boolean;
   /** For codes and names, like cron or timezones: no autocapitalize or autocorrect. */
   readonly verbatim?: boolean;
+  /** Read-back under the field, such as what a cron expression means. */
+  readonly hint?: string | null;
 }) {
   return (
     <View
@@ -172,6 +177,7 @@ function FormField(props: {
         placeholderTextColorClassName="accent-foreground-muted"
         className="min-h-8 font-sans text-base text-foreground"
       />
+      {props.hint ? <Text className="text-xs text-foreground-muted">{props.hint}</Text> : null}
     </View>
   );
 }
@@ -947,6 +953,7 @@ function TaskForm({
             label="Cron (minute hour day month weekday)"
             value={draft.schedule.cronExpression}
             placeholder="15,45 2-19 * * *"
+            hint={describeCron(draft.schedule.cronExpression)}
             verbatim
             disabled={saving}
             borderTop

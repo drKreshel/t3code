@@ -48,6 +48,7 @@ const insertRun = (input: {
   readonly userMessageId: string;
   readonly status: string;
   readonly completedAt: string | null;
+  readonly model?: string;
 }) =>
   Effect.flatMap(
     SqlClient.SqlClient,
@@ -56,7 +57,18 @@ const insertRun = (input: {
         requested_at, completed_at, payload_json)
       VALUES (${input.runId}, ${input.threadId}, ${input.ordinal}, 'codex', ${input.status},
         '2026-10-01T00:00:00.000Z', ${input.completedAt},
-        ${JSON.stringify({ userMessageId: input.userMessageId })})
+        ${JSON.stringify({
+          userMessageId: input.userMessageId,
+          ...(input.model
+            ? {
+                modelSelection: {
+                  instanceId: "codex",
+                  model: input.model,
+                  options: [{ id: "reasoningEffort", value: "high" }],
+                },
+              }
+            : {}),
+        })})
     `,
   );
 
@@ -79,6 +91,7 @@ it.effect("lists task runs newest first with their turn's outcome, skipping dele
       userMessageId: "m-a",
       status: "completed",
       completedAt: "2026-10-01T06:20:00.000Z",
+      model: "gpt-5.6-sol",
     });
     yield* insertUserMessage({
       messageId: "m-b",
@@ -142,7 +155,15 @@ it.effect("lists task runs newest first with their turn's outcome, skipping dele
         threadTitle: "Blog draft, Oct 1",
         startedAt: "2026-10-01T06:00:00.000Z",
         finishedAt: "2026-10-01T06:20:00.000Z",
+        // What the turn ran with, not whatever the task says today.
+        modelSelection: {
+          instanceId: "codex",
+          model: "gpt-5.6-sol",
+          options: [{ id: "reasoningEffort", value: "high" }],
+        },
       });
+      // A prompt still waiting for its turn has no model yet.
+      expect(all.runs[0]?.modelSelection).toBeNull();
       const blog = yield* service.listRuns({ id: ScheduledTaskId.make("blog"), limit: 1 });
       expect(blog.runs.map((run) => run.messageId)).toEqual(["m-b"]);
     }).pipe(

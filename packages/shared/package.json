@@ -31,6 +31,10 @@
       "types": "./src/projectFavicon.ts",
       "import": "./src/projectFavicon.ts"
     },
+    "./cronDescription": {
+      "types": "./src/cronDescription.ts",
+      "import": "./src/cronDescription.ts"
+    },
     "./model": {
       "types": "./src/model.ts",
       "import": "./src/model.ts"

@@ -26,6 +26,7 @@ const run = (messageId: string, threadId: string, startedAt: string) => ({
   startedAt,
   finishedAt: null,
   state: "succeeded" as const,
+  modelSelection: null,
 });
 
 const TestLayer = layerMemory.pipe(

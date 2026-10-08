@@ -94,7 +94,7 @@ export function visibleTasks(
 
 // Runs
 
-export type RunSortKey = "chat" | "started" | "duration" | "status";
+export type RunSortKey = "chat" | "model" | "started" | "duration" | "status";
 export const DEFAULT_RUN_SORT: Sort<RunSortKey> = { key: "started", descending: true };
 export const RUN_SORT_DESCENDING_FIRST: ReadonlyArray<RunSortKey> = ["started", "duration"];
 
@@ -135,16 +135,20 @@ export function visibleRuns(
   filter: RunFilter,
   sort: Sort<RunSortKey>,
   nowMs: number,
+  /** The model a run used, as the table names it. */
+  modelOf: (run: ScheduledTaskRun) => string,
 ): ReadonlyArray<ScheduledTaskRun> {
   const filtered = runs.filter(
     (run) =>
       (filter.state === null || run.state === filter.state) &&
-      matchesQuery(filter.query, [run.threadTitle, run.state]),
+      matchesQuery(filter.query, [run.threadTitle, run.state, modelOf(run)]),
   );
   const compare = (a: ScheduledTaskRun, b: ScheduledTaskRun): number => {
     switch (sort.key) {
       case "chat":
         return a.threadTitle.localeCompare(b.threadTitle);
+      case "model":
+        return modelOf(a).localeCompare(modelOf(b));
       case "started":
         return Date.parse(a.startedAt) - Date.parse(b.startedAt);
       case "duration":

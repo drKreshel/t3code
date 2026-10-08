@@ -36,6 +36,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 
 import { formatRelativeTime } from "../../timestampFormat";
+import { describeCron } from "@t3tools/shared/cronDescription";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -185,7 +186,9 @@ export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
       : `Every ${Math.round(schedule.everyMs / 1000)} sec`;
   }
   const zone = schedule.timezone ? ` (${schedule.timezone})` : "";
-  if (schedule.type === "cron") return `Cron ${schedule.expression}${zone}`;
+  if (schedule.type === "cron") {
+    return `${describeCron(schedule.expression) ?? `Cron ${schedule.expression}`}${zone}`;
+  }
   if (schedule.type === "once") return `Once on ${schedule.at.replace("T", " at ")}${zone}`;
   const weekdays = schedule.weekdays ?? [];
   const days =
@@ -1347,8 +1350,8 @@ export function ScheduledTaskEditorDialog({
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Minute, hour, day of month, month, weekday. For example, 15,45 2-19 * * * runs
-                    at :15 and :45 from 02:00 to 19:45.
+                    {describeCron(draft.cronExpression) ??
+                      "Minute, hour, day of month, month, weekday. For example, 15,45 2-19 * * * runs at :15 and :45 from 02:00 to 19:45."}
                   </p>
                 </div>
               ) : draft.scheduleMode === "once" ? (

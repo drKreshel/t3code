@@ -12,6 +12,7 @@ import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
   type ScheduledTask,
+  type ScheduledTaskRun,
   type ScheduledTaskRunState,
   ScheduledTaskRunState as ScheduledTaskRunStates,
 } from "@t3tools/contracts";
@@ -20,6 +21,7 @@ import { PauseIcon, PencilIcon, PlayIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { BoardsPageFrame } from "../boards/BoardsPageFrame";
+import { ProjectFavicon } from "../ProjectFavicon";
 import {
   ScheduledTaskEditorDialog,
   relativeLabel,
@@ -56,7 +58,10 @@ import {
   SearchField,
   SortableHead,
   formatWhen,
-  modelLabel,
+  ModelText,
+  type ModelLabel,
+  formatModelLabel,
+  useModelLabel,
   stateVariant,
 } from "./scheduledTasksShared";
 
@@ -193,6 +198,7 @@ function TaskDetails({
 }) {
   const projects = useProjects();
   const folders = useTaskFolders();
+  const modelLabel = useModelLabel(environmentId);
   const project = projects.find(
     (candidate) => candidate.environmentId === environmentId && candidate.id === task.projectId,
   );
@@ -203,7 +209,12 @@ function TaskDetails({
   return (
     <section className="flex flex-col gap-4">
       <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-        <Detail label="Schedule">{scheduleLabel(task.schedule)}</Detail>
+        <Detail label="Schedule">
+          {scheduleLabel(task.schedule)}
+          {task.schedule.type === "cron" ? (
+            <code className="ms-2 text-xs text-muted-foreground">{task.schedule.expression}</code>
+          ) : null}
+        </Detail>
         <Detail label="Next run">
           {task.enabled ? relativeLabel(task.nextRunAt) : <Badge variant="outline">Paused</Badge>}
         </Detail>
@@ -218,8 +229,15 @@ function TaskDetails({
             ) : null}
           </span>
         </Detail>
-        <Detail label="Project">{project?.title ?? task.projectId}</Detail>
-        <Detail label="Model">{modelLabel(task.modelSelection)}</Detail>
+        <Detail label="Project">
+          <span className="flex items-center gap-2">
+            {project ? <ProjectFavicon project={project} className="size-4" /> : null}
+            {project?.title ?? task.projectId}
+          </span>
+        </Detail>
+        <Detail label="Model">
+          <ModelText label={modelLabel(task.modelSelection)} />
+        </Detail>
         <Detail label="Put runs in folder">
           {/* Remount when the stored folder changes, so the field shows what stuck. */}
           <FolderField
@@ -324,7 +342,19 @@ function RunsSection({
     return () => clearInterval(timer);
   }, [live, refreshRuns]);
 
-  const shown = visibleRuns(runs, filter, sort, nowMs);
+  const modelLabel = useModelLabel(environmentId);
+  // Labels per run once per render, so sorting and searching do not redo the lookup.
+  const runModels = new Map<string, ModelLabel | null>(
+    runs.map((run) => [
+      run.messageId,
+      run.modelSelection === null ? null : modelLabel(run.modelSelection),
+    ]),
+  );
+  const modelOf = (run: ScheduledTaskRun) => {
+    const label = runModels.get(run.messageId);
+    return label ? formatModelLabel(label) : "";
+  };
+  const shown = visibleRuns(runs, filter, sort, nowMs, modelOf);
   const onSort = (key: RunSortKey) =>
     setSort((current) => toggleSort(current, key, RUN_SORT_DESCENDING_FIRST));
 
@@ -369,6 +399,9 @@ function RunsSection({
               <SortableHead sortKey="chat" sort={sort} onSort={onSort}>
                 Chat
               </SortableHead>
+              <SortableHead sortKey="model" sort={sort} onSort={onSort}>
+                Model
+              </SortableHead>
               <SortableHead sortKey="started" sort={sort} onSort={onSort}>
                 Started
               </SortableHead>
@@ -393,6 +426,9 @@ function RunsSection({
                   </Link>
                 </TableCell>
                 <TableCell>
+                  <RunModel label={runModels.get(run.messageId) ?? null} />
+                </TableCell>
+                <TableCell>
                   <span className="text-muted-foreground">{formatWhen(run.startedAt)}</span>
                 </TableCell>
                 <TableCell>
@@ -409,5 +445,13 @@ function RunsSection({
         </Table>
       )}
     </section>
+  );
+}
+
+function RunModel({ label }: { readonly label: ModelLabel | null }) {
+  return label ? (
+    <ModelText label={label} />
+  ) : (
+    <span className="text-muted-foreground">Not started</span>
   );
 }

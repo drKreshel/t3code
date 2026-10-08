@@ -191,7 +191,8 @@ chats** instead.
 Open **Scheduled Tasks** from the bottom of the sidebar to see every task.
 Search by title, prompt, project, schedule, or folder, filter by project, and
 select a column header to sort. Select a task to open its page, which lists all
-its runs to search, filter by status, and sort; select a run to open its chat.
+its runs, with the model and effort each one used, to search, filter by status,
+and sort; select a run to open its chat.
 
 On a task's page, type a folder under **Put runs in folder**, such as
 `SERP/Adaptive checks`, to file the chats its runs start there on web and

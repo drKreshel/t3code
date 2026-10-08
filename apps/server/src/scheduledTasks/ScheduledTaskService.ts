@@ -177,6 +177,7 @@ interface ScheduledRunRow {
   readonly created_at: string;
   readonly run_status: string | null;
   readonly completed_at: string | null;
+  readonly model_selection_json: string | null;
 }
 
 /** A run's state from its agent turn's status; no turn yet means it waits its turn. */
@@ -206,6 +207,7 @@ const runFromRow = (row: ScheduledRunRow) => ({
   startedAt: row.created_at,
   finishedAt: row.completed_at,
   state: scheduledRunState(row.run_status),
+  modelSelection: row.model_selection_json === null ? null : JSON.parse(row.model_selection_json),
 });
 const decodeTaskId = Schema.decodeUnknownOption(ScheduledTaskId);
 const decodeScheduleJson = Schema.decodeUnknownEffect(
@@ -1300,7 +1302,8 @@ export const layer = Layer.effect(
           t.title AS thread_title,
           m.created_at,
           r.status AS run_status,
-          r.completed_at
+          r.completed_at,
+          json_extract(r.payload_json, '$.modelSelection') AS model_selection_json
         FROM orchestration_v2_projection_messages m
         JOIN orchestration_v2_projection_threads t ON t.thread_id = m.thread_id
         LEFT JOIN orchestration_v2_projection_runs r

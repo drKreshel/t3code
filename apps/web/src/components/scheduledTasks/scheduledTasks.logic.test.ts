@@ -36,6 +36,7 @@ const run = (
   startedAt,
   finishedAt,
   state,
+  modelSelection: null,
 });
 
 const NOW = Date.parse("2026-10-06T12:00:00.000Z");
@@ -44,20 +45,37 @@ const runs = [
   run("b", "SERP adaptive", "failed", "2026-10-06T09:15:00.000Z", "2026-10-06T09:16:00.000Z"),
   run("c", "Adaptive retry", "running", "2026-10-06T11:45:00.000Z", null),
 ];
+// a ran on the old model; the task was switched before b and c.
+const modelOf = (entry: ScheduledTaskRun) =>
+  entry.messageId === "a" ? "GPT-5.6 Sol · High" : "GPT-6 Astra · Medium";
 const ids = (list: ReadonlyArray<{ readonly messageId: string }>) =>
   list.map((entry) => entry.messageId);
 
 describe("a task's runs table", () => {
   it("shows newest runs first and narrows by status and by words in the chat title", () => {
-    expect(ids(visibleRuns(runs, NO_RUN_FILTER, DEFAULT_RUN_SORT, NOW))).toEqual(["c", "b", "a"]);
+    expect(ids(visibleRuns(runs, NO_RUN_FILTER, DEFAULT_RUN_SORT, NOW, modelOf))).toEqual([
+      "c",
+      "b",
+      "a",
+    ]);
     expect(
-      ids(visibleRuns(runs, { ...NO_RUN_FILTER, state: "failed" }, DEFAULT_RUN_SORT, NOW)),
+      ids(visibleRuns(runs, { ...NO_RUN_FILTER, state: "failed" }, DEFAULT_RUN_SORT, NOW, modelOf)),
     ).toEqual(["b"]);
     expect(
-      ids(visibleRuns(runs, { ...NO_RUN_FILTER, query: "adaptive" }, DEFAULT_RUN_SORT, NOW)),
+      ids(
+        visibleRuns(runs, { ...NO_RUN_FILTER, query: "adaptive" }, DEFAULT_RUN_SORT, NOW, modelOf),
+      ),
     ).toEqual(["c", "b"]);
     expect(
-      ids(visibleRuns(runs, { ...NO_RUN_FILTER, query: "serp ADAPT" }, DEFAULT_RUN_SORT, NOW)),
+      ids(
+        visibleRuns(
+          runs,
+          { ...NO_RUN_FILTER, query: "serp ADAPT" },
+          DEFAULT_RUN_SORT,
+          NOW,
+          modelOf,
+        ),
+      ),
     ).toEqual(["b"]);
   });
 
@@ -65,14 +83,32 @@ describe("a task's runs table", () => {
     const sortBy = (key: (typeof RUN_SORT_DESCENDING_FIRST)[number] | "chat" | "status") =>
       toggleSort(DEFAULT_RUN_SORT, key, RUN_SORT_DESCENDING_FIRST);
     // c has run 15 minutes so far, a took 10, b took 1.
-    expect(ids(visibleRuns(runs, NO_RUN_FILTER, sortBy("duration"), NOW))).toEqual(["c", "a", "b"]);
-    expect(ids(visibleRuns(runs, NO_RUN_FILTER, sortBy("status"), NOW))).toEqual(["b", "c", "a"]);
+    expect(ids(visibleRuns(runs, NO_RUN_FILTER, sortBy("duration"), NOW, modelOf))).toEqual([
+      "c",
+      "a",
+      "b",
+    ]);
+    expect(ids(visibleRuns(runs, NO_RUN_FILTER, sortBy("status"), NOW, modelOf))).toEqual([
+      "b",
+      "c",
+      "a",
+    ]);
     const byChat = sortBy("chat");
-    expect(ids(visibleRuns(runs, NO_RUN_FILTER, byChat, NOW))).toEqual(["c", "b", "a"]);
+    expect(ids(visibleRuns(runs, NO_RUN_FILTER, byChat, NOW, modelOf))).toEqual(["c", "b", "a"]);
     expect(toggleSort(byChat, "chat", RUN_SORT_DESCENDING_FIRST)).toEqual({
       key: "chat",
       descending: true,
     });
+  });
+
+  it("finds and sorts runs by the model they ran with", () => {
+    expect(
+      ids(
+        visibleRuns(runs, { ...NO_RUN_FILTER, query: "sol high" }, DEFAULT_RUN_SORT, NOW, modelOf),
+      ),
+    ).toEqual(["a"]);
+    const byModel = toggleSort(DEFAULT_RUN_SORT, "model", RUN_SORT_DESCENDING_FIRST);
+    expect(ids(visibleRuns(runs, NO_RUN_FILTER, byModel, NOW, modelOf))).toEqual(["a", "c", "b"]);
   });
 
   it("formats durations at a glance", () => {

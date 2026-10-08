@@ -309,6 +309,8 @@ export const ScheduledTaskRun = Schema.Struct({
   startedAt: IsoDateTime,
   finishedAt: Schema.NullOr(IsoDateTime),
   state: ScheduledTaskRunState,
+  /** The model and options the run's turn used, which outlives later edits to the task. Null until the turn starts. */
+  modelSelection: Schema.NullOr(ModelSelection),
 });
 export type ScheduledTaskRun = typeof ScheduledTaskRun.Type;
 
