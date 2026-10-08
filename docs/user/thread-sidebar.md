@@ -207,8 +207,10 @@ project's checkout, or a worktree of the ticket's own on the branch
 board's settings, or for one ticket on its page. The agent reads the ticket
 itself, so a short request is enough, such as "implement WEB-12" or "implement
 WEB-12 using `$implement-ticket`". Put a repeatable process, like an implementation or review
-loop, in a skill and name it in the request. Several chats and skills can work
-the same ticket over time.
+loop, in a skill and name it in the request. To prefill that request for every
+ticket on a board, set **New chat message** in the board's settings, such as
+`Implement {key} ({title}) using $implement-ticket`. Several chats and skills
+can work the same ticket over time.
 
 Moving a ticket between columns records progress and never starts an agent.
 Decisions, findings, checks, and handoffs belong on the ticket; linked chats

@@ -12,6 +12,7 @@ import {
   ticketsByColumn,
   ticketRequirements,
   ticketsNewlyFlagged,
+  ticketChatOpener,
 } from "./boards.logic";
 
 const board: Board = {
@@ -19,6 +20,7 @@ const board: Board = {
   key: "WEB",
   name: "Web",
   defaultProjectKey: null,
+  newChatMessage: null,
   position: 1,
   columns: [
     { id: "todo", name: "Todo", color: null, position: 1, autoMove: null },
@@ -210,5 +212,20 @@ describe("recentBoardsByActivity", () => {
     };
     expect(recentBoardsByActivity(state, 5).map((entry) => entry.key)).toEqual(["WEB", "API"]);
     expect(recentBoardsByActivity(state, 1).map((entry) => entry.key)).toEqual(["WEB"]);
+  });
+});
+
+describe("ticketChatOpener", () => {
+  const ticket = { key: "WEB-12", title: "Fix $& login" };
+
+  it("uses the built-in message without a template", () => {
+    expect(ticketChatOpener(null, ticket)).toBe("Work on ticket WEB-12: Fix $& login");
+    expect(ticketChatOpener("  ", ticket)).toBe("Work on ticket WEB-12: Fix $& login");
+  });
+
+  it("fills every placeholder and leaves unknown ones", () => {
+    expect(ticketChatOpener("Implement {key} ({title}), then review {key}. {other}", ticket)).toBe(
+      "Implement WEB-12 (Fix $& login), then review WEB-12. {other}",
+    );
   });
 });

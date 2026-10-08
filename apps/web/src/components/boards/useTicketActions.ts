@@ -17,6 +17,7 @@ import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useWorkspacesDispatch } from "../../state/workspaces";
 import { toastManager } from "../ui/toast";
 import { useProjects } from "../../state/entities";
+import { ticketChatOpener } from "./boards.logic";
 import type { TicketView } from "./useBoardsModel";
 
 /** Resolves a stored scoped project key to a project this client still has. */
@@ -130,9 +131,13 @@ export function useStartTicketSession(): (
         });
         const store = useComposerDraftStore.getState();
         const existing = store.getComposerDraft(result.draftId)?.prompt.trim() ?? "";
-        // One line: the agent reads the rest (criteria, handoff) with get_ticket, so it
-        // stays current. A reused draft may hold text already; keep it above.
-        const opener = `Work on ticket ${view.label}: ${view.ticket.title}`;
+        // The board's message, one line by default: the agent reads the rest (criteria,
+        // handoff) with get_ticket, so it stays current. A reused draft may hold text
+        // already; keep it above.
+        const opener = ticketChatOpener(view.board.newChatMessage, {
+          key: view.label,
+          title: view.ticket.title,
+        });
         store.setPrompt(result.draftId, existing ? `${existing}\n\n${opener}` : opener);
       };
       const project = options.pickProject

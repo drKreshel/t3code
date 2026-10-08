@@ -337,6 +337,11 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       )`,
     ],
   },
+  {
+    // A board's own first message for chats started from its tickets.
+    version: 15,
+    statements: [`ALTER TABLE fork_boards ADD COLUMN new_chat_message TEXT`],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

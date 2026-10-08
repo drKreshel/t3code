@@ -18,9 +18,10 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Textarea } from "../ui/textarea";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { useBoardTemplates, useTemplatesDispatch } from "../../state/templates";
-import { BOARD_KEY_PATTERN, positionBetween } from "./boards.logic";
+import { BOARD_KEY_PATTERN, DEFAULT_NEW_CHAT_MESSAGE, positionBetween } from "./boards.logic";
 import { WorkspaceRulesEditor } from "./WorkspaceSettings";
 import {
   COLUMN_COLOR_LABEL,
@@ -174,6 +175,7 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
           Add column
         </Button>
       </div>
+      <NewChatMessageSetting board={board} />
       <BoardWorkspaceSettings board={board} />
       <SaveAsTemplate board={board} />
     </DialogPanel>
@@ -221,6 +223,36 @@ function SaveAsTemplate({ board }: { readonly board: Board }) {
             ? `Replaces your template "${trimmed}".`
             : "Delete templates from the New board dialog."}
       </p>
+    </div>
+  );
+}
+
+/** The first message of chats started from this board's tickets. */
+function NewChatMessageSetting({ board }: { readonly board: Board }) {
+  const dispatch = useBoardsDispatch();
+  const [message, setMessage] = useState(board.newChatMessage ?? "");
+  const save = () => {
+    const next = message.trim() || null;
+    if (next === board.newChatMessage) return;
+    void dispatch({ type: "board.update", boardId: board.id, newChatMessage: next });
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="board-settings-chat-message">New chat message</Label>
+        <p className="text-xs text-muted-foreground">
+          Fills the composer when you start a chat from a ticket. {"{key}"} and {"{title}"} become
+          the ticket's. The chat is linked to the ticket, so the agent can read its details.
+        </p>
+      </div>
+      <Textarea
+        id="board-settings-chat-message"
+        size="sm"
+        placeholder={DEFAULT_NEW_CHAT_MESSAGE}
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        onBlur={save}
+      />
     </div>
   );
 }

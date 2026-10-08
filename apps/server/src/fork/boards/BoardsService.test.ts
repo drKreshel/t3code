@@ -78,6 +78,21 @@ it.layer(TestLayer)("BoardsService", (it) => {
     }),
   );
 
+  it.effect("keeps a board's new chat message through other edits and clears it when blank", () =>
+    Effect.gen(function* () {
+      const boardId = yield* createdId({ type: "board.create", name: "Docs", key: "DOCS" });
+      const read = snapshot.pipe(
+        Effect.map((state) => state.boards.find((board) => board.id === boardId)!.newChatMessage),
+      );
+      assert.equal(yield* read, null);
+      yield* dispatch({ type: "board.update", boardId, newChatMessage: " Implement {key} " });
+      yield* dispatch({ type: "board.update", boardId, name: "Documentation" });
+      assert.equal(yield* read, "Implement {key}");
+      yield* dispatch({ type: "board.update", boardId, newChatMessage: "  " });
+      assert.equal(yield* read, null);
+    }),
+  );
+
   it.effect("numbers tickets per board and starts them in the first column", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Api", key: "API" });

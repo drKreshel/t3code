@@ -92,6 +92,7 @@ interface BoardRow {
   readonly key: string;
   readonly name: string;
   readonly default_project_key: string | null;
+  readonly new_chat_message: string | null;
   readonly position: number;
   readonly ticket_counter: number;
   readonly created_at: string;
@@ -173,6 +174,7 @@ const make = Effect.gen(function* () {
         key: row.key,
         name: row.name,
         defaultProjectKey: row.default_project_key,
+        newChatMessage: row.new_chat_message,
         position: row.position,
         columns: (columnsByBoard.get(row.id) ?? []).map((column) => ({
           id: column.id,
@@ -403,6 +405,11 @@ const make = Effect.gen(function* () {
                 command.defaultProjectKey === undefined
                   ? board.default_project_key
                   : command.defaultProjectKey
+              },
+              new_chat_message = ${
+                command.newChatMessage === undefined
+                  ? board.new_chat_message
+                  : command.newChatMessage?.trim() || null
               },
               updated_at = ${at}
             WHERE id = ${board.id}
