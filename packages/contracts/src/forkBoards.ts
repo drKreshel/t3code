@@ -100,6 +100,8 @@ export const Board = Schema.Struct({
   defaultProjectKey: Schema.NullOr(Schema.String),
   /** First message of a chat started from a ticket; `{key}` and `{title}` fill in. Null: the built-in one. */
   newChatMessage: Schema.NullOr(Schema.String),
+  /** Pinned boards get a quick link in the sidebar, in board order. */
+  pinnedAt: Schema.NullOr(IsoDateTime),
   position: Schema.Number,
   columns: Schema.Array(BoardColumn),
   createdAt: IsoDateTime,
@@ -202,6 +204,7 @@ export const BoardsCommand = Schema.Union([
     key: Schema.optional(BoardKey),
     defaultProjectKey: Schema.optional(Schema.NullOr(Schema.String)),
     newChatMessage: Schema.optional(Schema.NullOr(Schema.String)),
+    pinned: Schema.optional(Schema.Boolean),
   }),
   command("board.archive", { boardId: Id, archived: Schema.Boolean }),
   command("board.reorder", { boardId: Id, position: Schema.Number }),

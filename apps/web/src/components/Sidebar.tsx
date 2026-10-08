@@ -191,6 +191,7 @@ import {
   useSidebarFolderLayout,
   useSidebarFolderTree,
 } from "./SidebarFolders";
+import { SidebarPinnedBoards } from "./boards/SidebarPinnedBoards";
 import {
   animateSidebarLayoutChanges,
   applySidebarThreadDrop,
@@ -5524,6 +5525,8 @@ export default function Sidebar() {
                           onNavigateToDraft={navigateToDraft}
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
+                        // Fork: pinned boards sit above the folders.
+                        <SidebarPinnedBoards key="pinned-boards" />,
                         <SidebarFolderBlock
                           key="folders"
                           roots={folderTree.roots}

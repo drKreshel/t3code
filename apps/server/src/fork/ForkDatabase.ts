@@ -342,6 +342,11 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
     version: 15,
     statements: [`ALTER TABLE fork_boards ADD COLUMN new_chat_message TEXT`],
   },
+  {
+    // Pinned boards get a quick link in the sidebar.
+    version: 16,
+    statements: [`ALTER TABLE fork_boards ADD COLUMN pinned_at TEXT`],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

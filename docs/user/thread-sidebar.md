@@ -198,6 +198,13 @@ On a task's page, type a folder under **Put runs in folder**, such as
 desktop. Missing folders are created, and an agent can set the folder for you.
 Clearing it stops filing new runs; chats already filed stay put.
 
+## Pin a board
+
+Choose **Pin to sidebar** in a board's menu, or the pin on its card in Boards,
+to list it under **Boards** at the top of the sidebar on web and desktop. The
+row opens the board and shows how many of its tickets need you. Right-click it,
+or use the same menu, to unpin.
+
 ## Work on a ticket
 
 On web and desktop, choose **Start session** on a ticket to open a chat linked

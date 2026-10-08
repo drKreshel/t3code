@@ -93,6 +93,7 @@ interface BoardRow {
   readonly name: string;
   readonly default_project_key: string | null;
   readonly new_chat_message: string | null;
+  readonly pinned_at: string | null;
   readonly position: number;
   readonly ticket_counter: number;
   readonly created_at: string;
@@ -175,6 +176,7 @@ const make = Effect.gen(function* () {
         name: row.name,
         defaultProjectKey: row.default_project_key,
         newChatMessage: row.new_chat_message,
+        pinnedAt: row.pinned_at,
         position: row.position,
         columns: (columnsByBoard.get(row.id) ?? []).map((column) => ({
           id: column.id,
@@ -410,6 +412,13 @@ const make = Effect.gen(function* () {
                 command.newChatMessage === undefined
                   ? board.new_chat_message
                   : command.newChatMessage?.trim() || null
+              },
+              pinned_at = ${
+                command.pinned === undefined
+                  ? board.pinned_at
+                  : command.pinned
+                    ? (board.pinned_at ?? at)
+                    : null
               },
               updated_at = ${at}
             WHERE id = ${board.id}

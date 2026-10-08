@@ -21,6 +21,7 @@ const board: Board = {
   name: "Web",
   defaultProjectKey: null,
   newChatMessage: null,
+  pinnedAt: null,
   position: 1,
   columns: [
     { id: "todo", name: "Todo", color: null, position: 1, autoMove: null },

@@ -93,6 +93,25 @@ it.layer(TestLayer)("BoardsService", (it) => {
     }),
   );
 
+  it.effect("pins a board once and unpins it", () =>
+    Effect.gen(function* () {
+      const boardId = yield* createdId({ type: "board.create", name: "Pins", key: "PINS" });
+      const read = snapshot.pipe(
+        Effect.map((state) => state.boards.find((board) => board.id === boardId)!.pinnedAt),
+      );
+      assert.equal(yield* read, null);
+      yield* dispatch({ type: "board.update", boardId, pinned: true });
+      const pinnedAt = yield* read;
+      assert.notEqual(pinnedAt, null);
+      // Pinning again and other edits keep the original pin.
+      yield* dispatch({ type: "board.update", boardId, pinned: true });
+      yield* dispatch({ type: "board.update", boardId, name: "Pinned" });
+      assert.equal(yield* read, pinnedAt);
+      yield* dispatch({ type: "board.update", boardId, pinned: false });
+      assert.equal(yield* read, null);
+    }),
+  );
+
   it.effect("numbers tickets per board and starts them in the first column", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Api", key: "API" });

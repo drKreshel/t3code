@@ -2,9 +2,10 @@ import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
 import type { Board } from "@t3tools/contracts";
-import { ArchiveRestoreIcon, SquareKanbanIcon, PlusIcon } from "lucide-react";
+import { ArchiveRestoreIcon, PinIcon, SquareKanbanIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { cn } from "../../lib/utils";
 import { useBoardsDispatch } from "../../state/boards";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { Badge } from "../ui/badge";
@@ -151,8 +152,10 @@ function BoardRow({
   readonly board: Board;
   readonly views: ReadonlyMap<string, TicketView>;
 }) {
+  const dispatch = useBoardsDispatch();
   const lookupProject = useProjectLookup();
   const project = lookupProject(board.defaultProjectKey);
+  const pinned = board.pinnedAt !== null;
   const boardViews = [...views.values()].filter(
     (view) => view.board.id === board.id && view.ticket.archivedAt === null,
   );
@@ -170,9 +173,9 @@ function BoardRow({
   );
 
   return (
-    <li>
+    <li className="group/board relative">
       <Link
-        className="flex flex-col gap-2 rounded-lg border border-border/60 px-4 py-3 hover:bg-accent/50"
+        className="flex flex-col gap-2 rounded-lg border border-border/60 py-3 pr-11 pl-4 hover:bg-accent/50"
         to="/boards/$boardKey"
         params={{ boardKey: board.key }}
       >
@@ -208,6 +211,20 @@ function BoardRow({
           {project ? <span className="ml-auto truncate">{project.title}</span> : null}
         </div>
       </Link>
+      {/* Outside the link: a button cannot sit inside one. Pinned boards keep it visible. */}
+      <Button
+        aria-label={pinned ? "Unpin from sidebar" : "Pin to sidebar"}
+        aria-pressed={pinned}
+        size="icon-xs"
+        variant="ghost"
+        className={cn(
+          "absolute top-2.5 right-2",
+          !pinned && "hidden group-hover/board:inline-flex",
+        )}
+        onClick={() => void dispatch({ type: "board.update", boardId: board.id, pinned: !pinned })}
+      >
+        <PinIcon className={pinned ? "fill-current" : undefined} />
+      </Button>
     </li>
   );
 }
