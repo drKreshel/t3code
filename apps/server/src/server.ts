@@ -17,6 +17,8 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
+import type * as FileSystem from "effect/FileSystem";
+import type * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as Schedule from "effect/Schedule";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
@@ -58,7 +60,7 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as AzureDevOpsCli from "./sourceControl/AzureDevOpsCli.ts";
 import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
-import * as GitHubCli from "./sourceControl/GitHubCli.ts";
+import * as GitHubApi from "./sourceControl/GitHubApi.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
@@ -161,6 +163,7 @@ import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClien
 import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts";
 import * as ResourceMonitorBinary from "./resourceTelemetry/ResourceMonitorBinary.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
+import * as CursorUsageReader from "./usage/cursorUsageReader.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
@@ -233,7 +236,10 @@ const layerBackground = BackgroundPolicy.layer.pipe(
   Layer.provideMerge(layerServerSettings),
 );
 
-const layerUsage = UsageService.layer.pipe(Layer.provide(layerServerSettings));
+const layerUsage = UsageService.layer.pipe(
+  Layer.provide(layerServerSettings),
+  Layer.provide(CursorUsageReader.layer),
+);
 
 const layerResourceDiagnostics = Layer.mergeAll(
   HostResources.layer,
@@ -278,7 +284,7 @@ const layerSourceControlProviderRegistry = SourceControlProviderRegistry.layer.p
     Layer.mergeAll(
       AzureDevOpsCli.layer,
       BitbucketApi.layer,
-      GitHubCli.layer,
+      GitHubApi.layerWithDependencies,
       GitLabCli.layer,
       ForgejoCli.layer,
     ),
@@ -586,7 +592,7 @@ const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer
     Layer.provideMerge(layerServerSettings),
     // The asset route uses the registry's GitHub credential for private PR media.
     Layer.provideMerge(layerSourceControlProviderRegistry),
-    Layer.provideMerge(GitHubCli.layer),
+    Layer.provideMerge(GitHubApi.layerWithDependencies),
     Layer.provideMerge(layerGit),
     Layer.provideMerge(layerVcs),
     Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
@@ -1095,4 +1101,8 @@ const layerMakeServer = Layer.unwrap(
 );
 
 // The CLI supplies configuration.
-export const runServer = Layer.launch(layerMakeServer);
+export const runServer: Effect.Effect<
+  never,
+  Layer.Error<typeof layerMakeServer>,
+  FileSystem.FileSystem | Path.Path | ServerConfig.ServerConfig
+> = Layer.launch(layerMakeServer);
