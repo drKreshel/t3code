@@ -293,6 +293,28 @@ export function moveThreadToSidebarFolder(
   };
 }
 
+/**
+ * Files each new fork right after its source thread when the source sits in a
+ * folder. Forks that are already filed (by a ticket route, say) stay put.
+ */
+export function fileForksWithSources(
+  layout: SidebarFolderLayout,
+  forks: readonly { readonly threadKey: string; readonly sourceThreadKey: string }[],
+): SidebarFolderLayout {
+  let next = layout;
+  for (const fork of forks) {
+    const folderByThread = folderIdByThreadKey(next);
+    const folderId = folderByThread.get(fork.sourceThreadKey);
+    if (folderId === undefined || folderByThread.has(fork.threadKey)) continue;
+    next = moveThreadToSidebarFolder(next, fork.threadKey, {
+      folderId,
+      position: "after",
+      threadKey: fork.sourceThreadKey,
+    });
+  }
+  return next;
+}
+
 // ---------------------------------------------------------------------------
 // Drag and drop
 

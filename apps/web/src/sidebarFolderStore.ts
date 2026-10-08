@@ -10,6 +10,7 @@ import {
   createSidebarFolder,
   deleteSidebarFolder,
   EMPTY_SIDEBAR_FOLDER_LAYOUT,
+  fileForksWithSources,
   moveSidebarFolder,
   moveThreadToSidebarFolder,
   renameSidebarFolder,
@@ -44,6 +45,7 @@ interface SidebarFolderStoreState extends SidebarFolderLayout, TicketFolderRouti
   toggleFolderSettledExpanded: (folderId: string) => void;
   setFolderSettled: (folderId: string, settled: boolean) => void;
   moveThread: (threadKey: string, target: SidebarThreadFolderTarget | null) => void;
+  fileForks: (forks: readonly { threadKey: string; sourceThreadKey: string }[]) => void;
 }
 
 function layoutOf(
@@ -85,6 +87,7 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
         set((state) => setSidebarFolderSettled(layoutOf(state), folderId, settled)),
       moveThread: (threadKey, target) =>
         set((state) => moveThreadToSidebarFolder(layoutOf(state), threadKey, target)),
+      fileForks: (forks) => set((state) => fileForksWithSources(layoutOf(state), forks)),
     }),
     {
       name: SIDEBAR_FOLDER_STORAGE_KEY,

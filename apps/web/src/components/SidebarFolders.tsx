@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -42,10 +43,12 @@ import { cn } from "~/lib/utils";
 import { openCommandPalette } from "../commandPaletteBus";
 import { readLocalApi } from "../localApi";
 import { useSidebarFolderStore, useSidebarFolderUiStore } from "../sidebarFolderStore";
+import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "../state/entities";
 import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
 import type { SidebarThreadSummary } from "../types";
 import { useUiStateStore } from "../uiStateStore";
 import {
+  getSidebarForkParentThreadId,
   resolveProjectStatusIndicator,
   resolveThreadStatusPill,
   type SidebarDropVerb,
@@ -101,6 +104,39 @@ export function useSidebarFolderLayout(): SidebarFolderLayout {
 
 const threadKeyOf = (thread: EnvironmentThreadShell) =>
   scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+
+/**
+ * Files a new fork next to its source when the source sits in a folder, for
+ * forks made here and by agents alike. Threads present at startup are left
+ * alone, so a fork moved out of its folder stays out.
+ */
+export function ForkFolderCoordinator() {
+  const threads = useThreadShells();
+  const bootstrapped = useAllEnvironmentShellsBootstrapped();
+  const seenRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!bootstrapped) return;
+    const seen = seenRef.current;
+    if (seen === null) {
+      seenRef.current = new Set(threads.map(threadKeyOf));
+      return;
+    }
+    const forks: { threadKey: string; sourceThreadKey: string }[] = [];
+    for (const thread of threads) {
+      const threadKey = threadKeyOf(thread);
+      if (seen.has(threadKey)) continue;
+      seen.add(threadKey);
+      const sourceThreadId = getSidebarForkParentThreadId(thread);
+      if (sourceThreadId === null) continue;
+      forks.push({
+        threadKey,
+        sourceThreadKey: scopedThreadKey(scopeThreadRef(thread.environmentId, sourceThreadId)),
+      });
+    }
+    if (forks.length > 0) useSidebarFolderStore.getState().fileForks(forks);
+  }, [bootstrapped, threads]);
+  return null;
+}
 
 /** Keys the main list must skip because their rows render in a folder. */
 export function useFiledSidebarThreadKeys(
