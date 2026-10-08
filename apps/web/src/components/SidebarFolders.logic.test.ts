@@ -6,6 +6,7 @@ import {
   createSidebarFolder,
   deleteSidebarFolder,
   EMPTY_SIDEBAR_FOLDER_LAYOUT,
+  fileForksWithSources,
   filedSidebarThreadKeys,
   flattenSidebarFolders,
   folderSubtreeThreadKeys,
@@ -154,6 +155,37 @@ describe("moveThreadToSidebarFolder", () => {
 
   it("unfiles with a null target", () => {
     expect(moveThreadToSidebarFolder(layout, "t3", null).threadKeysByFolderId.b).toEqual([]);
+  });
+});
+
+describe("fileForksWithSources", () => {
+  const layout = layoutWith(
+    [
+      ["a", null],
+      ["b", null],
+    ],
+    { a: ["t1", "t2"], b: ["t3"] },
+  );
+
+  it("files a fork right after its filed source", () => {
+    const next = fileForksWithSources(layout, [{ threadKey: "f1", sourceThreadKey: "t1" }]);
+    expect(next.threadKeysByFolderId.a).toEqual(["t1", "f1", "t2"]);
+  });
+
+  it("follows a source that was itself just filed as a fork", () => {
+    const next = fileForksWithSources(layout, [
+      { threadKey: "f1", sourceThreadKey: "t3" },
+      { threadKey: "f2", sourceThreadKey: "f1" },
+    ]);
+    expect(next.threadKeysByFolderId.b).toEqual(["t3", "f1", "f2"]);
+  });
+
+  it("leaves forks of unfiled sources and already filed forks alone", () => {
+    const next = fileForksWithSources(layout, [
+      { threadKey: "f1", sourceThreadKey: "loose" },
+      { threadKey: "t3", sourceThreadKey: "t1" },
+    ]);
+    expect(next).toBe(layout);
   });
 });
 

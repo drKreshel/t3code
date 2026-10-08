@@ -2,6 +2,7 @@ import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { BoardsNotificationCoordinator } from "../components/boards/BoardsNotificationCoordinator";
 import { TicketFolderCoordinator } from "../components/boards/TicketFolderCoordinator";
+import { ForkFolderCoordinator } from "../components/SidebarFolders";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
   Outlet,
@@ -238,6 +239,7 @@ function RootRouteView() {
           <ThreadNotificationCoordinator />
           <BoardsNotificationCoordinator />
           <TicketFolderCoordinator />
+          <ForkFolderCoordinator />
           <ReopenClosedViewShortcut />
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />
