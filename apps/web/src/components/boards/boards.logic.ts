@@ -1,5 +1,18 @@
 import type { Board, BoardsSnapshot, Ticket, TicketEvent } from "@t3tools/contracts";
 
+export const DEFAULT_NEW_CHAT_MESSAGE = "Work on ticket {key}: {title}";
+
+/** First message of a chat started from a ticket, from its board's template. */
+export function ticketChatOpener(
+  template: string | null,
+  ticket: { readonly key: string; readonly title: string },
+): string {
+  return (template?.trim() || DEFAULT_NEW_CHAT_MESSAGE).replace(
+    /\{(key|title)\}/g,
+    (_, name: "key" | "title") => ticket[name],
+  );
+}
+
 export function ticketKey(board: Pick<Board, "key">, ticket: Pick<Ticket, "number">): string {
   return `${board.key}-${ticket.number}`;
 }

@@ -73,6 +73,8 @@ export const BoardSummary = Schema.Struct({
   key: Schema.String,
   name: Schema.String,
   defaultProject: Schema.NullOr(Schema.String),
+  newChatMessage: Schema.NullOr(Schema.String),
+  pinned: Schema.Boolean,
   archived: Schema.Boolean,
   columns: Schema.Array(ColumnSummary),
 });
@@ -248,7 +250,7 @@ const CreateBoardTool = Tool.make("create_board", {
 
 const UpdateBoardTool = Tool.make("update_board", {
   description:
-    "Change a board: its name, key, default project, or archived state, and add, rename, recolor, remove, or reorder its columns. Every reference is checked before anything changes. Columns record progress only; editing them never starts an agent.",
+    "Change a board: its name, key, default project, new chat message, sidebar pin, or archived state, and add, rename, recolor, remove, or reorder its columns. Every reference is checked before anything changes. Columns record progress only; editing them never starts an agent.",
   parameters: Schema.Struct({
     board: TrimmedNonEmptyString.annotate({ description: "Board key like WEB." }),
     name: Schema.optional(TrimmedNonEmptyString),
@@ -259,6 +261,17 @@ const UpdateBoardTool = Tool.make("update_board", {
       Schema.Boolean.annotate({
         description:
           "true: make this chat's project the board's default project. false: clear the default project.",
+      }),
+    ),
+    newChatMessage: Schema.optional(
+      Schema.String.annotate({
+        description:
+          "First message of chats started from this board's tickets; {key} and {title} fill in, like 'Implement {key} using $implement-ticket'. Empty restores the default.",
+      }),
+    ),
+    pinned: Schema.optional(
+      Schema.Boolean.annotate({
+        description: "true: show the board as a quick link in the user's sidebar. false: unpin.",
       }),
     ),
     archived: Schema.optional(Schema.Boolean),

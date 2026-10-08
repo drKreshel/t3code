@@ -26,6 +26,8 @@ import {
   EllipsisIcon,
   FolderIcon,
   LinkIcon,
+  PinIcon,
+  PinOffIcon,
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -255,6 +257,18 @@ function BoardView({
               <EllipsisIcon />
             </MenuTrigger>
             <MenuPopup align="end">
+              <MenuItem
+                onClick={() =>
+                  void dispatch({
+                    type: "board.update",
+                    boardId: board.id,
+                    pinned: board.pinnedAt === null,
+                  })
+                }
+              >
+                {board.pinnedAt === null ? <PinIcon /> : <PinOffIcon />}
+                {board.pinnedAt === null ? "Pin to sidebar" : "Unpin from sidebar"}
+              </MenuItem>
               <MenuItem onClick={() => setSettingsOpen(true)}>
                 <SettingsIcon />
                 Board settings

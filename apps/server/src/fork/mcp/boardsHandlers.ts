@@ -157,6 +157,8 @@ const make = Effect.gen(function* () {
         key: board.key,
         name: board.name,
         defaultProject: yield* projectTitle(board.defaultProjectKey),
+        newChatMessage: board.newChatMessage,
+        pinned: board.pinnedAt !== null,
         archived: board.archivedAt !== null,
         columns: board.columns
           .toSorted((a, b) => a.position - b.position)
@@ -384,7 +386,9 @@ const make = Effect.gen(function* () {
         if (
           input.name !== undefined ||
           input.key !== undefined ||
-          defaultProjectKey !== undefined
+          defaultProjectKey !== undefined ||
+          input.newChatMessage !== undefined ||
+          input.pinned !== undefined
         ) {
           yield* dispatch({
             type: "board.update",
@@ -392,6 +396,8 @@ const make = Effect.gen(function* () {
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.key !== undefined ? { key: input.key } : {}),
             ...(defaultProjectKey !== undefined ? { defaultProjectKey } : {}),
+            ...(input.newChatMessage !== undefined ? { newChatMessage: input.newChatMessage } : {}),
+            ...(input.pinned !== undefined ? { pinned: input.pinned } : {}),
           });
         }
         if (input.archived !== undefined && input.archived !== (board.archivedAt !== null)) {
