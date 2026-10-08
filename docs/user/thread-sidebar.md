@@ -188,14 +188,15 @@ chats** instead.
 
 ## Organize scheduled task runs
 
-Open **Scheduled Tasks** from the bottom of the sidebar and type a folder next
-to a task, such as `SERP/Adaptive checks`, to file the chats its runs start
-there on web and desktop. Missing folders are created, and an agent can set the
-folder for you. Clearing it stops filing new runs; chats already filed stay put.
+Open **Scheduled Tasks** from the bottom of the sidebar to see every task.
+Search by title, prompt, project, schedule, or folder, filter by project, and
+select a column header to sort. Select a task to open its page, which lists all
+its runs to search, filter by status, and sort; select a run to open its chat.
 
-The same page lists recent runs in a table you can filter by task, status, and
-project and sort by start time, duration, or status. Select a run to open its
-chat. **New task** and **Edit** open the scheduled task editor.
+On a task's page, type a folder under **Put runs in folder**, such as
+`SERP/Adaptive checks`, to file the chats its runs start there on web and
+desktop. Missing folders are created, and an agent can set the folder for you.
+Clearing it stops filing new runs; chats already filed stay put.
 
 ## Work on a ticket
 

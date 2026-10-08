@@ -13,11 +13,11 @@ import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as ScheduledRouteImport } from './routes/scheduled'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
+import { Route as ScheduledIndexRouteImport } from './routes/scheduled.index'
 import { Route as BoardsIndexRouteImport } from './routes/boards.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsStorageRouteImport } from './routes/settings.storage'
@@ -34,6 +34,7 @@ import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagn
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
+import { Route as ScheduledTaskIdRouteImport } from './routes/scheduled.$taskId'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as BoardsBoardKeyIndexRouteImport } from './routes/boards.$boardKey.index'
@@ -61,11 +62,6 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ScheduledRoute = ScheduledRouteImport.update({
-  id: '/scheduled',
-  path: '/scheduled',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const PairRoute = PairRouteImport.update({
   id: '/pair',
   path: '/pair',
@@ -83,6 +79,11 @@ const ConnectRoute = ConnectRouteImport.update({
 } as any)
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScheduledIndexRoute = ScheduledIndexRouteImport.update({
+  id: '/scheduled/',
+  path: '/scheduled/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BoardsIndexRoute = BoardsIndexRouteImport.update({
@@ -166,6 +167,11 @@ const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   path: '/appearance',
   getParentRoute: () => SettingsRoute,
 } as any)
+const ScheduledTaskIdRoute = ScheduledTaskIdRouteImport.update({
+  id: '/scheduled/$taskId',
+  path: '/scheduled/$taskId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   id: '/projects/$projectKey',
   path: '/projects/$projectKey',
@@ -204,13 +210,13 @@ export interface FileRoutesByFullPath {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
-  '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/scheduled/$taskId': typeof ScheduledTaskIdRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -226,6 +232,7 @@ export interface FileRoutesByFullPath {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/boards/': typeof BoardsIndexRoute
+  '/scheduled/': typeof ScheduledIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
@@ -235,13 +242,13 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
-  '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/scheduled/$taskId': typeof ScheduledTaskIdRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -258,6 +265,7 @@ export interface FileRoutesByTo {
   '/settings/storage': typeof SettingsStorageRoute
   '/': typeof ChatIndexRoute
   '/boards': typeof BoardsIndexRoute
+  '/scheduled': typeof ScheduledIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
@@ -269,13 +277,13 @@ export interface FileRoutesById {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
-  '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/scheduled/$taskId': typeof ScheduledTaskIdRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
@@ -292,6 +300,7 @@ export interface FileRoutesById {
   '/settings/storage': typeof SettingsStorageRoute
   '/_chat/': typeof ChatIndexRoute
   '/boards/': typeof BoardsIndexRoute
+  '/scheduled/': typeof ScheduledIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
@@ -304,13 +313,13 @@ export interface FileRouteTypes {
     | '/connect'
     | '/connect-agent'
     | '/pair'
-    | '/scheduled'
     | '/settings'
     | '/skills'
     | '/usage'
     | '/welcome'
     | '/pull-requests'
     | '/projects/$projectKey'
+    | '/scheduled/$taskId'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
@@ -326,6 +335,7 @@ export interface FileRouteTypes {
     | '/settings/source-control'
     | '/settings/storage'
     | '/boards/'
+    | '/scheduled/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/boards/$boardKey/$ticketNumber'
@@ -335,13 +345,13 @@ export interface FileRouteTypes {
     | '/connect'
     | '/connect-agent'
     | '/pair'
-    | '/scheduled'
     | '/settings'
     | '/skills'
     | '/usage'
     | '/welcome'
     | '/pull-requests'
     | '/projects/$projectKey'
+    | '/scheduled/$taskId'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
@@ -358,6 +368,7 @@ export interface FileRouteTypes {
     | '/settings/storage'
     | '/'
     | '/boards'
+    | '/scheduled'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/boards/$boardKey/$ticketNumber'
@@ -368,13 +379,13 @@ export interface FileRouteTypes {
     | '/connect'
     | '/connect-agent'
     | '/pair'
-    | '/scheduled'
     | '/settings'
     | '/skills'
     | '/usage'
     | '/welcome'
     | '/_chat/pull-requests'
     | '/projects/$projectKey'
+    | '/scheduled/$taskId'
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
@@ -391,6 +402,7 @@ export interface FileRouteTypes {
     | '/settings/storage'
     | '/_chat/'
     | '/boards/'
+    | '/scheduled/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
     | '/boards/$boardKey/$ticketNumber'
@@ -402,13 +414,14 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   ConnectAgentRoute: typeof ConnectAgentRoute
   PairRoute: typeof PairRoute
-  ScheduledRoute: typeof ScheduledRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SkillsRoute: typeof SkillsRoute
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
+  ScheduledTaskIdRoute: typeof ScheduledTaskIdRoute
   BoardsIndexRoute: typeof BoardsIndexRoute
+  ScheduledIndexRoute: typeof ScheduledIndexRoute
   BoardsBoardKeyTicketNumberRoute: typeof BoardsBoardKeyTicketNumberRoute
   BoardsBoardKeyIndexRoute: typeof BoardsBoardKeyIndexRoute
 }
@@ -443,13 +456,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/scheduled': {
-      id: '/scheduled'
-      path: '/scheduled'
-      fullPath: '/scheduled'
-      preLoaderRoute: typeof ScheduledRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/pair': {
       id: '/pair'
       path: '/pair'
@@ -476,6 +482,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scheduled/': {
+      id: '/scheduled/'
+      path: '/scheduled'
+      fullPath: '/scheduled/'
+      preLoaderRoute: typeof ScheduledIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/boards/': {
@@ -590,6 +603,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppearanceRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/scheduled/$taskId': {
+      id: '/scheduled/$taskId'
+      path: '/scheduled/$taskId'
+      fullPath: '/scheduled/$taskId'
+      preLoaderRoute: typeof ScheduledTaskIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects/$projectKey': {
       id: '/projects/$projectKey'
       path: '/projects/$projectKey'
@@ -694,13 +714,14 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectRoute: ConnectRoute,
   ConnectAgentRoute: ConnectAgentRoute,
   PairRoute: PairRoute,
-  ScheduledRoute: ScheduledRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SkillsRoute: SkillsRoute,
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
+  ScheduledTaskIdRoute: ScheduledTaskIdRoute,
   BoardsIndexRoute: BoardsIndexRoute,
+  ScheduledIndexRoute: ScheduledIndexRoute,
   BoardsBoardKeyTicketNumberRoute: BoardsBoardKeyTicketNumberRoute,
   BoardsBoardKeyIndexRoute: BoardsBoardKeyIndexRoute,
 }
