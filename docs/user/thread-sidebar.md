@@ -200,9 +200,12 @@ chat. **New task** and **Edit** open the scheduled task editor.
 ## Work on a ticket
 
 On web and desktop, choose **Start session** on a ticket to open a chat linked
-to it, in the ticket's own workspace. The agent reads the ticket itself, so a
-short request is enough, such as "implement WEB-12" or "implement WEB-12 using
-`$implement-ticket`". Put a repeatable process, like an implementation or review
+to it. Where the chat works follows the project's **Workspace** setting: the
+project's checkout, or a worktree of the ticket's own on the branch
+`ticket/<key>`. Change it for a board under **Ticket workspaces** in the
+board's settings, or for one ticket on its page. The agent reads the ticket
+itself, so a short request is enough, such as "implement WEB-12" or "implement
+WEB-12 using `$implement-ticket`". Put a repeatable process, like an implementation or review
 loop, in a skill and name it in the request. Several chats and skills can work
 the same ticket over time.
 

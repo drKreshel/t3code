@@ -2,21 +2,28 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { planWorkspace, ticketBranch, unsavedWork } from "./workspaceLogic.ts";
 
-const folder = { kind: "folder" as const, repos: ["app-fe", "api", "infra"] };
+const folder = {
+  kind: "folder" as const,
+  repos: ["app-fe", "api", "infra"],
+  workspace: "local" as const,
+};
+const repo = (workspace: "local" | "worktree") => ({ kind: "repo" as const, repos: [], workspace });
 
 describe("planWorkspace", () => {
-  it("gives a single-repo project a worktree and a folder nothing by default", () => {
-    expect(planWorkspace({ kind: "repo", repos: [] }, [])).toEqual([
+  it("follows a single repo's Workspace setting and gives a folder nothing by default", () => {
+    expect(planWorkspace(repo("worktree"), [])).toEqual([
       { repo: ".", checkout: "worktree", startFrom: null },
     ]);
-    expect(planWorkspace(folder, [])).toEqual([]);
-    expect(planWorkspace({ kind: "none", repos: [] }, [])).toEqual([]);
+    expect(planWorkspace(repo("local"), [])).toEqual([
+      { repo: ".", checkout: "local", startFrom: null },
+    ]);
+    expect(planWorkspace({ ...folder, workspace: "worktree" }, [])).toEqual([]);
+    expect(planWorkspace({ kind: "none", repos: [], workspace: "worktree" }, [])).toEqual([]);
   });
 
-  it("layers project, board, and ticket rules field by field", () => {
-    const project = { defaults: { startFrom: "origin/base" }, repos: [] };
+  it("layers board and ticket rules field by field", () => {
     const board = {
-      defaults: {},
+      defaults: { startFrom: "origin/base" },
       repos: [
         { repo: "app-fe", checkout: "worktree" as const, startFrom: "feature-deploy/atlas" },
         { repo: "api", checkout: "worktree" as const },
@@ -24,7 +31,7 @@ describe("planWorkspace", () => {
       ],
     };
     const ticket = { defaults: {}, repos: [{ repo: "api", startFrom: "rc" }] };
-    expect(planWorkspace(folder, [project, board, ticket])).toEqual([
+    expect(planWorkspace(folder, [board, ticket])).toEqual([
       { repo: "app-fe", checkout: "worktree", startFrom: "feature-deploy/atlas" },
       { repo: "api", checkout: "worktree", startFrom: "rc" },
       { repo: "infra", checkout: "local", startFrom: "origin/base" },
@@ -35,7 +42,7 @@ describe("planWorkspace", () => {
     const board = { defaults: {}, repos: [{ repo: "api", checkout: "worktree" as const }] };
     // A quick fix: everything in the main checkouts.
     const ticket = { defaults: { checkout: "local" as const }, repos: [] };
-    expect(planWorkspace(folder, [undefined, board, ticket]).map((r) => r.checkout)).toEqual([
+    expect(planWorkspace(folder, [board, ticket]).map((r) => r.checkout)).toEqual([
       "local",
       "local",
       "local",

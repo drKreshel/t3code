@@ -11,6 +11,7 @@
  * scripts, config) are linked in so the chat sees the project as it is.
  */
 import {
+  type OrchestrationProjectShell,
   type ProjectRepos,
   ProjectId,
   type TicketWorkspace,
@@ -24,6 +25,10 @@ import {
   type WorkspacesSnapshot,
   WorkspaceScope,
 } from "@t3tools/contracts";
+import {
+  resolveProjectFileBackedSetting,
+  resolveProjectSettings,
+} from "@t3tools/shared/projectSettings";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -43,6 +48,8 @@ import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
 import * as ProjectSetupScriptRunner from "../../project/ProjectSetupScriptRunner.ts";
+import * as T3ProjectFileLoader from "../../project/T3ProjectFileLoader.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import { BoardsService } from "../boards/BoardsService.ts";
 import * as ForkDatabase from "../ForkDatabase.ts";
 import {
@@ -113,6 +120,8 @@ const make = Effect.gen(function* () {
   const git = yield* GitWorkflowService.GitWorkflowService;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const boards = yield* BoardsService;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const projectFiles = yield* T3ProjectFileLoader.T3ProjectFileLoader;
   const { worktreesDir } = yield* ServerConfig;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
   const setupRunner = yield* Effect.serviceOption(
@@ -142,7 +151,7 @@ const make = Effect.gen(function* () {
   // ---------------------------------------------------------------------------
   // Lookups
 
-  const projectRoot = (projectKey: string) =>
+  const findProject = (projectKey: string) =>
     Effect.gen(function* () {
       const separator = projectKey.indexOf(":");
       if (projectKey.slice(0, separator) !== environmentId) {
@@ -152,13 +161,29 @@ const make = Effect.gen(function* () {
         .getShell(ProjectId.make(projectKey.slice(separator + 1)))
         .pipe(Effect.mapError(() => fail("storage", "Could not read the project.")));
       if (Option.isNone(project)) return yield* fail("not-found", "The project no longer exists.");
-      return { id: project.value.id, root: project.value.workspaceRoot };
+      return project.value;
     });
 
-  const listReposAt = (root: string) =>
+  /** The project's Workspace setting, resolved like a new chat's: project, environment, t3.json, built-in. */
+  const workspaceSetting = (project: OrchestrationProjectShell) =>
     Effect.gen(function* () {
+      const settings = yield* serverSettings.getSettings.pipe(
+        Effect.mapError(() => fail("storage", "Could not read the settings.")),
+      );
+      const mode = resolveProjectSettings(settings, project.id, project).settings
+        .defaultThreadEnvMode;
+      if (mode !== null) return mode;
+      const file = yield* projectFiles.load(project.workspaceRoot);
+      return resolveProjectFileBackedSetting("defaultThreadEnvMode", null, Option.getOrNull(file))
+        .value;
+    });
+
+  const listReposAt = (project: OrchestrationProjectShell) =>
+    Effect.gen(function* () {
+      const root = project.workspaceRoot;
+      const workspace = yield* workspaceSetting(project);
       if (yield* git.isRepository(root).pipe(Effect.orElseSucceed(() => false))) {
-        return { kind: "repo", repos: [] } satisfies ProjectRepos;
+        return { kind: "repo", repos: [], workspace } satisfies ProjectRepos;
       }
       const entries = yield* fs
         .readDirectory(root)
@@ -172,11 +197,15 @@ const make = Effect.gen(function* () {
           repos.push(entry);
         }
       }
-      return { kind: repos.length > 0 ? "folder" : "none", repos } satisfies ProjectRepos;
+      return {
+        kind: repos.length > 0 ? "folder" : "none",
+        repos,
+        workspace,
+      } satisfies ProjectRepos;
     });
 
   const listRepos = (projectKey: string) =>
-    projectRoot(projectKey).pipe(Effect.flatMap(({ root }) => listReposAt(root)));
+    findProject(projectKey).pipe(Effect.flatMap(listReposAt));
 
   const rulesFor = (scope: string, scopeId: string | null) =>
     scopeId === null
@@ -304,7 +333,8 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const context = yield* ticketContext(ticketId);
         const existing = yield* findRow(ticketId);
-        const { root } = yield* projectRoot(context.projectKey);
+        const projectShell = yield* findProject(context.projectKey);
+        const root = projectShell.workspaceRoot;
         const branch = ticketBranch(context.key);
         const live =
           existing !== undefined &&
@@ -328,7 +358,7 @@ const make = Effect.gen(function* () {
           };
         }
 
-        const project = yield* listReposAt(root);
+        const project = yield* listReposAt(projectShell);
         if (project.kind === "none") {
           return yield* fail(
             "no-workspace",
@@ -336,7 +366,6 @@ const make = Effect.gen(function* () {
           );
         }
         const plan = planWorkspace(project, [
-          yield* rulesFor("project", context.projectKey),
           yield* rulesFor("board", context.board.id),
           yield* rulesFor("ticket", ticketId),
         ]);
@@ -556,7 +585,7 @@ const make = Effect.gen(function* () {
         case "workspace.setup": {
           const workspace = yield* find(command.ticketId);
           if (!workspace) return yield* fail("not-found", "The ticket has no workspace.");
-          const { id } = yield* projectRoot(workspace.projectKey);
+          const { id } = yield* findProject(workspace.projectKey);
           yield* runSetup(command.threadId, id, workspace.path);
           return noResult;
         }
@@ -569,9 +598,13 @@ const make = Effect.gen(function* () {
   return TicketWorkspaces.of({ snapshot, stream, listRepos, dispatch, find });
 });
 
-export const layer = Layer.effect(TicketWorkspaces, make).pipe(Layer.provide(ForkDatabase.layer));
+export const layer = Layer.effect(TicketWorkspaces, make).pipe(
+  Layer.provide(ForkDatabase.layer),
+  Layer.provide(T3ProjectFileLoader.layer),
+);
 
 /** In-memory variant for tests. */
 export const layerMemory = Layer.effect(TicketWorkspaces, make).pipe(
   Layer.provide(ForkDatabase.ForkDatabaseMemory),
+  Layer.provide(T3ProjectFileLoader.layer),
 );
