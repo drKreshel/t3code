@@ -1,16 +1,19 @@
 /**
- * Ticket workspaces (fork feature): each ticket gets one folder its chats run
- * in. For a project that is one git repo, that folder is a worktree; for a
- * project folder holding several repos, it holds a worktree (or a link to the
- * main checkout) per included repo. Which repos, how they are checked out, and
- * the branch they start from come from rules set per project, board, and
- * ticket, each overriding the one before.
+ * Ticket workspaces (fork feature): a ticket's chats either work in the
+ * project's own checkout or in a folder of their own. For a project that is
+ * one git repo, that folder is a worktree; for a project folder holding
+ * several repos, it holds a worktree (or a link to the main checkout) per
+ * included repo. Which repos, how they are checked out, and the branch they
+ * start from come from rules set per board and ticket, the ticket's
+ * overriding the board's; with neither, a single repo follows the project's
+ * Workspace setting.
  */
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadEnvMode } from "./environment.ts";
 
 export const FORK_WORKSPACES_WS_METHODS = {
   subscribe: "fork.workspaces.subscribe",
@@ -35,13 +38,13 @@ export const WorkspaceRepoRule = Schema.Struct({
 });
 export type WorkspaceRepoRule = typeof WorkspaceRepoRule.Type;
 
-export const WorkspaceScope = Schema.Literals(["project", "board", "ticket"]);
+export const WorkspaceScope = Schema.Literals(["board", "ticket"]);
 export type WorkspaceScope = typeof WorkspaceScope.Type;
 
 /** One layer of rules: defaults for every repo, then per-repo settings. */
 export const WorkspaceRules = Schema.Struct({
   scope: WorkspaceScope,
-  /** Scoped project key, board id, or ticket id. */
+  /** Board id or ticket id. */
   scopeId: TrimmedNonEmptyString,
   defaults: Schema.Struct({
     checkout: Schema.optional(WorkspaceCheckout),
@@ -137,6 +140,11 @@ export const ProjectRepos = Schema.Struct({
   /** `repo`: the project is one git repo. `folder`: repos one level down. `none`: no git. */
   kind: Schema.Literals(["repo", "folder", "none"]),
   repos: Schema.Array(Schema.String),
+  /**
+   * The project's Workspace setting (where its new chats start), which a
+   * single-repo ticket follows when its board and ticket set nothing.
+   */
+  workspace: ThreadEnvMode,
 });
 export type ProjectRepos = typeof ProjectRepos.Type;
 
@@ -168,13 +176,13 @@ export interface PlannedRepo {
 
 /**
  * The repos a ticket's workspace holds, with their checkout and start branch.
- * Layers apply in order (project, board, ticket): a layer's defaults apply to
- * every repo, then its per-repo rules; a later layer overrides an earlier one
- * field by field.
+ * Layers apply in order (board, ticket): a layer's defaults apply to every
+ * repo, then its per-repo rules; a later layer overrides an earlier one field
+ * by field.
  *
- * Without rules, a single-repo project gets a worktree and a folder of repos
- * gets nothing: a folder can hold many repos, and a ticket should only carry
- * the ones it works on.
+ * Without rules, a single-repo project follows its Workspace setting and a
+ * folder of repos gets nothing: a folder can hold many repos, and a ticket
+ * should only carry the ones it works on.
  */
 export function planWorkspace(
   project: ProjectRepos,
@@ -182,7 +190,7 @@ export function planWorkspace(
 ): PlannedRepo[] {
   if (project.kind === "none") return [];
   const repos = project.kind === "repo" ? ["."] : project.repos;
-  let defaultCheckout: WorkspaceCheckout = project.kind === "repo" ? "worktree" : "skip";
+  let defaultCheckout: WorkspaceCheckout = project.kind === "repo" ? project.workspace : "skip";
   let defaultStartFrom: string | undefined;
   const perRepo = new Map<string, { checkout?: WorkspaceCheckout; startFrom?: string }>();
   for (const layer of layers) {

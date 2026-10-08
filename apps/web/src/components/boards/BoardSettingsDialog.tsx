@@ -20,7 +20,6 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { useBoardTemplates, useTemplatesDispatch } from "../../state/templates";
-import { rulesOf, useWorkspaces } from "../../state/workspaces";
 import { BOARD_KEY_PATTERN, positionBetween } from "./boards.logic";
 import { WorkspaceRulesEditor } from "./WorkspaceSettings";
 import {
@@ -227,22 +226,20 @@ function SaveAsTemplate({ board }: { readonly board: Board }) {
 }
 
 /**
- * Which repos this board's tickets work in, how, and from which branch. The
- * project's settings apply to every board using the project; the board's
- * override them; a ticket can override both.
+ * Where this board's tickets work, and from which branch. Unset, they follow
+ * the project's Workspace setting; a ticket can override the board.
  */
 function BoardWorkspaceSettings({ board }: { readonly board: Board }) {
-  const snapshot = useWorkspaces();
   const projectKey = board.defaultProjectKey;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
         <Label>Ticket workspaces</Label>
         <p className="text-xs text-muted-foreground">
-          Each ticket's chats run in its own folder, with a git worktree per repo on the branch
-          ticket/&lt;key&gt;. "Inherit" takes the setting from the level above: a ticket from its
-          board, a board from the project, and the project from the default (a worktree for a single
-          repo, nothing for a folder of repos).
+          Where this board's tickets work. Local checkout: the project's own folder, shared with its
+          other chats. Worktree: a separate git checkout on the branch ticket/&lt;key&gt;, so a
+          ticket's changes stay out of the main checkout. Inherit uses the project's Workspace
+          setting. A ticket can override this on its page.
         </p>
       </div>
       {projectKey === null ? (
@@ -250,28 +247,12 @@ function BoardWorkspaceSettings({ board }: { readonly board: Board }) {
           Set the board's default project to choose its workspace settings.
         </p>
       ) : (
-        <>
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-muted-foreground">This board</span>
-            <WorkspaceRulesEditor
-              scope="board"
-              scopeId={board.id}
-              projectKey={projectKey}
-              earlierLayers={[rulesOf(snapshot, "project", projectKey)]}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              Every board using this project
-            </span>
-            <WorkspaceRulesEditor
-              scope="project"
-              scopeId={projectKey}
-              projectKey={projectKey}
-              earlierLayers={[]}
-            />
-          </div>
-        </>
+        <WorkspaceRulesEditor
+          scope="board"
+          scopeId={board.id}
+          projectKey={projectKey}
+          earlierLayers={[]}
+        />
       )}
     </div>
   );

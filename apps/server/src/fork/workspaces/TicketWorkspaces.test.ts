@@ -18,6 +18,7 @@ import * as ServerConfig from "../../config.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as GitWorkflowService from "../../git/GitWorkflowService.ts";
 import { ProjectStoreV2 } from "../../orchestration-v2/ProjectStore.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { layerMemory, TicketWorkspaces } from "./TicketWorkspaces.ts";
 
@@ -75,19 +76,22 @@ const fakeGit = Layer.mock(GitWorkflowService.GitWorkflowService)({
 });
 
 /**
- * Two projects in a temp folder: `single` is one repo; `multi` holds two
- * repos plus a shared instructions file.
+ * Three projects in a temp folder: `single` is one repo whose new chats start
+ * in a worktree; `plain` is one repo with no Workspace setting; `multi` holds
+ * two repos plus a shared instructions file.
  */
 const makeHarness = Effect.gen(function* () {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-ticket-ws-"));
   makeRepo(NodePath.join(root, "single"));
+  makeRepo(NodePath.join(root, "plain"));
   const multi = NodePath.join(root, "multi");
   makeRepo(NodePath.join(multi, "app"));
   makeRepo(NodePath.join(multi, "api"));
   NodeFS.writeFileSync(NodePath.join(multi, "AGENTS.md"), "shared\n");
   const projects = new Map([
-    ["single", NodePath.join(root, "single")],
-    ["multi", multi],
+    ["single", { root: NodePath.join(root, "single"), mode: "worktree" }],
+    ["plain", { root: NodePath.join(root, "plain"), mode: null }],
+    ["multi", { root: multi, mode: null }],
   ]);
   const dependencies = Layer.mergeAll(
     fakeGit,
@@ -98,7 +102,8 @@ const makeHarness = Effect.gen(function* () {
             ? Option.some({
                 id,
                 title: String(id),
-                workspaceRoot: projects.get(id)!,
+                workspaceRoot: projects.get(id)!.root,
+                defaultThreadEnvMode: projects.get(id)!.mode,
               } as unknown as OrchestrationProjectShell)
             : Option.none(),
         ),
@@ -107,6 +112,7 @@ const makeHarness = Effect.gen(function* () {
       getEnvironmentId: Effect.succeed(ENVIRONMENT_ID),
     }),
     ServerConfig.layerTest(root, NodePath.join(root, "t3")),
+    ServerSettings.layerTest(),
   );
   const workspaces = yield* TicketWorkspaces.pipe(
     Effect.provide(layerMemory.pipe(Layer.provide(dependencies))),
@@ -140,6 +146,48 @@ describe("TicketWorkspaces", () => {
       expect(run(first.path!, "branch", "--show-current")).toBe("ticket/sgl-1");
       const again = yield* workspaces.dispatch({ type: "workspace.ensure", ticketId });
       expect(again).toMatchObject({ path: first.path, created: false });
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("follows the project's Workspace setting unless the board or ticket overrides it", () =>
+    Effect.gen(function* () {
+      const { workspaces, ticketOn } = yield* makeHarness;
+      // No setting anywhere: the built-in default, the project's own checkout.
+      const { boardId, ticketId } = yield* ticketOn("plain", "PLN");
+      const unset = yield* workspaces
+        .dispatch({ type: "workspace.ensure", ticketId })
+        .pipe(Effect.flip);
+      expect(unset.code).toBe("no-workspace");
+
+      yield* workspaces.dispatch({
+        type: "rules.set",
+        scope: "board",
+        scopeId: boardId,
+        defaults: { checkout: "worktree" },
+        repos: [],
+      });
+      const board = yield* workspaces.dispatch({ type: "workspace.ensure", ticketId });
+      expect(board).toMatchObject({ branch: "ticket/pln-1", created: true });
+
+      const other = yield* ticketOn("plain", "OVR");
+      yield* workspaces.dispatch({
+        type: "rules.set",
+        scope: "board",
+        scopeId: other.boardId,
+        defaults: { checkout: "worktree" },
+        repos: [],
+      });
+      yield* workspaces.dispatch({
+        type: "rules.set",
+        scope: "ticket",
+        scopeId: other.ticketId,
+        defaults: { checkout: "local" },
+        repos: [],
+      });
+      const ticket = yield* workspaces
+        .dispatch({ type: "workspace.ensure", ticketId: other.ticketId })
+        .pipe(Effect.flip);
+      expect(ticket.code).toBe("no-workspace");
     }).pipe(Effect.provide(TestLayer)),
   );
 

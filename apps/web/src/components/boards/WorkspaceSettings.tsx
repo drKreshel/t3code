@@ -64,9 +64,33 @@ function withRow(layer: Layer, repo: string, patch: RowFields): Layer {
   return { ...layer, repos: keep ? [...others, rule] : others };
 }
 
+interface InheritedRow {
+  readonly checkout: WorkspaceCheckout;
+  readonly startFrom: string | null;
+}
+
+/** What a row inherits from the layers before it (and, at the bottom, the project). */
+function inheritedRow(
+  repos: ProjectRepos,
+  earlierLayers: ReadonlyArray<Layer | undefined>,
+  repo: string,
+): InheritedRow {
+  if (repo !== "*") {
+    const planned = planWorkspace(repos, earlierLayers).find((entry) => entry.repo === repo);
+    return { checkout: planned?.checkout ?? "skip", startFrom: planned?.startFrom ?? null };
+  }
+  const defaults = earlierLayers.map((layer) => layer?.defaults ?? {});
+  return {
+    checkout:
+      defaults.findLast((entry) => entry.checkout !== undefined)?.checkout ??
+      (repos.kind === "repo" ? repos.workspace : "skip"),
+    startFrom: defaults.findLast((entry) => entry.startFrom !== undefined)?.startFrom ?? null,
+  };
+}
+
 /**
- * Edits one layer of workspace rules (project, board, or ticket). Empty
- * fields inherit from the layer before; the summary shows what a ticket gets.
+ * Edits one layer of workspace rules (board or ticket). Empty fields inherit
+ * from the layer before, then the project; the summary shows what a ticket gets.
  */
 export function WorkspaceRulesEditor({
   scope,
@@ -116,7 +140,10 @@ export function WorkspaceRulesEditor({
             key={repo}
             label={repo === "*" ? (repos.kind === "repo" ? "This repo" : "All repos") : repo}
             value={rowValue(layer, repo)}
+            inherited={inheritedRow(repos, earlierLayers, repo)}
             allowSkip={repos.kind === "folder"}
+            // A folder's every-repo start branch serves the repos set to Worktree below it.
+            alwaysBranches={repos.kind === "folder" && repo === "*"}
             onChange={(patch) => save(withRow(layer, repo, patch))}
           />
         ))}
@@ -129,12 +156,16 @@ export function WorkspaceRulesEditor({
 function RuleRow({
   label,
   value,
+  inherited,
   allowSkip,
+  alwaysBranches,
   onChange,
 }: {
   readonly label: string;
   readonly value: RowFields;
+  readonly inherited: InheritedRow;
   readonly allowSkip: boolean;
+  readonly alwaysBranches: boolean;
   readonly onChange: (patch: RowFields) => void;
 }) {
   const [startFrom, setStartFrom] = useState(value.startFrom ?? "");
@@ -142,6 +173,10 @@ function RuleRow({
     ? [INHERIT, "worktree", "local", "skip"]
     : [INHERIT, "worktree", "local"];
   const current = value.checkout ?? INHERIT;
+  const labelOf = (option: WorkspaceCheckout | typeof INHERIT) =>
+    option === INHERIT ? `Inherit: ${CHECKOUT_LABEL[inherited.checkout]}` : CHECKOUT_LABEL[option];
+  // Only a worktree makes a branch, so only a worktree has one to start from.
+  const branches = alwaysBranches || (value.checkout ?? inherited.checkout) === "worktree";
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_9rem_10rem] items-center gap-2 text-sm">
       <span className="min-w-0 truncate font-mono text-xs">{label}</span>
@@ -152,21 +187,23 @@ function RuleRow({
         }
       >
         <SelectTrigger size="sm" aria-label={`Checkout for ${label}`}>
-          <SelectValue>{CHECKOUT_LABEL[current]}</SelectValue>
+          <SelectValue>{labelOf(current)}</SelectValue>
         </SelectTrigger>
         <SelectPopup alignItemWithTrigger={false}>
           {options.map((option) => (
             <SelectItem key={option} value={option}>
-              {CHECKOUT_LABEL[option]}
+              {labelOf(option)}
             </SelectItem>
           ))}
         </SelectPopup>
       </Select>
       <Input
         size="sm"
-        aria-label={`Start branch for ${label}`}
-        placeholder="Start from: inherit"
-        value={startFrom}
+        aria-label={`Branch to start ${label}'s ticket branch from`}
+        title="The branch a ticket's new ticket/<key> branch starts from. Empty: inherited, or the remote's default branch."
+        placeholder={`Branch from: ${inherited.startFrom ?? "default"}`}
+        disabled={!branches}
+        value={branches ? startFrom : ""}
         onChange={(event) => setStartFrom(event.target.value)}
         onBlur={() => {
           if (startFrom.trim() !== (value.startFrom ?? "")) {
@@ -185,28 +222,27 @@ function WorkspacePlanSummary({
   readonly repos: ProjectRepos;
   readonly plan: ReturnType<typeof planWorkspace>;
 }) {
-  if (plan.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        {repos.kind === "folder"
-          ? "Tickets get no workspace yet: set at least one repo to Worktree or Local."
-          : "Tickets run in the project checkout."}
-      </p>
-    );
+  const from = (startFrom: string | null) => startFrom ?? "the remote's default branch";
+  let text: string;
+  if (repos.kind === "repo") {
+    const planned = plan[0];
+    text =
+      planned?.checkout === "worktree"
+        ? `Each ticket gets its own worktree on the branch ticket/<key>, starting from ${from(planned.startFrom)}.`
+        : "Tickets work in the project's own checkout.";
+  } else if (plan.length === 0) {
+    text =
+      "Tickets work in the project folder. Set a repo to Worktree or Local checkout to give each ticket its own folder.";
+  } else {
+    text = `Each ticket gets its own folder with: ${plan
+      .map((entry) =>
+        entry.checkout === "local"
+          ? `${entry.repo} (shared main checkout)`
+          : `${entry.repo} (worktree from ${from(entry.startFrom)})`,
+      )
+      .join(", ")}.`;
   }
-  return (
-    <p className="text-xs text-muted-foreground">
-      A ticket gets:{" "}
-      {plan
-        .map((entry) =>
-          entry.checkout === "local"
-            ? `${entry.repo === "." ? "the repo" : entry.repo} (shared main checkout)`
-            : `${entry.repo === "." ? "a worktree" : entry.repo} from ${entry.startFrom ?? "the remote's default branch"}`,
-        )
-        .join(", ")}
-      .
-    </p>
-  );
+  return <p className="text-xs text-muted-foreground">{text}</p>;
 }
 
 /** The ticket page's workspace: where its chats run, and the way to remove it. */
@@ -308,8 +344,8 @@ export function TicketWorkspaceSection({
       {editing ? (
         <div className="rounded-lg border border-border/60 p-3">
           <p className="mb-2 text-xs text-muted-foreground">
-            This ticket's settings override its board's and project's. Changes apply the next time
-            the workspace is created.
+            This ticket's settings override its board's. Changes apply the next time the workspace
+            is created.
           </p>
           <TicketRulesEditor ticketId={ticketId} boardId={boardId} projectKey={projectKey} />
         </div>
@@ -333,10 +369,7 @@ function TicketRulesEditor({
       scope="ticket"
       scopeId={ticketId}
       projectKey={projectKey}
-      earlierLayers={[
-        rulesOf(snapshot, "project", projectKey),
-        rulesOf(snapshot, "board", boardId),
-      ]}
+      earlierLayers={[rulesOf(snapshot, "board", boardId)]}
     />
   );
 }
