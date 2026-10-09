@@ -178,6 +178,16 @@ describe("describeTicketEvent", () => {
     expect(
       describeTicketEvent({ kind: "updated", payload: { fields: ["title", "description"] } }),
     ).toBe("Changed title, description");
+    const folderEvent = (folderFrom: string | null, folderTo: string | null) =>
+      describeTicketEvent({
+        kind: "updated",
+        payload: { fields: ["folder"], folderFrom, folderTo },
+      });
+    expect(folderEvent("eco/EI-5962", "eco/tickets/EI-5962")).toBe(
+      "Moved folder from eco/EI-5962 to eco/tickets/EI-5962",
+    );
+    expect(folderEvent(null, "eco/ECO-2")).toBe("Set folder to eco/ECO-2");
+    expect(folderEvent("eco/ECO-2", null)).toBe("Cleared folder eco/ECO-2");
     expect(describeTicketEvent({ kind: "something.new", payload: {} })).toBe("something.new");
   });
 });
