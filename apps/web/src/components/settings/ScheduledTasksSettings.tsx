@@ -129,7 +129,7 @@ const EMPTY_DRAFT: DraftState = {
   timezone: "",
   projectId: "",
   threadId: "",
-  workspaceMode: "worktree",
+  workspaceMode: "root",
   baseRef: "main",
   startFromOrigin: true,
   existingWorktreePath: "",

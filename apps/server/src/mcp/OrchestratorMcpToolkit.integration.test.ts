@@ -1510,6 +1510,7 @@ describe("orchestrator MCP toolkit", () => {
             expect(storedAfterCreate).toHaveLength(1);
             expect(storedAfterCreate[0]).toMatchObject({
               threadId: parentThreadId,
+              workspaceStrategy: { type: "root" },
               projectId,
               createdBy: "agent",
               creationSource: "mcp",
@@ -1534,6 +1535,45 @@ describe("orchestrator MCP toolkit", () => {
               scheduledTaskId,
               enabled: false,
             });
+
+            // A fresh thread uses the project checkout instead of allocating a worktree.
+            const unboundCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              bindToCurrentThread: false,
+            });
+            expect(unboundCall.isError).toBe(false);
+            expect(unboundCall.structuredContent).toMatchObject({ boundThreadId: null });
+            expect((yield* Ref.get(scheduledStore))[0]?.workspaceStrategy).toEqual({
+              type: "root",
+            });
+
+            // Workspace choices made in Settings survive rebinding and prompt edits.
+            const explicitWorkspace = {
+              type: "worktree",
+              baseRef: "release",
+              startFromOrigin: false,
+            } as const;
+            yield* Ref.update(scheduledStore, (tasks) =>
+              tasks.map((task) => ({ ...task, workspaceStrategy: explicitWorkspace })),
+            );
+            const reboundCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              bindToCurrentThread: true,
+              prompt: "Review releases",
+            });
+            expect(reboundCall.isError).toBe(false);
+            expect(reboundCall.structuredContent).toMatchObject({ boundThreadId: parentThreadId });
+            expect((yield* Ref.get(scheduledStore))[0]?.workspaceStrategy).toEqual(
+              explicitWorkspace,
+            );
+            const reunboundCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              bindToCurrentThread: false,
+            });
+            expect(reunboundCall.isError).toBe(false);
+            expect((yield* Ref.get(scheduledStore))[0]?.workspaceStrategy).toEqual(
+              explicitWorkspace,
+            );
 
             // A cron schedule in its own timezone, and a model option, can be set later.
             const cronUpdateCall = yield* invoke("update_scheduled_task", {
@@ -1567,6 +1607,25 @@ describe("orchestrator MCP toolkit", () => {
               deleted: true,
             });
             expect(yield* Ref.get(scheduledStore)).toHaveLength(0);
+
+            // The prompt determines setup later; even a coding task starts at root.
+            for (const prompt of [
+              "Review open issues",
+              "Implement a bug fix using my workspace skill",
+            ]) {
+              const freshCall = yield* invoke("schedule_task", {
+                prompt,
+                schedule: { type: "interval", everyMs: 60_000 },
+                bindToCurrentThread: false,
+                clientRequestId: `schedule-root:${prompt}`,
+              });
+              expect(freshCall.isError).toBe(false);
+              expect(freshCall.structuredContent).toMatchObject({ boundThreadId: null, prompt });
+              const stored = yield* Ref.get(scheduledStore);
+              expect(stored).toHaveLength(1);
+              expect(stored[0]?.workspaceStrategy).toEqual({ type: "root" });
+              yield* invoke("delete_scheduled_task", { scheduledTaskId: stored[0]!.id });
+            }
 
             // OpenCode 1.15 has emitted this exact nested-object-as-JSON-string
             // shape. Decode it at the MCP boundary rather than failing a task
