@@ -13,15 +13,18 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
+import { classifyProjectCheckout } from "../git/projectWorktree.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import type { McpInvocationScope, McpThreadInvocationScope } from "./McpInvocationContext.ts";
 
@@ -50,6 +53,19 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+type HandoffPlan =
+  | {
+      readonly kind: "create";
+      readonly branch: string;
+      readonly baseRef: string;
+      readonly worktreeBaseRef: string;
+      readonly startFromOrigin: boolean;
+    }
+  | {
+      readonly kind: "attach";
+      readonly worktree: { readonly path: string; readonly refName: string };
+    };
+
 const asOperationFailed = (prefix: string) =>
   Effect.mapError((error: unknown) =>
     failure("operation_failed", `${prefix}: ${errorMessage(error)}`),
@@ -62,6 +78,8 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+  const gitDriver = yield* GitVcsDriver.GitVcsDriver;
+  const fileSystem = yield* FileSystem.FileSystem;
   const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
 
@@ -142,6 +160,142 @@ const make = Effect.gen(function* () {
       Effect.orDie,
     );
 
+  // Create mode: resolve the new branch's start point. Only fails before
+  // anything is written to disk.
+  const planCreate = Effect.fn("WorktreeMcpService.planCreate")(function* (
+    projectCwd: string,
+    currentBranch: string | null,
+    input: WorktreeMcpHandoffInput,
+  ) {
+    const branch = input.branch;
+    if (branch === undefined) {
+      return yield* failure(
+        "invalid_request",
+        "branch is required to create a worktree. To move into an existing worktree, pass attach:true with its path.",
+      );
+    }
+
+    // Fail fast with an actionable message when the branch already exists:
+    // the git driver deliberately keeps stderr out of its errors, so letting
+    // `git worktree add` fail would surface only an opaque failure. The
+    // existence check uses the complete local branch list (exact match); the
+    // paginated substring search only enriches the message with the checkout
+    // location when available.
+    const localBranchNames = yield* gitWorkflow
+      .listLocalBranchNames(projectCwd)
+      .pipe(asOperationFailed("Unable to list branches"));
+    if (localBranchNames.includes(branch)) {
+      const existingRef = yield* gitWorkflow
+        .listRefs({ cwd: projectCwd, query: branch, refKind: "local" })
+        .pipe(
+          Effect.map((result) =>
+            result.refs.find((ref) => ref.name === branch && ref.isRemote !== true),
+          ),
+          Effect.orElseSucceed(() => undefined),
+        );
+      const checkoutPath = existingRef?.worktreePath ?? null;
+      return yield* failure(
+        "invalid_request",
+        `Branch '${branch}' already exists${
+          checkoutPath === null ? "" : ` and is checked out at '${checkoutPath}'`
+        }. Choose a different branch name, or delete the existing branch${
+          checkoutPath === null ? "" : " and its worktree"
+        } first.${checkoutPath === null ? "" : " To move into that worktree instead, pass attach:true with its path."}`,
+      );
+    }
+
+    let baseRef = input.baseRef;
+    if (baseRef === undefined) {
+      if (currentBranch === null) {
+        return yield* failure(
+          "invalid_request",
+          "Could not determine the current branch of the project workspace (detached HEAD?). Pass baseRef explicitly.",
+        );
+      }
+      baseRef = currentBranch;
+    }
+
+    const startFromOrigin = input.startFromOrigin ?? (yield* readDefaultStartFromOrigin);
+
+    let worktreeBaseRef = baseRef;
+    if (startFromOrigin) {
+      yield* gitWorkflow
+        .fetchRemote({ cwd: projectCwd, remoteName: "origin" })
+        .pipe(asOperationFailed("Unable to fetch origin"));
+      const resolvedRemoteBase = yield* gitWorkflow
+        .resolveRemoteTrackingCommit({
+          cwd: projectCwd,
+          refName: baseRef,
+          fallbackRemoteName: "origin",
+        })
+        .pipe(asOperationFailed(`Unable to resolve the remote-tracking commit of '${baseRef}'`));
+      worktreeBaseRef = resolvedRemoteBase.commitSha;
+    }
+
+    return { kind: "create", branch, baseRef, worktreeBaseRef, startFromOrigin } as const;
+  });
+
+  // Attach mode: the worktree already exists, typically made by a project's
+  // own tooling, so only check that it is one of the project's worktrees and
+  // read the branch checked out there.
+  const planAttach = Effect.fn("WorktreeMcpService.planAttach")(function* (
+    projectCwd: string,
+    input: WorktreeMcpHandoffInput,
+  ) {
+    const worktreePath = input.path;
+    if (worktreePath === undefined) {
+      return yield* failure(
+        "invalid_request",
+        "attach:true needs path, the absolute path of an existing worktree. t3_worktree_list shows them.",
+      );
+    }
+    if (input.baseRef !== undefined || input.startFromOrigin !== undefined) {
+      return yield* failure(
+        "invalid_request",
+        "baseRef and startFromOrigin only apply when creating a worktree; omit them with attach:true.",
+      );
+    }
+
+    const checkout = yield* classifyProjectCheckout(projectCwd, worktreePath).pipe(
+      Effect.provideService(GitVcsDriver.GitVcsDriver, gitDriver),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+    );
+    if (checkout === null) {
+      return yield* failure(
+        "invalid_request",
+        `'${worktreePath}' is not one of the project's git worktrees. t3_worktree_list shows them.`,
+      );
+    }
+    if (checkout === "root") {
+      return yield* failure(
+        "invalid_request",
+        `'${worktreePath}' is the project's main checkout, where this thread already runs. Attach a separate worktree instead.`,
+      );
+    }
+
+    // Local status is cached per checkout; read it fresh, since the worktree
+    // was usually created or switched just before this call.
+    yield* gitWorkflow.invalidateLocalStatus(worktreePath);
+    const worktreeStatus = yield* gitWorkflow
+      .localStatus({ cwd: worktreePath })
+      .pipe(asOperationFailed(`Unable to read git status of '${worktreePath}'`));
+    const refName = worktreeStatus.refName;
+    if (refName === null) {
+      return yield* failure(
+        "invalid_request",
+        `Worktree '${worktreePath}' has no branch checked out (detached HEAD). Check out a branch there first.`,
+      );
+    }
+    if (input.branch !== undefined && input.branch !== refName) {
+      return yield* failure(
+        "invalid_request",
+        `Worktree '${worktreePath}' has branch '${refName}' checked out, not '${input.branch}'.`,
+      );
+    }
+
+    return { kind: "attach", worktree: { path: worktreePath, refName } } as const;
+  });
+
   const performHandoff = Effect.fn("WorktreeMcpService.performHandoff")(function* (
     scope: McpThreadInvocationScope,
     input: WorktreeMcpHandoffInput,
@@ -188,62 +342,10 @@ const make = Effect.gen(function* () {
       );
     }
 
-    // Fail fast with an actionable message when the branch already exists:
-    // the git driver deliberately keeps stderr out of its errors, so letting
-    // `git worktree add` fail would surface only an opaque failure. The
-    // existence check uses the complete local branch list (exact match); the
-    // paginated substring search only enriches the message with the checkout
-    // location when available.
-    const localBranchNames = yield* gitWorkflow
-      .listLocalBranchNames(projectCwd)
-      .pipe(asOperationFailed("Unable to list branches"));
-    if (localBranchNames.includes(input.branch)) {
-      const existingRef = yield* gitWorkflow
-        .listRefs({ cwd: projectCwd, query: input.branch, refKind: "local" })
-        .pipe(
-          Effect.map((result) =>
-            result.refs.find((ref) => ref.name === input.branch && ref.isRemote !== true),
-          ),
-          Effect.orElseSucceed(() => undefined),
-        );
-      const checkoutPath = existingRef?.worktreePath ?? null;
-      return yield* failure(
-        "invalid_request",
-        `Branch '${input.branch}' already exists${
-          checkoutPath === null ? "" : ` and is checked out at '${checkoutPath}'`
-        }. Choose a different branch name, or delete the existing branch${
-          checkoutPath === null ? "" : " and its worktree"
-        } first.`,
-      );
-    }
-
-    let baseRef = input.baseRef;
-    if (baseRef === undefined) {
-      if (localStatus.refName === null) {
-        return yield* failure(
-          "invalid_request",
-          "Could not determine the current branch of the project workspace (detached HEAD?). Pass baseRef explicitly.",
-        );
-      }
-      baseRef = localStatus.refName;
-    }
-
-    const startFromOrigin = input.startFromOrigin ?? (yield* readDefaultStartFromOrigin);
-
-    let worktreeBaseRef = baseRef;
-    if (startFromOrigin) {
-      yield* gitWorkflow
-        .fetchRemote({ cwd: projectCwd, remoteName: "origin" })
-        .pipe(asOperationFailed("Unable to fetch origin"));
-      const resolvedRemoteBase = yield* gitWorkflow
-        .resolveRemoteTrackingCommit({
-          cwd: projectCwd,
-          refName: baseRef,
-          fallbackRemoteName: "origin",
-        })
-        .pipe(asOperationFailed(`Unable to resolve the remote-tracking commit of '${baseRef}'`));
-      worktreeBaseRef = resolvedRemoteBase.commitSha;
-    }
+    const plan: HandoffPlan =
+      input.attach === true
+        ? yield* planAttach(projectCwd, input)
+        : yield* planCreate(projectCwd, localStatus.refName, input);
 
     const ids = yield* handoffIds(scope);
 
@@ -257,18 +359,21 @@ const make = Effect.gen(function* () {
     // request's connection and interrupt the fiber).
     return yield* Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
-        const worktree = yield* restore(
-          gitWorkflow
-            .createWorktree({
-              cwd: projectCwd,
-              refName: worktreeBaseRef,
-              newRefName: input.branch,
-              baseRefName: baseRef,
-              path: input.path ?? null,
-            })
-            .pipe(asOperationFailed("Unable to create the worktree")),
-        );
-        const worktreePath = worktree.worktree.path;
+        const worktree =
+          plan.kind === "attach"
+            ? plan.worktree
+            : (yield* restore(
+                gitWorkflow
+                  .createWorktree({
+                    cwd: projectCwd,
+                    refName: plan.worktreeBaseRef,
+                    newRefName: plan.branch,
+                    baseRefName: plan.baseRef,
+                    path: input.path ?? null,
+                  })
+                  .pipe(asOperationFailed("Unable to create the worktree")),
+              )).worktree;
+        const worktreePath = worktree.path;
 
         // Shared shape for "the handoff already succeeded, so report the failure
         // in the result instead of failing the call" (continuation, setup script).
@@ -291,7 +396,7 @@ const make = Effect.gen(function* () {
               Effect.suspend(() =>
                 gitWorkflow.deleteLocalBranch({
                   cwd: projectCwd,
-                  refName: worktree.worktree.refName,
+                  refName: worktree.refName,
                   force: true,
                 }),
               ),
@@ -314,7 +419,9 @@ const make = Effect.gen(function* () {
           if (recheck.thread.archivedAt !== null) {
             return yield* failure(
               "invalid_request",
-              `Thread '${scope.thread.threadId}' was archived while the worktree was being created; the handoff was rolled back.`,
+              plan.kind === "attach"
+                ? `Thread '${scope.thread.threadId}' was archived during the handoff; it was not attached to the worktree.`
+                : `Thread '${scope.thread.threadId}' was archived while the worktree was being created; the handoff was rolled back.`,
             );
           }
           yield* threadManagement
@@ -322,7 +429,7 @@ const make = Effect.gen(function* () {
               type: "thread.metadata.update",
               commandId: ids.commandId,
               threadId: scope.thread.threadId,
-              branch: worktree.worktree.refName,
+              branch: worktree.refName,
               worktreePath,
               expectedWorktreePath: null,
             })
@@ -349,8 +456,12 @@ const make = Effect.gen(function* () {
           // handoff leaves nothing behind on disk. Interrupt-only causes skip
           // the removal: the binding may have committed, and force-deleting a
           // worktree the thread now points at would be worse than leaking one.
+          // An attached worktree belongs to whoever created it and is never
+          // removed: a failed attach just leaves the thread unbound.
           Effect.onError((cause) =>
-            Cause.hasInterruptsOnly(cause) ? Effect.void : removeCreatedWorktree,
+            plan.kind === "attach" || Cause.hasInterruptsOnly(cause)
+              ? Effect.void
+              : removeCreatedWorktree,
           ),
         );
 
@@ -396,7 +507,8 @@ const make = Effect.gen(function* () {
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
 
         let setupScript: WorktreeMcpSetupScriptStatus = { status: "skipped" };
-        if (input.runSetupScript ?? true) {
+        // An attached worktree was set up by whoever created it.
+        if (input.runSetupScript ?? plan.kind === "create") {
           setupScript = yield* setupScriptRunner
             .runForThread({
               threadId: scope.thread.threadId,
@@ -427,9 +539,9 @@ const make = Effect.gen(function* () {
 
         const result: WorktreeMcpHandoffResult = {
           worktreePath,
-          branch: worktree.worktree.refName,
-          baseRef,
-          startedFromOrigin: startFromOrigin,
+          branch: worktree.refName,
+          baseRef: plan.kind === "create" ? plan.baseRef : null,
+          startedFromOrigin: plan.kind === "create" && plan.startFromOrigin,
           setupScript,
           continuation,
           note:
@@ -499,11 +611,13 @@ export const layer: Layer.Layer<
   WorktreeMcpService,
   never,
   | Crypto.Crypto
+  | FileSystem.FileSystem
   | Path.Path
   | ThreadManagementService.ThreadManagementService
   | ProjectService.ProjectService
   | ServerSettings.ServerSettingsService
   | GitWorkflowService.GitWorkflowService
+  | GitVcsDriver.GitVcsDriver
   | ProjectSetupScriptRunner.ProjectSetupScriptRunner
   | VcsStatusBroadcaster.VcsStatusBroadcaster
 > = Layer.effect(WorktreeMcpService, make);
