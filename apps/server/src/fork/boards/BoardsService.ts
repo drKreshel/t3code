@@ -579,6 +579,7 @@ const make = Effect.gen(function* () {
                   ?.split("/")
                   .map((name) => name.trim())
                   .join("/") ?? null);
+          const folderChanged = command.folder !== undefined && folder !== ticket.folder;
           yield* sql`
             UPDATE fork_tickets SET
               number = ${command.number ?? ticket.number},
@@ -602,7 +603,7 @@ const make = Effect.gen(function* () {
             command.projectKey !== undefined && command.projectKey !== ticket.project_key
               ? "project"
               : null,
-            command.folder !== undefined && folder !== ticket.folder ? "folder" : null,
+            folderChanged ? "folder" : null,
           ].filter((field) => field !== null);
           if (changed.length > 0) {
             yield* recordEvent(
@@ -612,6 +613,7 @@ const make = Effect.gen(function* () {
                 fields: changed,
                 ...(command.priority !== undefined ? { priority: command.priority } : {}),
                 ...(renumber ? { from: yield* ticketLabel(ticket) } : {}),
+                ...(folderChanged ? { folderFrom: ticket.folder, folderTo: folder } : {}),
               },
               actor,
               at,

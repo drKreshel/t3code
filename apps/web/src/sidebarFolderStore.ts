@@ -32,10 +32,14 @@ const SIDEBAR_FOLDER_STORAGE_KEY = "t3code:sidebar-folders:v1";
 
 /**
  * Sidebar folders are a client-local layout, like the project scope: they
- * live in this browser or desktop app and never reach a server.
+ * live in this browser or desktop app and never reach a server. The one
+ * exception is a ticket's or scheduled task's folder path, which lives on the
+ * server and follows moves, renames, and deletes here (`ticketFolders.logic`).
  */
 interface SidebarFolderStoreState extends SidebarFolderLayout, TicketFolderRoutingState {
   syncTicketFolders: (sources: readonly FolderRouteSource[]) => void;
+  /** Forgets a path change the server refused, so the sidebar follows the server again. */
+  dropPendingFolderPath: (sourceId: string, path: string | null) => void;
   createFolder: (input: { name: string; parentId: string | null }) => string;
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
@@ -58,7 +62,19 @@ function layoutOf(
     expandedSettledFolderIds: state.expandedSettledFolderIds ?? [],
     settledFolderIds: state.settledFolderIds ?? [],
     ticketFolderRoutes: state.ticketFolderRoutes ?? {},
+    pendingFolderPaths: state.pendingFolderPaths ?? {},
   };
+}
+
+// The last synced tickets and tasks, so a folder edit updates their paths at once.
+let folderRouteSources: readonly FolderRouteSource[] | null = null;
+
+function resyncFolderRoutes(
+  layout: SidebarFolderLayout & TicketFolderRoutingState,
+): SidebarFolderLayout & TicketFolderRoutingState {
+  return folderRouteSources === null
+    ? layout
+    : syncTicketFolders(layout, folderRouteSources, randomUUID);
 }
 
 export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
@@ -66,19 +82,31 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
     (set) => ({
       ...EMPTY_SIDEBAR_FOLDER_LAYOUT,
       ticketFolderRoutes: {},
-      syncTicketFolders: (tickets) => set((state) => syncTicketFolders(state, tickets, randomUUID)),
+      pendingFolderPaths: {},
+      syncTicketFolders: (sources) => {
+        folderRouteSources = sources;
+        set((state) => syncTicketFolders(state, sources, randomUUID));
+      },
+      dropPendingFolderPath: (sourceId, path) =>
+        set((state) => {
+          const pending = state.pendingFolderPaths ?? {};
+          if (pending[sourceId]?.path !== path) return state;
+          const { [sourceId]: _dropped, ...rest } = pending;
+          return resyncFolderRoutes({ ...layoutOf(state), pendingFolderPaths: rest });
+        }),
       createFolder: ({ name, parentId }) => {
         const folder: SidebarFolder = { id: randomUUID(), name, parentId };
         set((state) => createSidebarFolder(layoutOf(state), folder));
         return folder.id;
       },
       renameFolder: (folderId, name) =>
-        set((state) => renameSidebarFolder(layoutOf(state), folderId, name)),
-      deleteFolder: (folderId) => set((state) => deleteSidebarFolder(layoutOf(state), folderId)),
+        set((state) => resyncFolderRoutes(renameSidebarFolder(layoutOf(state), folderId, name))),
+      deleteFolder: (folderId) =>
+        set((state) => resyncFolderRoutes(deleteSidebarFolder(layoutOf(state), folderId))),
       setFolderDefaultProject: (folderId, projectKey) =>
         set((state) => setSidebarFolderDefaultProject(layoutOf(state), folderId, projectKey)),
       moveFolder: (folderId, target) =>
-        set((state) => moveSidebarFolder(layoutOf(state), folderId, target)),
+        set((state) => resyncFolderRoutes(moveSidebarFolder(layoutOf(state), folderId, target))),
       toggleFolderCollapsed: (folderId) =>
         set((state) => toggleSidebarFolderCollapsed(layoutOf(state), folderId)),
       toggleFolderSettledExpanded: (folderId) =>

@@ -98,7 +98,8 @@ export function renameSidebarFolder(
   name: string,
 ): SidebarFolderLayout {
   const trimmed = name.trim();
-  if (trimmed.length === 0) return layout;
+  // `/` separates folders in ticket and task folder paths.
+  if (trimmed.length === 0 || trimmed.includes("/")) return layout;
   return {
     ...layout,
     folders: layout.folders.map((folder) =>

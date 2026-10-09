@@ -37,7 +37,7 @@ Small fixes to upstream behavior. When upstream fixes the same thing, take upstr
 ## Data
 
 - `<state dir>/fork.sqlite`: boards, tickets, workspaces, templates, settings, chat pins. Migrations in `apps/server/src/fork/ForkDatabase.ts` are append-only; never edit a shipped one.
-- Sidebar folders are client-side `localStorage`, so they belong to an Electron profile, not to the server.
+- Sidebar folders are client-side `localStorage`, so they belong to an Electron profile, not to the server. Ticket and scheduled task folder paths are the exception: they live in `fork.sqlite`, and moving, renaming, or deleting their sidebar folder writes the new path back (`boards/ticketFolders.logic.ts`).
 - `request_human` blockers ride inside upstream's runtime request payload in `state.sqlite`.
 
 Keep this file current: add a row when a fork feature lands, update its touch points when a merge moves them, and remove the row when the fork drops the feature in favor of upstream's.

@@ -195,6 +195,12 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
       if (list.length === 1 && list[0] === "number" && text("from")) {
         return `Renumbered from ${text("from")}`;
       }
+      if (list.length === 1 && list[0] === "folder" && "folderTo" in event.payload) {
+        if (!text("folderTo")) return `Cleared folder ${text("folderFrom")}`.trimEnd();
+        return text("folderFrom")
+          ? `Moved folder from ${text("folderFrom")} to ${text("folderTo")}`
+          : `Set folder to ${text("folderTo")}`;
+      }
       return `Changed ${list.join(", ") || "details"}`;
     }
     case "criterion.checked":

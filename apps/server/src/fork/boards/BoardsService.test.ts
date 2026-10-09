@@ -60,8 +60,12 @@ it.layer(TestLayer)("BoardsService", (it) => {
         assert.deepEqual(
           detail.events
             .filter((event) => event.kind === "updated")
-            .map((event) => event.payload.fields),
-          [["title"], ["folder"], ["folder"]],
+            .map(({ payload }) => [payload.fields, payload.folderFrom, payload.folderTo]),
+          [
+            [["title"], undefined, undefined],
+            [["folder"], "SalonesDeFiestas/salones-infantiles", "SalonesDeFiestas/venues"],
+            [["folder"], "SalonesDeFiestas/venues", null],
+          ],
         );
       }),
   );

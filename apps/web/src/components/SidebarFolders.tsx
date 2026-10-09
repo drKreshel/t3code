@@ -61,6 +61,7 @@ import {
   flattenSidebarFolders,
   folderDndId,
   folderIdByThreadKey,
+  folderSubtreeIds,
   folderSubtreeThreadKeys,
   folderThreadDndId,
   parseSidebarFolderDndId,
@@ -77,8 +78,10 @@ import {
   type SidebarFolderTree,
   type SidebarFolderTreeNode,
 } from "./SidebarFolders.logic";
+import { folderRouteSourcesIn } from "./boards/ticketFolders.logic";
 import { Button } from "./ui/button";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
+import { toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 // ---------------------------------------------------------------------------
@@ -713,11 +716,15 @@ async function showFolderMenu(
     case "delete": {
       const folder = store.folders.find((candidate) => candidate.id === folderId);
       if (!folder) return;
+      const routed = folderRouteSourcesIn(store, folderSubtreeIds(store, folderId));
       const confirmed = await settlePromise(() =>
         api.dialogs.confirm(
           [
             `Delete folder "${folder.name}"?`,
             "Its subfolders are deleted too. Threads move back to the main list.",
+            ...(routed.tickets + routed.tasks > 0
+              ? [`${describeRoutedSources(routed)} file chats here; their folder is cleared.`]
+              : []),
           ].join("\n"),
           { variant: "destructive" },
         ),
@@ -750,13 +757,25 @@ function DropLine() {
   );
 }
 
+function describeRoutedSources(routed: { tickets: number; tasks: number }): string {
+  const parts = [
+    routed.tickets > 0 ? `${routed.tickets} ticket${routed.tickets === 1 ? "" : "s"}` : null,
+    routed.tasks > 0 ? `${routed.tasks} scheduled task${routed.tasks === 1 ? "" : "s"}` : null,
+  ].filter((part) => part !== null);
+  return parts.join(" and ");
+}
+
 function FolderRenameInput(props: { folderId: string; name: string }) {
   const [value, setValue] = useState(props.name);
   const committedRef = useRef(false);
   const commit = (save: boolean) => {
     if (committedRef.current) return;
     committedRef.current = true;
-    if (save) useSidebarFolderStore.getState().renameFolder(props.folderId, value);
+    if (save && value.includes("/")) {
+      toastManager.add({ type: "error", title: "Folder names cannot contain /" });
+    } else if (save) {
+      useSidebarFolderStore.getState().renameFolder(props.folderId, value);
+    }
     useSidebarFolderUiStore.getState().setRenamingFolderId(null);
   };
   return (

@@ -177,7 +177,9 @@ set the folder when creating or updating a ticket.
 
 Changing the ticket's folder moves its linked sessions to the new location.
 Clearing it stops automatic filing and keeps existing sessions where they are.
-You can also move individual sessions afterward.
+You can also move individual sessions afterward. Moving or renaming the folder
+in the sidebar, or a folder above it, updates the ticket's folder to match, so
+agents and your other devices use the new path. Deleting it clears the folder.
 
 Choose **Settle folder** from a top-level folder's menu to settle its chats,
 including those in subfolders, and move the folder into the Settled section.
@@ -197,7 +199,9 @@ and sort; select a run to open its chat.
 On a task's page, type a folder under **Put runs in folder**, such as
 `SERP/Adaptive checks`, to file the chats its runs start there on web and
 desktop. Missing folders are created, and an agent can set the folder for you.
-Clearing it stops filing new runs; chats already filed stay put.
+Clearing it stops filing new runs; chats already filed stay put. Moving,
+renaming, or deleting the folder in the sidebar updates the task, as it does
+for tickets.
 
 ## Pin a board
 
