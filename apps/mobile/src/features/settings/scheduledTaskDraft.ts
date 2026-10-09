@@ -225,7 +225,7 @@ export function createDraft(
     modelSelection,
     modelSelectionIsExplicit: false,
     schedule: DEFAULT_SCHEDULE,
-    workspace: "worktree",
+    workspace: "root",
     baseRef: "main",
     checkoutPath: "",
     enabled: true,

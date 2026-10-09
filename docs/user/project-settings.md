@@ -59,7 +59,8 @@ ones across your connected environments. Use the settings filter to narrow the
 list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Times use the timezone you
 set on the task, or the environment's when you leave it empty, which may differ
-from your phone's.
+from your phone's. New tasks use the project checkout by default. Choose a new
+worktree when you want each run isolated, or a specific checkout to reuse one.
 
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run
