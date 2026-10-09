@@ -501,6 +501,7 @@ const make = Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, input.ticket);
         if (
+          input.number !== undefined ||
           input.title !== undefined ||
           input.description !== undefined ||
           input.priority !== undefined ||
@@ -509,6 +510,7 @@ const make = Effect.gen(function* () {
           yield* dispatch({
             type: "ticket.update",
             ticketId: ticket.id,
+            ...(input.number !== undefined ? { number: input.number } : {}),
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.priority !== undefined ? { priority: input.priority } : {}),

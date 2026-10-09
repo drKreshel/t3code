@@ -134,6 +134,25 @@ describe("boards toolkit handlers", () => {
       expect((yield* call("get_ticket", {})).folder).toBeNull();
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
+  it.effect("renumbers a ticket to match an outside key and keeps new numbers clear of it", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", { name: "Ecoplanet", key: "EI" });
+      yield* call("create_ticket", { board: "EI", title: "Import" });
+      yield* call("create_ticket", { board: "EI", title: "Export" });
+      const renumbered = yield* call("update_ticket", { ticket: "EI-1", number: 2911 });
+      expect(renumbered.key).toBe("EI-2911");
+      expect((yield* call("get_ticket", { ticket: "EI-2911" })).title).toBe("Import");
+
+      const error = yield* call("update_ticket", { ticket: "EI-2", number: 2911 }).pipe(
+        Effect.flip,
+      );
+      expect(error).toMatchObject({ code: "key-taken" });
+
+      const next = yield* call("create_ticket", { board: "EI", title: "Sync" });
+      expect(next.key).toBe("EI-2912");
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
   it.effect("creates a board and a linked ticket the chat can then read without a key", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

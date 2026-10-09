@@ -192,6 +192,9 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
       if (list.length === 1 && list[0] === "priority" && text("priority")) {
         return `Set priority to ${text("priority")}`;
       }
+      if (list.length === 1 && list[0] === "number" && text("from")) {
+        return `Renumbered from ${text("from")}`;
+      }
       return `Changed ${list.join(", ") || "details"}`;
     }
     case "criterion.checked":

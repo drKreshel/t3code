@@ -206,6 +206,14 @@ to list it under **Boards** at the top of the sidebar on web and desktop. The
 row opens the board and shows how many of its tickets need you. Right-click it,
 or use the same menu, to unpin.
 
+## Match another tracker's ticket keys
+
+Tickets are numbered from 1 under their board's key, like `WEB-1`. To match an
+issue tracker such as Linear, change the board's **Key** in its settings and a
+ticket's number under **Key** on its page, so `ECO-1` becomes `EI-2911`. New
+tickets continue from the board's highest number. An agent can renumber a
+ticket for you.
+
 ## Work on a ticket
 
 On web and desktop, choose **Start session** on a ticket to open a chat linked
