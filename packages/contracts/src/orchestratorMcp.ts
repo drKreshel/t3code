@@ -29,6 +29,7 @@ import {
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2RunStatus,
+  OrchestrationV2ThreadLaunchWorkspaceStrategy,
   OrchestrationV2TurnItemStatus,
 } from "./orchestrationV2.ts";
 import {
@@ -513,6 +514,14 @@ export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
 });
 export type OrchestratorMcpCapabilitiesResult = typeof OrchestratorMcpCapabilitiesResult.Type;
 
+/** Where a scheduled task's fresh run threads start, as in t3_thread_launch. */
+const OrchestratorMcpScheduledTaskWorkspace = OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate(
+  {
+    description:
+      "Where each fresh run thread starts, as in t3_thread_launch: {type:'root'} is the project checkout; {type:'worktree', baseRef:'main', startFromOrigin:true} creates a new worktree per run; {type:'existing_worktree', worktreePath:'/absolute/path'} reuses one of the project's worktrees. Runs bound to a thread use that thread's workspace instead.",
+  },
+);
+
 export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   projectId: OrchestratorMcpProjectTarget,
   prompt: OrchestratorMcpPrompt.annotate({
@@ -537,9 +546,10 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   bindToCurrentThread: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "True (default) posts each run into this thread using its workspace; false creates a fresh top-level thread per run in the project's main checkout.",
+        "True (default) posts each run into this thread using its workspace; false creates a fresh top-level thread per run, in workspaceStrategy or the project checkout.",
     }),
   ),
+  workspaceStrategy: Schema.optional(OrchestratorMcpScheduledTaskWorkspace),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
 export type OrchestratorMcpScheduleTaskInput = typeof OrchestratorMcpScheduleTaskInput.Type;
@@ -552,6 +562,7 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   enabled: Schema.Boolean,
   projectId: ProjectId,
   boundThreadId: Schema.NullOr(ThreadId),
+  workspaceStrategy: OrchestratorMcpScheduledTaskWorkspace,
   schedule: ScheduledTaskSchedule,
   target: Schema.Struct({
     providerInstanceId: ProviderInstanceId,
@@ -604,6 +615,7 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   ),
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
+  workspaceStrategy: Schema.optional(OrchestratorMcpScheduledTaskWorkspace),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;
