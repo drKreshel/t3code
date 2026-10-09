@@ -11,7 +11,7 @@ import {
   type TicketPriority,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
@@ -38,6 +38,7 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Input } from "../ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
@@ -690,6 +691,64 @@ function PropertyRow({
   );
 }
 
+/** Renumbers the ticket, e.g. to match an issue tracker's key; follows it to its new URL. */
+function TicketNumberProperty({
+  view,
+  readOnly,
+}: {
+  readonly view: TicketView;
+  readonly readOnly: boolean;
+}) {
+  const dispatch = useBoardsDispatch();
+  const navigate = useNavigate();
+  const { ticket, board } = view;
+  const current = String(ticket.number);
+  const save = async (input: HTMLInputElement) => {
+    const value = input.value.trim();
+    if (value === current) return;
+    const number = Number(value);
+    // A refused number (taken) toasts; show the number that stuck.
+    if (
+      !/^[1-9]\d*$/.test(value) ||
+      !Number.isSafeInteger(number) ||
+      (await dispatch({ type: "ticket.update", ticketId: ticket.id, number })) === undefined
+    ) {
+      input.value = current;
+      return;
+    }
+    // The ticket's URL carries its number.
+    void navigate({
+      to: "/boards/$boardKey/$ticketNumber",
+      params: { boardKey: board.key, ticketNumber: value },
+      replace: true,
+    });
+  };
+  return (
+    <PropertyRow label="Key">
+      <InputGroup>
+        <InputGroupAddon>{board.key}-</InputGroupAddon>
+        <InputGroupInput
+          key={`${ticket.id}:${current}`}
+          nativeInput
+          size="sm"
+          inputMode="numeric"
+          aria-label="Ticket number"
+          defaultValue={current}
+          disabled={readOnly}
+          onBlur={(event) => void save(event.currentTarget)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") event.currentTarget.value = current;
+            if (event.key === "Enter" || event.key === "Escape") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </InputGroup>
+    </PropertyRow>
+  );
+}
+
 const isTicketFolderPath = Schema.is(TicketFolderPath);
 
 function TicketFolderProperty({
@@ -790,6 +849,7 @@ function TicketProperties({
   return (
     <aside className="flex flex-col gap-5 lg:sticky lg:top-6 lg:self-start">
       <TicketPins threads={view.threads} />
+      <TicketNumberProperty view={view} readOnly={readOnly} />
       <PropertyRow label="Column">
         <Select
           value={ticket.columnId}

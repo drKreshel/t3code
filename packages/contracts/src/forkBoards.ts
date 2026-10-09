@@ -234,6 +234,8 @@ export const BoardsCommand = Schema.Union([
   }),
   command("ticket.update", {
     ticketId: Id,
+    /** Renumbers the ticket, e.g. to match an issue tracker's key; unique within its board. */
+    number: Schema.optional(PositiveInt),
     title: Schema.optional(TrimmedNonEmptyString),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),

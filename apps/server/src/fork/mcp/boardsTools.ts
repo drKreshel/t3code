@@ -374,9 +374,15 @@ const CreateTicketTool = Tool.make("create_ticket", {
 
 const UpdateTicketTool = Tool.make("update_ticket", {
   description:
-    "Change a ticket's title, description, priority, or folder, add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
+    "Change a ticket's number, title, description, priority, or folder, add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
+    number: Schema.optional(
+      PositiveInt.annotate({
+        description:
+          "A new ticket number, unique on its board, e.g. 2911 to match an issue tracker's EI-2911. Its key changes with it.",
+      }),
+    ),
     title: Schema.optional(TrimmedNonEmptyString),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),

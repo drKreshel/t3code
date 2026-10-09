@@ -557,6 +557,21 @@ const make = Effect.gen(function* () {
         }
         case "ticket.update": {
           const ticket = yield* findTicket(command.ticketId);
+          const renumber = command.number !== undefined && command.number !== ticket.number;
+          if (renumber) {
+            const taken = yield* sql`
+              SELECT id FROM fork_tickets WHERE board_id = ${ticket.board_id} AND number = ${command.number}
+            `;
+            if (taken.length > 0) {
+              const label = yield* ticketLabel({ ...ticket, number: command.number });
+              return yield* fail("key-taken", `${label} is taken.`);
+            }
+            // New tickets keep counting from the highest number, so they never collide.
+            yield* sql`
+              UPDATE fork_boards SET ticket_counter = MAX(ticket_counter, ${command.number})
+              WHERE id = ${ticket.board_id}
+            `;
+          }
           const folder =
             command.folder === undefined
               ? ticket.folder
@@ -566,6 +581,7 @@ const make = Effect.gen(function* () {
                   .join("/") ?? null);
           yield* sql`
             UPDATE fork_tickets SET
+              number = ${command.number ?? ticket.number},
               title = ${command.title ?? ticket.title},
               description = ${command.description ?? ticket.description},
               priority = ${command.priority ?? ticket.priority},
@@ -575,6 +591,7 @@ const make = Effect.gen(function* () {
             WHERE id = ${ticket.id}
           `;
           const changed = [
+            renumber ? "number" : null,
             command.title !== undefined && command.title !== ticket.title ? "title" : null,
             command.description !== undefined && command.description !== ticket.description
               ? "description"
@@ -594,6 +611,7 @@ const make = Effect.gen(function* () {
               {
                 fields: changed,
                 ...(command.priority !== undefined ? { priority: command.priority } : {}),
+                ...(renumber ? { from: yield* ticketLabel(ticket) } : {}),
               },
               actor,
               at,
