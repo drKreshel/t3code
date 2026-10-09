@@ -1,14 +1,20 @@
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { Board } from "@t3tools/contracts";
-import { SquareKanbanIcon } from "lucide-react";
-import { memo, useMemo } from "react";
+import { lazy, memo, Suspense, useMemo, useState } from "react";
 
+import { OrganizingIcon } from "../OrganizingIcon";
 import { readLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
 import { useBoardsDispatch } from "../../state/boards";
 import { useSidebar } from "../ui/sidebar";
 import { useBoardsModel } from "./useBoardsModel";
+
+const BoardIconPicker = lazy(() =>
+  import("../settings/ProjectIconPickerDialog").then((module) => ({
+    default: module.ProjectIconPickerDialog,
+  })),
+);
 
 /** Quick links to pinned boards, above the sidebar's Folders. */
 export const SidebarPinnedBoards = memo(function SidebarPinnedBoards() {
@@ -46,6 +52,7 @@ export const SidebarPinnedBoards = memo(function SidebarPinnedBoards() {
 
 function PinnedBoardRow({ board, needsYou }: { readonly board: Board; readonly needsYou: number }) {
   const dispatch = useBoardsDispatch();
+  const [choosingIcon, setChoosingIcon] = useState(false);
   const { isMobile, setOpenMobile } = useSidebar();
   // Only the board segment, so switching threads does not re-render the row.
   const active = useLocation({
@@ -59,16 +66,36 @@ function PinnedBoardRow({ board, needsYou }: { readonly board: Board; readonly n
     if (!api) return;
     const clicked = await settlePromise(() =>
       api.contextMenu.show(
-        [{ id: "unpin", label: "Unpin from sidebar", icon: "pin-off" }],
+        [
+          { id: "choose-icon", label: "Choose icon…", icon: "palette" },
+          ...(board.icon ? [{ id: "reset-icon", label: "Reset icon", icon: "rotate-ccw" }] : []),
+          { id: "unpin", label: "Unpin from sidebar", icon: "pin-off", separatorBefore: true },
+        ],
         position,
       ),
     );
-    if (clicked._tag === "Success" && clicked.value === "unpin") {
+    if (clicked._tag !== "Success") return;
+    if (clicked.value === "choose-icon") setChoosingIcon(true);
+    if (clicked.value === "reset-icon")
+      void dispatch({ type: "board.update", boardId: board.id, icon: null });
+    if (clicked.value === "unpin")
       void dispatch({ type: "board.update", boardId: board.id, pinned: false });
-    }
   };
   return (
     <li className="list-none">
+      {choosingIcon ? (
+        <Suspense fallback={null}>
+          <BoardIconPicker
+            current={board.icon ?? null}
+            projectName={board.name}
+            entityType="board"
+            defaultIcon="square-kanban"
+            open
+            onOpenChange={setChoosingIcon}
+            onSelect={(icon) => void dispatch({ type: "board.update", boardId: board.id, icon })}
+          />
+        </Suspense>
+      ) : null}
       <Link
         to="/boards/$boardKey"
         params={{ boardKey: board.key }}
@@ -84,7 +111,7 @@ function PinnedBoardRow({ board, needsYou }: { readonly board: Board; readonly n
           active && "bg-sidebar-row-active text-sidebar-foreground",
         )}
       >
-        <SquareKanbanIcon aria-hidden className="size-4 shrink-0 text-sidebar-muted-foreground" />
+        <OrganizingIcon icon={board.icon} kind="board" />
         <span className="min-w-0 flex-1 truncate">{board.name}</span>
         {needsYou > 0 ? (
           <span

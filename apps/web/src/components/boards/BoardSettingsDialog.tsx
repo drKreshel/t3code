@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { readLocalApi } from "../../localApi";
 import { useBoardsDispatch } from "../../state/boards";
+import { OrganizingIconSetting } from "../OrganizingIconSetting";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -119,6 +120,12 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
 
   return (
     <DialogPanel>
+      <OrganizingIconSetting
+        icon={board.icon}
+        kind="board"
+        name={board.name}
+        onSelect={(icon) => void dispatch({ type: "board.update", boardId: board.id, icon })}
+      />
       <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
         <div className="flex flex-col gap-2">
           <Label htmlFor="board-settings-name">Name</Label>

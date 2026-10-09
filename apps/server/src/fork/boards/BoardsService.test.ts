@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import type { BoardsCommand, BoardsSnapshot } from "@t3tools/contracts";
+import type { BoardsCommand, BoardsSnapshot, ProjectIconOverride } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -90,6 +90,36 @@ it.layer(TestLayer)("BoardsService", (it) => {
       assert.equal(yield* read, "Implement {key}");
       yield* dispatch({ type: "board.update", boardId, newChatMessage: "  " });
       assert.equal(yield* read, null);
+    }),
+  );
+
+  it.effect("persists custom board icons, preserves them on other edits, and resets them", () =>
+    Effect.gen(function* () {
+      const initial = { kind: "emoji", emoji: "🚀" } as const;
+      const boardId = yield* createdId({
+        type: "board.create",
+        name: "Icons",
+        key: "ICON",
+        icon: initial,
+      });
+      const read = snapshot.pipe(
+        Effect.map((state) => state.boards.find((board) => board.id === boardId)!),
+      );
+      assert.deepEqual((yield* read).icon, initial);
+      const icons: ProjectIconOverride[] = [
+        { kind: "lucide", name: "rocket", color: "blue" },
+        { kind: "monogram", text: "IC", color: "violet" },
+        { kind: "emoji", emoji: "👩🏽‍💻" },
+      ];
+      for (const icon of icons) {
+        yield* dispatch({ type: "board.update", boardId, icon });
+        yield* dispatch({ type: "board.update", boardId, name: "Renamed icons", pinned: true });
+        const board = yield* read;
+        assert.deepEqual(board.icon, icon);
+        assert.equal(board.columns.length, 5);
+      }
+      yield* dispatch({ type: "board.update", boardId, icon: null });
+      assert.equal((yield* read).icon, null);
     }),
   );
 

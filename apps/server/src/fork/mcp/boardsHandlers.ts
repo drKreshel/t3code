@@ -156,6 +156,7 @@ const make = Effect.gen(function* () {
       return {
         key: board.key,
         name: board.name,
+        icon: board.icon ?? null,
         defaultProject: yield* projectTitle(board.defaultProjectKey),
         newChatMessage: board.newChatMessage,
         pinned: board.pinnedAt !== null,
@@ -331,6 +332,7 @@ const make = Effect.gen(function* () {
           yield* dispatch({
             type: "board.create",
             name: input.name,
+            ...(input.icon !== undefined ? { icon: input.icon } : {}),
             key: input.key,
             defaultProjectKey,
             ...(input.columns
@@ -356,6 +358,7 @@ const make = Effect.gen(function* () {
               type: "board.create",
               templateId: template.id,
               name: input.name,
+              ...(input.icon !== undefined ? { icon: input.icon } : {}),
               key: input.key,
               defaultProjectKey,
             },
@@ -384,6 +387,7 @@ const make = Effect.gen(function* () {
               ? yield* callerProjectKey
               : null;
         if (
+          input.icon !== undefined ||
           input.name !== undefined ||
           input.key !== undefined ||
           defaultProjectKey !== undefined ||
@@ -393,6 +397,7 @@ const make = Effect.gen(function* () {
           yield* dispatch({
             type: "board.update",
             boardId: board.id,
+            ...(input.icon !== undefined ? { icon: input.icon } : {}),
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.key !== undefined ? { key: input.key } : {}),
             ...(defaultProjectKey !== undefined ? { defaultProjectKey } : {}),

@@ -73,7 +73,12 @@ export function TicketPage({
   if (model.status !== "ready" || !board || !view) {
     return (
       <BoardsPageFrame
-        crumbs={[board ? { label: board.name, to: { boardKey } } : { label: boardKey }, { label }]}
+        crumbs={[
+          board
+            ? { label: board.name, boardIcon: board.icon ?? null, to: { boardKey } }
+            : { label: boardKey },
+          { label },
+        ]}
       >
         <BoardsStatusMessage>
           {model.status === "loading"
@@ -86,7 +91,12 @@ export function TicketPage({
     );
   }
   return (
-    <BoardsPageFrame crumbs={[{ label: board.name, to: { boardKey } }, { label: view.label }]}>
+    <BoardsPageFrame
+      crumbs={[
+        { label: board.name, boardIcon: board.icon ?? null, to: { boardKey } },
+        { label: view.label },
+      ]}
+    >
       {/* Keyed so drafts never carry over when the page shows another ticket. */}
       <TicketBody key={view.ticket.id} view={view} viewById={model.viewById} />
     </BoardsPageFrame>

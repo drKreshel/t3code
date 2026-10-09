@@ -2,6 +2,7 @@ import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { Link } from "@tanstack/react-router";
 import type { Board } from "@t3tools/contracts";
+import { OrganizingIcon } from "../OrganizingIcon";
 import { ArchiveRestoreIcon, PinIcon, SquareKanbanIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -180,6 +181,7 @@ function BoardRow({
         params={{ boardKey: board.key }}
       >
         <div className="flex min-w-0 items-center gap-2">
+          <OrganizingIcon icon={board.icon} kind="board" />
           <span className="min-w-0 truncate text-sm font-medium">{board.name}</span>
           <Badge variant="outline" size="sm">
             {board.key}
@@ -242,6 +244,7 @@ function ArchivedBoards({ boards }: { readonly boards: ReadonlyArray<Board> }) {
               to="/boards/$boardKey"
               params={{ boardKey: board.key }}
             >
+              <OrganizingIcon icon={board.icon} kind="board" />
               {board.name}
             </Link>
             <Badge variant="outline" size="sm">

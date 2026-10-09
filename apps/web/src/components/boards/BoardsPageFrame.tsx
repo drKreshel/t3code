@@ -1,3 +1,5 @@
+import type { ProjectIconOverride } from "@t3tools/contracts";
+import { OrganizingIcon } from "../OrganizingIcon";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
@@ -14,6 +16,7 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 
 export interface BoardsCrumb {
   readonly label: string;
+  readonly boardIcon?: ProjectIconOverride | null;
   /** Omitted on the current page. */
   readonly to?: { readonly boardKey?: string };
 }
@@ -54,7 +57,10 @@ export function BoardsPageFrame({
                 index > 0 ? <WorkspaceBreadcrumbSeparator key={`sep-${crumb.label}`} /> : null,
                 <WorkspaceBreadcrumbItem key={crumb.label} current={current}>
                   {current || crumb.to === undefined ? (
-                    <h1 className="min-w-0">
+                    <h1 className="flex min-w-0 items-center gap-2">
+                      {crumb.boardIcon !== undefined ? (
+                        <OrganizingIcon icon={crumb.boardIcon} kind="board" />
+                      ) : null}
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </h1>
                   ) : crumb.to.boardKey === undefined ? (
@@ -63,10 +69,13 @@ export function BoardsPageFrame({
                     </Link>
                   ) : (
                     <Link
-                      className="hover:text-foreground"
+                      className="flex items-center gap-2 hover:text-foreground"
                       to="/boards/$boardKey"
                       params={{ boardKey: crumb.to.boardKey }}
                     >
+                      {crumb.boardIcon !== undefined ? (
+                        <OrganizingIcon icon={crumb.boardIcon} kind="board" />
+                      ) : null}
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </Link>
                   )}

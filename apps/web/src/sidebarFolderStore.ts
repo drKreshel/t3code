@@ -1,3 +1,4 @@
+import type { ProjectIconOverride } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -15,6 +16,7 @@ import {
   moveThreadToSidebarFolder,
   renameSidebarFolder,
   setSidebarFolderDefaultProject,
+  setSidebarFolderIcon,
   setSidebarFolderSettled,
   toggleSidebarFolderCollapsed,
   toggleSidebarFolderSettledExpanded,
@@ -37,6 +39,7 @@ const SIDEBAR_FOLDER_STORAGE_KEY = "t3code:sidebar-folders:v1";
 interface SidebarFolderStoreState extends SidebarFolderLayout, TicketFolderRoutingState {
   syncTicketFolders: (sources: readonly FolderRouteSource[]) => void;
   createFolder: (input: { name: string; parentId: string | null }) => string;
+  setFolderIcon: (folderId: string, icon: ProjectIconOverride | null) => void;
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
   setFolderDefaultProject: (folderId: string, projectKey: string | null) => void;
@@ -72,6 +75,8 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
         set((state) => createSidebarFolder(layoutOf(state), folder));
         return folder.id;
       },
+      setFolderIcon: (folderId, icon) =>
+        set((state) => setSidebarFolderIcon(layoutOf(state), folderId, icon)),
       renameFolder: (folderId, name) =>
         set((state) => renameSidebarFolder(layoutOf(state), folderId, name)),
       deleteFolder: (folderId) => set((state) => deleteSidebarFolder(layoutOf(state), folderId)),
@@ -107,6 +112,8 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
  */
 interface SidebarFolderUiState {
   renamingFolderId: string | null;
+  choosingIconFolderId: string | null;
+  setChoosingIconFolderId: (folderId: string | null) => void;
   dropSlot: SidebarFolderDropSlot | null;
   /** Something is being dragged that folders can accept. */
   dragKind: "folder" | "thread" | null;
@@ -120,6 +127,8 @@ interface SidebarFolderUiState {
 
 export const useSidebarFolderUiStore = create<SidebarFolderUiState>((set) => ({
   renamingFolderId: null,
+  choosingIconFolderId: null,
+  setChoosingIconFolderId: (choosingIconFolderId) => set({ choosingIconFolderId }),
   dropSlot: null,
   dragKind: null,
   leaveDropVerb: null,

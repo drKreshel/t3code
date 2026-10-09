@@ -17,6 +17,8 @@ import {
   resolveSidebarFolderDefaultProject,
   resolveSidebarFolderDropSlot,
   setSidebarFolderDefaultProject,
+  setSidebarFolderIcon,
+  renameSidebarFolder,
   setSidebarFolderSettled,
   sidebarSectionForListItemId,
   toggleSidebarFolderCollapsed,
@@ -36,6 +38,33 @@ function layoutWith(
 
 const order = (layout: SidebarFolderLayout) =>
   layout.folders.map((folder) => `${folder.id}<${folder.parentId ?? "root"}`);
+
+describe("folder icons", () => {
+  it("keeps icons through rename, nesting, and saved layout reload, and resets independently", () => {
+    const initial = layoutWith(
+      [
+        ["parent", null],
+        ["child", "parent"],
+        ["other", null],
+      ],
+      { child: ["env:thread"] },
+    );
+    const icon = { kind: "emoji", emoji: "📚" } as const;
+    const customized = setSidebarFolderIcon(initial, "child", icon);
+    const renamed = renameSidebarFolder(customized, "child", "Reading");
+    const moved = moveSidebarFolder(renamed, "child", { kind: "inside", folderId: "other" });
+    const reloaded = JSON.parse(JSON.stringify(moved)) as SidebarFolderLayout;
+    expect(reloaded.folders.find((folder) => folder.id === "child")).toMatchObject({
+      name: "Reading",
+      icon,
+      parentId: "other",
+    });
+    expect(reloaded.threadKeysByFolderId.child).toEqual(["env:thread"]);
+    const reset = setSidebarFolderIcon(reloaded, "child", null);
+    expect(reset.folders.find((folder) => folder.id === "child")?.icon).toBeNull();
+    expect(reset.folders.find((folder) => folder.id === "parent")?.icon).toBeUndefined();
+  });
+});
 
 describe("folder settlement scope", () => {
   it("includes nested chats across environments, excludes siblings, and deduplicates keys", () => {

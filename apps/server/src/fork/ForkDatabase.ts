@@ -347,6 +347,10 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
     version: 16,
     statements: [`ALTER TABLE fork_boards ADD COLUMN pinned_at TEXT`],
   },
+  {
+    version: 17,
+    statements: [`ALTER TABLE fork_boards ADD COLUMN icon_json TEXT`],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

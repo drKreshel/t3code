@@ -194,7 +194,7 @@ function BoardView({
   return (
     <BoardsPageFrame
       scroll={false}
-      crumbs={[{ label: board.name }]}
+      crumbs={[{ label: board.name, boardIcon: board.icon ?? null }]}
       actions={
         <>
           {needsYou > 0 ? (

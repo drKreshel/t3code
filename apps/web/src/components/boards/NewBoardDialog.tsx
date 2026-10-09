@@ -4,11 +4,12 @@ import { Trash2Icon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
-import type { BoardTemplate } from "@t3tools/contracts";
+import type { BoardTemplate, ProjectIconOverride } from "@t3tools/contracts";
 
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "../../localApi";
 import { useBoardTemplates, useTemplatesDispatch } from "../../state/templates";
+import { OrganizingIconSetting } from "../OrganizingIconSetting";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -39,6 +40,7 @@ export function NewBoardDialog({
   const dispatch = useTemplatesDispatch();
   const templates = useBoardTemplates();
   const navigate = useNavigate();
+  const [icon, setIcon] = useState<ProjectIconOverride | null>(null);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState(DEFAULT_TEMPLATE_ID);
   // A deleted template falls back to the default.
@@ -67,6 +69,7 @@ export function NewBoardDialog({
 
   const reset = () => {
     setName("");
+    setIcon(null);
     setCustomKey(null);
     setPicked(DEFAULT_TEMPLATE_ID);
   };
@@ -75,7 +78,7 @@ export function NewBoardDialog({
     event.preventDefault();
     if (!valid || submitting) return;
     setSubmitting(true);
-    const id = await dispatch({ type: "board.create", templateId, name: name.trim(), key });
+    const id = await dispatch({ type: "board.create", templateId, name: name.trim(), key, icon });
     setSubmitting(false);
     if (id === undefined) return;
     onOpenChange(false);
@@ -100,6 +103,12 @@ export function NewBoardDialog({
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
+            <OrganizingIconSetting
+              icon={icon}
+              kind="board"
+              name={name || "Board"}
+              onSelect={setIcon}
+            />
             <div className="flex flex-col gap-2">
               <Label htmlFor="new-board-name">Name</Label>
               <Input

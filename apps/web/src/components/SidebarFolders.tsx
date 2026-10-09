@@ -21,15 +21,10 @@ import type { ContextMenuItem, LocalApi, ScopedProjectRef, ThreadId } from "@t3t
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
+import { ChevronRightIcon, FolderPlusIcon, MoreHorizontalIcon, SquarePenIcon } from "lucide-react";
 import {
-  ChevronRightIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  FolderPlusIcon,
-  MoreHorizontalIcon,
-  SquarePenIcon,
-} from "lucide-react";
-import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -77,12 +72,19 @@ import {
   type SidebarFolderTree,
   type SidebarFolderTreeNode,
 } from "./SidebarFolders.logic";
+import { OrganizingIcon } from "./OrganizingIcon";
 import { Button } from "./ui/button";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 // ---------------------------------------------------------------------------
 // Layout
+
+const FolderIconPicker = lazy(() =>
+  import("./settings/ProjectIconPickerDialog").then((module) => ({
+    default: module.ProjectIconPickerDialog,
+  })),
+);
 
 export function useSidebarFolderLayout(): SidebarFolderLayout {
   const folders = useSidebarFolderStore((state) => state.folders);
@@ -669,6 +671,8 @@ async function showFolderMenu(
               },
         { id: "new-subfolder", label: "New subfolder", icon: "folder", separatorBefore: true },
         { id: "rename", label: "Rename folder", icon: "pencil" },
+        { id: "choose-icon", label: "Choose icon…", icon: "palette" },
+        ...(folder?.icon ? [{ id: "reset-icon", label: "Reset icon", icon: "rotate-ccw" }] : []),
         {
           id: "delete",
           label: "Delete folder",
@@ -706,6 +710,12 @@ async function showFolderMenu(
       return;
     case "new-subfolder":
       ui.setRenamingFolderId(store.createFolder({ name: "New folder", parentId: folderId }));
+      return;
+    case "choose-icon":
+      ui.setChoosingIconFolderId(folderId);
+      return;
+    case "reset-icon":
+      store.setFolderIcon(folderId, null);
       return;
     case "rename":
       ui.setRenamingFolderId(folderId);
@@ -832,6 +842,7 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
   const { node } = props;
   const { folder } = node;
   const id = folderDndId(folder.id);
+  const choosingIcon = useSidebarFolderUiStore((state) => state.choosingIconFolderId === folder.id);
   const isRenaming = useSidebarFolderUiStore((state) => state.renamingFolderId === folder.id);
   const zone = useSidebarFolderUiStore((state) =>
     state.dropSlot?.kind === "folder" && state.dropSlot.folderId === folder.id
@@ -895,7 +906,6 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
       renderThreadRow={props.renderThreadRow}
     />
   );
-  const Icon = node.collapsed ? FolderIcon : FolderOpenIcon;
   return (
     <li
       ref={draggable.setNodeRef}
@@ -903,6 +913,21 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
       className={cn("list-none", draggable.isDragging && "relative z-20 opacity-80")}
       style={{ transform: CSS.Translate.toString(draggable.transform) }}
     >
+      {choosingIcon ? (
+        <Suspense fallback={null}>
+          <FolderIconPicker
+            current={folder.icon ?? null}
+            projectName={folder.name}
+            entityType="folder"
+            defaultIcon="folder"
+            open
+            onOpenChange={(open) => {
+              if (!open) useSidebarFolderUiStore.getState().setChoosingIconFolderId(null);
+            }}
+            onSelect={(icon) => useSidebarFolderStore.getState().setFolderIcon(folder.id, icon)}
+          />
+        </Suspense>
+      ) : null}
       {zone === "before" ? <DropLine /> : null}
       <div
         ref={droppable.setNodeRef}
@@ -937,7 +962,7 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
             !node.collapsed && "rotate-90",
           )}
         />
-        <Icon aria-hidden className="size-4 shrink-0 text-sidebar-muted-foreground" />
+        <OrganizingIcon icon={folder.icon} kind="folder" expanded={!node.collapsed} />
         {isRenaming ? (
           <FolderRenameInput folderId={folder.id} name={folder.name} />
         ) : (

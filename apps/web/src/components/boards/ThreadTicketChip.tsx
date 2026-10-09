@@ -1,9 +1,10 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, ProjectIconOverride } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { SquareKanbanIcon } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
+import { OrganizingIcon } from "../OrganizingIcon";
 import { useBoards, useBoardsDispatch, useThreadTicketKey } from "../../state/boards";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { Button } from "../ui/button";
@@ -31,6 +32,7 @@ interface TicketCandidate {
 }
 
 interface BoardCandidate {
+  readonly icon: ProjectIconOverride | null;
   readonly key: string;
   readonly name: string;
   readonly openTickets: number;
@@ -82,6 +84,7 @@ export function ThreadTicketChip({
     return {
       boardCandidates: shownBoards.map((board) => ({
         key: board.key,
+        icon: board.icon ?? null,
         name: board.name,
         openTickets: openTickets(board.id),
       })),
@@ -199,7 +202,7 @@ export function ThreadTicketChip({
                       value={`${BOARD_PREFIX}${board.key}`}
                     >
                       <span className="flex min-w-0 items-center gap-2">
-                        <SquareKanbanIcon aria-hidden className="size-4 shrink-0 opacity-70" />
+                        <OrganizingIcon icon={board.icon} kind="board" />
                         <span className="min-w-0 truncate">{board.name}</span>
                         <span className="shrink-0 font-mono text-xs text-muted-foreground">
                           {board.key}

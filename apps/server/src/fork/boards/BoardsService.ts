@@ -7,6 +7,7 @@
  */
 import {
   type Board,
+  ProjectIconOverride,
   BoardsCommandError,
   type BoardsCommand,
   type BoardsCommandErrorCode,
@@ -67,6 +68,10 @@ export const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
   { name: "Done", color: "green" },
 ];
 
+const IconJson = Schema.fromJsonString(ProjectIconOverride);
+const decodeIcon = Schema.decodeUnknownSync(IconJson);
+const encodeIcon = Schema.encodeSync(IconJson);
+
 const FlagJson = Schema.fromJsonString(TicketFlagSchema);
 const decodeFlag = Schema.decodeUnknownSync(FlagJson);
 const encodeFlag = Schema.encodeSync(FlagJson);
@@ -91,6 +96,7 @@ interface BoardRow {
   readonly id: string;
   readonly key: string;
   readonly name: string;
+  readonly icon_json: string | null;
   readonly default_project_key: string | null;
   readonly new_chat_message: string | null;
   readonly pinned_at: string | null;
@@ -174,6 +180,7 @@ const make = Effect.gen(function* () {
         id: row.id,
         key: row.key,
         name: row.name,
+        icon: row.icon_json === null ? null : decodeIcon(row.icon_json),
         defaultProjectKey: row.default_project_key,
         newChatMessage: row.new_chat_message,
         pinnedAt: row.pinned_at,
@@ -363,8 +370,8 @@ const make = Effect.gen(function* () {
           const id = yield* newId;
           const position = yield* nextPosition("boards", "");
           yield* sql`
-            INSERT INTO fork_boards (id, key, name, default_project_key, position, created_at, updated_at)
-            VALUES (${id}, ${command.key}, ${command.name}, ${command.defaultProjectKey ?? null},
+            INSERT INTO fork_boards (id, key, name, icon_json, default_project_key, position, created_at, updated_at)
+            VALUES (${id}, ${command.key}, ${command.name}, ${command.icon ? encodeIcon(command.icon) : null}, ${command.defaultProjectKey ?? null},
               ${position}, ${at}, ${at})
           `;
           const specs: ReadonlyArray<ColumnSpec> = command.columns ?? DEFAULT_BOARD_COLUMNS;
@@ -402,6 +409,7 @@ const make = Effect.gen(function* () {
           yield* sql`
             UPDATE fork_boards SET
               name = ${command.name ?? board.name},
+              icon_json = ${command.icon === undefined ? board.icon_json : command.icon === null ? null : encodeIcon(command.icon)},
               key = ${command.key ?? board.key},
               default_project_key = ${
                 command.defaultProjectKey === undefined

@@ -97,6 +97,7 @@ const make = Effect.gen(function* () {
               type: "board.create",
               name: command.name,
               key: command.key,
+              ...(command.icon !== undefined ? { icon: command.icon } : {}),
               ...(command.defaultProjectKey !== undefined
                 ? { defaultProjectKey: command.defaultProjectKey }
                 : {}),

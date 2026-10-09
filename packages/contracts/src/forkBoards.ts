@@ -6,6 +6,7 @@
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
+import { ProjectIconOverride } from "./project.ts";
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
@@ -96,6 +97,8 @@ export const Board = Schema.Struct({
   id: TrimmedNonEmptyString,
   key: BoardKey,
   name: TrimmedNonEmptyString,
+  /** Optional for snapshots from older servers; null restores the board glyph. */
+  icon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   /** Scoped project key (`environmentId:projectId`) new chats start in. */
   defaultProjectKey: Schema.NullOr(Schema.String),
   /** First message of a chat started from a ticket; `{key}` and `{title}` fill in. Null: the built-in one. */
@@ -194,6 +197,7 @@ export const BoardsCommand = Schema.Union([
   command("board.create", {
     name: TrimmedNonEmptyString,
     key: BoardKey,
+    icon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
     defaultProjectKey: Schema.optional(Schema.NullOr(Schema.String)),
     /** Omitted: the default columns. */
     columns: Schema.optional(Schema.Array(ColumnSpec)),
@@ -202,6 +206,7 @@ export const BoardsCommand = Schema.Union([
     boardId: Id,
     name: Schema.optional(TrimmedNonEmptyString),
     key: Schema.optional(BoardKey),
+    icon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
     defaultProjectKey: Schema.optional(Schema.NullOr(Schema.String)),
     newChatMessage: Schema.optional(Schema.NullOr(Schema.String)),
     pinned: Schema.optional(Schema.Boolean),

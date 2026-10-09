@@ -43,12 +43,16 @@ function iconLabel(name: string): string {
 export function ProjectIconPickerDialog({
   current,
   projectName,
+  entityType = "project",
+  defaultIcon = DEFAULT_ICON,
   open,
   onOpenChange,
   onSelect,
 }: {
   readonly current: ProjectIconOverride | null;
   readonly projectName: string;
+  readonly entityType?: "project" | "board" | "folder";
+  readonly defaultIcon?: IconName;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly onSelect: (icon: ProjectIconOverride) => void;
@@ -56,7 +60,7 @@ export function ProjectIconPickerDialog({
   const automatic = deriveProjectIdentity(projectName);
   const [mode, setMode] = useState<ProjectIconOverride["kind"]>(current?.kind ?? "lucide");
   const [iconName, setIconName] = useState<IconName>(
-    current?.kind === "lucide" ? (current.name as IconName) : DEFAULT_ICON,
+    current?.kind === "lucide" ? (current.name as IconName) : defaultIcon,
   );
   const [color, setColor] = useState<ProjectIconColor>(
     current && current.kind !== "emoji" ? current.color : automatic.color,
@@ -72,7 +76,7 @@ export function ProjectIconPickerDialog({
   useEffect(() => {
     if (open && !previousOpenRef.current) {
       setMode(current?.kind ?? "lucide");
-      setIconName(current?.kind === "lucide" ? (current.name as IconName) : DEFAULT_ICON);
+      setIconName(current?.kind === "lucide" ? (current.name as IconName) : defaultIcon);
       setColor(current && current.kind !== "emoji" ? current.color : automatic.color);
       setLetters(current?.kind === "monogram" ? current.text : automatic.monogram);
       setEmoji(current?.kind === "emoji" ? current.emoji : "💻");
@@ -80,7 +84,7 @@ export function ProjectIconPickerDialog({
       setCustomEmoji("");
     }
     previousOpenRef.current = open;
-  }, [current, open, automatic.color, automatic.monogram]);
+  }, [current, open, automatic.color, automatic.monogram, defaultIcon]);
 
   const icons = useMemo(() => filterProjectIconNames(query), [query]);
   const selectedColorClassName = projectIconColorClassName(color);
@@ -102,7 +106,7 @@ export function ProjectIconPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="w-full sm:w-[32rem]">
         <DialogHeader>
-          <DialogTitle>Choose project icon</DialogTitle>
+          <DialogTitle>Choose {entityType} icon</DialogTitle>
           <DialogDescription>Choose an icon, emoji, or monogram.</DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex min-h-0 flex-col">

@@ -100,6 +100,21 @@ const makeHarness = Effect.gen(function* () {
 const BoardsTestLayer = layerMemory.pipe(Layer.provide(NodeServices.layer));
 
 describe("boards toolkit handlers", () => {
+  it.effect("creates, lists, changes, and clears board icons through MCP", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      const icon = { kind: "emoji", emoji: "🚀" } as const;
+      expect((yield* call("create_board", { name: "Icons", key: "ICON", icon })).icon).toEqual(
+        icon,
+      );
+      expect((yield* call("list_boards", {})).boards[0]!.icon).toEqual(icon);
+      const next = { kind: "lucide", name: "rocket", color: "blue" } as const;
+      expect((yield* call("update_board", { board: "ICON", icon: next })).icon).toEqual(next);
+      yield* call("update_board", { board: "ICON", name: "Renamed" });
+      expect((yield* call("list_boards", {})).boards[0]!.icon).toEqual(next);
+      expect((yield* call("update_board", { board: "ICON", icon: null })).icon).toBeNull();
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
   it.effect("rejects threadless board mutations without creating a board", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

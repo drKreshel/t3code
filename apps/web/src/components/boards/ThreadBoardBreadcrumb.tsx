@@ -2,6 +2,7 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 
+import { OrganizingIcon } from "../OrganizingIcon";
 import { useBoards, useThreadTicketKey } from "../../state/boards";
 import {
   WorkspaceBreadcrumbItem,
@@ -36,10 +37,12 @@ export function ThreadBoardBreadcrumb({
     <>
       <WorkspaceBreadcrumbItem className="shrink">
         <Link
+          className="flex items-center gap-2"
           to="/boards/$boardKey"
           params={{ boardKey: board.key }}
           aria-label={`Board ${board.name}`}
         >
+          <OrganizingIcon icon={board.icon} kind="board" />
           <WorkspaceBreadcrumbText className="max-w-40">{board.name}</WorkspaceBreadcrumbText>
         </Link>
       </WorkspaceBreadcrumbItem>

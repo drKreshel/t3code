@@ -5,6 +5,7 @@
  */
 import {
   BoardColumnColor,
+  ProjectIconOverride,
   BoardKey,
   BoardsCommandError,
   OrchestratorMcpFailure,
@@ -72,6 +73,7 @@ const FlagSummary = Schema.NullOr(
 export const BoardSummary = Schema.Struct({
   key: Schema.String,
   name: Schema.String,
+  icon: Schema.NullOr(ProjectIconOverride),
   defaultProject: Schema.NullOr(Schema.String),
   newChatMessage: Schema.NullOr(Schema.String),
   pinned: Schema.Boolean,
@@ -213,11 +215,19 @@ const GetTicketTool = Tool.make("get_ticket", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const BoardIcon = Schema.optional(
+  Schema.NullOr(ProjectIconOverride).annotate({
+    description:
+      "Custom icon: a Lucide name and color, emoji, or monogram text and color. Null restores the board icon.",
+  }),
+);
+
 const CreateBoardTool = Tool.make("create_board", {
   description:
     "Create a board. Without a template or columns it starts with the columns Backlog, Todo, In progress, Review, and Done.",
   parameters: Schema.Struct({
     name: TrimmedNonEmptyString,
+    icon: BoardIcon,
     key: BoardKey.annotate({
       description: "2 to 5 capital letters or digits, starting with a letter, like WEB.",
     }),
@@ -250,10 +260,11 @@ const CreateBoardTool = Tool.make("create_board", {
 
 const UpdateBoardTool = Tool.make("update_board", {
   description:
-    "Change a board: its name, key, default project, new chat message, sidebar pin, or archived state, and add, rename, recolor, remove, or reorder its columns. Every reference is checked before anything changes. Columns record progress only; editing them never starts an agent.",
+    "Change a board: its name, icon, key, default project, new chat message, sidebar pin, or archived state, and add, rename, recolor, remove, or reorder its columns. Every reference is checked before anything changes. Columns record progress only; editing them never starts an agent.",
   parameters: Schema.Struct({
     board: TrimmedNonEmptyString.annotate({ description: "Board key like WEB." }),
     name: Schema.optional(TrimmedNonEmptyString),
+    icon: BoardIcon,
     key: Schema.optional(
       BoardKey.annotate({ description: "A new key. Ticket keys change with it, like WEB-12." }),
     ),

@@ -17,10 +17,17 @@ describe("BoardTemplates", () => {
       const templates = yield* BoardTemplates;
       const boards = yield* BoardsService;
       const boardId = (yield* templates.dispatch(
-        { type: "board.create", templateId: "builtin:ship", name: "Atlas", key: "ATLAS" },
+        {
+          type: "board.create",
+          templateId: "builtin:ship",
+          name: "Atlas",
+          key: "ATLAS",
+          icon: { kind: "emoji", emoji: "🌍" },
+        },
         "user",
       )).id!;
       const board = (yield* boards.snapshot).boards.find((candidate) => candidate.id === boardId)!;
+      expect(board.icon).toEqual({ kind: "emoji", emoji: "🌍" });
       expect(board.columns.map((column) => column.name)).toEqual([
         "Backlog",
         "Todo",
