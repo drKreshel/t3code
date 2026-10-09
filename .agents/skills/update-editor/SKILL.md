@@ -29,6 +29,7 @@ Kreshel runs this fork as their daily editor while changing it. Keep the working
 6. Stopping a `dev:desktop` run means its whole tree, including `scripts/dev-electron.mjs`. A leftover `dev-electron.mjs` relaunches a second dev app on the same `~/.t3/dev`, which double-fires automations.
 7. Stop only processes you started, by PID. If Kreshel started the dev app, ask before stopping it.
 8. Verify with targeted `pnpm exec tsc --noEmit` (in `apps/web`), `pnpm exec vp test run <files>`, and `pnpm exec vp lint <files>`. No repo-wide checks.
+9. Agents must be able to operate everything Kreshel can. When you add a field to an entity, extend the MCP tools that create, update, and list it in the same change; a new entity ships with its own tools. A setting only the UI can change is a missing feature.
 
 Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sqlite*` into `~/.t3/backups/`, then snapshot with
 `sqlite3 -readonly ~/.t3/userdata/state.sqlite "VACUUM INTO '$HOME/.t3/dev/state.sqlite'"`. Never copy `environment-id`.

@@ -65,12 +65,14 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { classifyProjectCheckout } from "../git/projectWorktree.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
@@ -93,6 +95,7 @@ import {
 } from "./McpInvocationContext.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
@@ -233,6 +236,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     enabled: task.enabled,
     projectId: task.projectId,
     boundThreadId: task.threadId,
+    workspaceStrategy: task.workspaceStrategy,
     schedule: task.schedule,
     target: {
       providerInstanceId: task.modelSelection.instanceId,
@@ -829,6 +833,32 @@ const make = Effect.gen(function* () {
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const projects = yield* ProjectService.ProjectService;
+  const gitDriver = yield* GitVcsDriver.GitVcsDriver;
+  const fileSystem = yield* FileSystem.FileSystem;
+
+  /**
+   * A scheduled task may only reuse one of its project's own checkouts, as
+   * t3_thread_launch requires, so an agent cannot point runs at any directory.
+   */
+  const assertScheduledWorkspace = Effect.fn("OrchestratorMcp.assertScheduledWorkspace")(function* (
+    workspaceRoot: string,
+    workspaceStrategy: ScheduledTask["workspaceStrategy"],
+  ) {
+    if (workspaceStrategy.type !== "existing_worktree") return;
+    const checkout = yield* classifyProjectCheckout(
+      workspaceRoot,
+      workspaceStrategy.worktreePath,
+    ).pipe(
+      Effect.provideService(GitVcsDriver.GitVcsDriver, gitDriver),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+    );
+    if (checkout === null) {
+      return yield* failure(
+        "invalid_request",
+        `'${workspaceStrategy.worktreePath}' is not one of the project's git worktrees. t3_worktree_list shows them.`,
+      );
+    }
+  });
 
   /** A caller-named project, which must exist before anything is recorded against it. */
   const requireProject = (projectId: ProjectId) =>
@@ -1512,6 +1542,8 @@ const make = Effect.gen(function* () {
                 target: input.target,
                 providers: yield* loadProviders,
               })).modelSelection;
+        const workspaceStrategy = input.workspaceStrategy ?? { type: "root" };
+        yield* assertScheduledWorkspace(project.workspaceRoot, workspaceStrategy);
         const derivedTitle = input.prompt.split("\n")[0]?.trim() ?? "";
         const title =
           input.title ?? (derivedTitle.length > 0 ? derivedTitle.slice(0, 80) : "Scheduled task");
@@ -1522,7 +1554,7 @@ const make = Effect.gen(function* () {
           schedule: input.schedule,
           projectId,
           threadId: bindToCurrentThread && parent !== undefined ? parent.thread.id : null,
-          workspaceStrategy: { type: "root" },
+          workspaceStrategy,
           modelSelection,
           runtimeMode: limits.runtimeMode,
           interactionMode: limits.interactionMode,
@@ -1589,6 +1621,10 @@ const make = Effect.gen(function* () {
             : input.bindToCurrentThread && parent !== undefined
               ? parent.thread.id
               : null;
+        if (input.workspaceStrategy !== undefined) {
+          const project = yield* requireProject(existing.projectId);
+          yield* assertScheduledWorkspace(project.workspaceRoot, input.workspaceStrategy);
+        }
         const upsertInput: ScheduledTaskUpsertInput = {
           id: existing.id,
           title: input.title ?? existing.title,
@@ -1597,7 +1633,7 @@ const make = Effect.gen(function* () {
           schedule: input.schedule ?? existing.schedule,
           projectId: existing.projectId,
           threadId,
-          workspaceStrategy: existing.workspaceStrategy,
+          workspaceStrategy: input.workspaceStrategy ?? existing.workspaceStrategy,
           modelSelection:
             input.target === undefined
               ? existing.modelSelection
@@ -2495,6 +2531,8 @@ export const layer: Layer.Layer<
   OrchestratorMcpService,
   never,
   | Crypto.Crypto
+  | FileSystem.FileSystem
+  | GitVcsDriver.GitVcsDriver
   | ThreadManagementService.ThreadManagementService
   | ProviderRegistry.ProviderRegistry
   | ProviderAdapterRegistry.ProviderAdapterRegistryV2

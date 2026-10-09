@@ -75,6 +75,7 @@ import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMoc
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -497,6 +498,11 @@ const layerMemorySecretStore = Layer.sync(ServerSecretStore.ServerSecretStore, (
   });
 });
 
+// The project at /repo has one extra worktree; scheduled tasks may only reuse those.
+const layerGitWorktreesStub = Layer.mock(GitVcsDriver.GitVcsDriver)({
+  listWorktreePaths: () => Effect.succeed(["/repo", "/repo/worktrees/feature"]),
+});
+
 const layerUnusedScheduledTaskStub = Layer.succeed(
   ScheduledTaskService.ScheduledTaskService,
   ScheduledTaskService.ScheduledTaskService.of({
@@ -689,7 +695,11 @@ describe("orchestrator MCP toolkit", () => {
                 getById: (id) =>
                   Effect.succeed(
                     id === projectId
-                      ? Option.some({ id, defaultModelSelection: null } as never)
+                      ? Option.some({
+                          id,
+                          workspaceRoot: "/repo",
+                          defaultModelSelection: null,
+                        } as never)
                       : Option.none(),
                   ),
               }),
@@ -700,6 +710,7 @@ describe("orchestrator MCP toolkit", () => {
                 Layer.provide(layerOrchestration),
               ),
             ),
+            Layer.provide(layerGitWorktreesStub),
             Layer.provide(NodeServices.layer),
           );
 
@@ -1575,6 +1586,36 @@ describe("orchestrator MCP toolkit", () => {
               explicitWorkspace,
             );
 
+            // Agents can move a task between the project checkout and its worktrees.
+            const featureWorkspace = {
+              type: "existing_worktree",
+              worktreePath: "/repo/worktrees/feature",
+            } as const;
+            const toWorktreeCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              workspaceStrategy: featureWorkspace,
+            });
+            expect(toWorktreeCall.isError).toBe(false);
+            expect(toWorktreeCall.structuredContent).toMatchObject({
+              workspaceStrategy: featureWorkspace,
+            });
+            const outsideCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              workspaceStrategy: { type: "existing_worktree", worktreePath: "/elsewhere" },
+            });
+            expect(outsideCall.isError).toBe(true);
+            expect((yield* Ref.get(scheduledStore))[0]?.workspaceStrategy).toEqual(
+              featureWorkspace,
+            );
+            const toRootCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              workspaceStrategy: { type: "root" },
+            });
+            expect(toRootCall.isError).toBe(false);
+            expect((yield* Ref.get(scheduledStore))[0]?.workspaceStrategy).toEqual({
+              type: "root",
+            });
+
             // A cron schedule in its own timezone, and a model option, can be set later.
             const cronUpdateCall = yield* invoke("update_scheduled_task", {
               scheduledTaskId,
@@ -1626,6 +1667,18 @@ describe("orchestrator MCP toolkit", () => {
               expect(stored[0]?.workspaceStrategy).toEqual({ type: "root" });
               yield* invoke("delete_scheduled_task", { scheduledTaskId: stored[0]!.id });
             }
+            const worktreeWorkspace = { type: "worktree", baseRef: "main", startFromOrigin: true };
+            const worktreeCall = yield* invoke("schedule_task", {
+              prompt: "Nightly isolated build",
+              schedule: { type: "interval", everyMs: 60_000 },
+              bindToCurrentThread: false,
+              workspaceStrategy: worktreeWorkspace,
+              clientRequestId: "schedule-worktree",
+            });
+            expect(worktreeCall.isError).toBe(false);
+            const storedWorktree = yield* Ref.get(scheduledStore);
+            expect(storedWorktree[0]?.workspaceStrategy).toEqual(worktreeWorkspace);
+            yield* invoke("delete_scheduled_task", { scheduledTaskId: storedWorktree[0]!.id });
 
             // OpenCode 1.15 has emitted this exact nested-object-as-JSON-string
             // shape. Decode it at the MCP boundary rather than failing a task
@@ -3903,6 +3956,7 @@ describe("orchestrator MCP toolkit", () => {
           Layer.provide(layerProviderRegistry),
           Layer.provide(layerUnusedScheduledTaskStub),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
+          Layer.provide(layerGitWorktreesStub),
           Layer.provideMerge(
             SecretRequests.layer.pipe(
               Layer.provide(layerMemorySecretStore),
