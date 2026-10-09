@@ -17,7 +17,7 @@ import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../../orchestration-v2/ProjectStore.ts";
-import { randomUuidV4 } from "../../orchestration-v2/RandomUuid.ts";
+import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
 import { BoardTemplates } from "../templates/BoardTemplates.ts";

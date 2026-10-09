@@ -11,8 +11,8 @@ import {
   buildCodexAdditionalContext,
   buildCodexDeveloperInstructions,
 } from "../../provider/CodexDeveloperInstructions.ts";
-import { buildRuntimeInstructions } from "../../provider/RuntimeInstructions.ts";
-import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "../../provider/T3OrchestrationInstructions.ts";
+import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
+import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { AttachmentToolkit } from "../../mcp/toolkits/attachment/tools.ts";
 import { DeviceToolkit } from "../../mcp/toolkits/device/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
