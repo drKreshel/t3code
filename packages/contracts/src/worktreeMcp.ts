@@ -5,15 +5,25 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 /**
  * Input for the `t3_worktree_handoff` MCP tool.
  *
- * Creates a git worktree for the calling agent thread and re-points the
- * thread at it. Changing the thread's workspace detaches the live provider
+ * Creates a git worktree for the calling agent thread, or with `attach` binds
+ * one of the project's existing worktrees, and re-points the thread at it.
+ * Changing the thread's workspace detaches the live provider
  * session, so the current turn ends shortly after the handoff is recorded;
  * the conversation continues inside the worktree on the thread's next run.
  */
 export const WorktreeMcpHandoffInput = Schema.Struct({
-  branch: TrimmedNonEmptyString.annotate({
-    description: "Branch name to create for the worktree (e.g. 'feature/my-change').",
-  }),
+  attach: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Attach the existing worktree at path instead of creating one. The worktree must be one of the project's git worktrees with a branch checked out; it is never removed by T3, even if the handoff fails. baseRef and startFromOrigin do not apply.",
+    }),
+  ),
+  branch: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        "Branch name to create for the worktree (e.g. 'feature/my-change'). Required unless attach is set; when attaching, it must match the worktree's checked-out branch.",
+    }),
+  ),
   baseRef: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
@@ -32,13 +42,13 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
       Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/),
     ).annotate({
       description:
-        "Absolute filesystem path for the new worktree. Relative paths are rejected. Defaults to the server-managed worktrees directory.",
+        "Absolute filesystem path of the worktree. Relative paths are rejected. When creating, defaults to the server-managed worktrees directory; required when attaching.",
     }),
   ),
   runSetupScript: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Run the project's configured setup script in the new worktree after handoff. Defaults to true.",
+        "Run the project's configured setup script in the worktree after handoff. Defaults to true when creating a worktree and false when attaching one.",
     }),
   ),
   continuationPrompt: Schema.optional(
@@ -87,7 +97,8 @@ export type WorktreeMcpContinuationStatus = typeof WorktreeMcpContinuationStatus
 export const WorktreeMcpHandoffResult = Schema.Struct({
   worktreePath: TrimmedNonEmptyString,
   branch: TrimmedNonEmptyString,
-  baseRef: TrimmedNonEmptyString,
+  /** Null when an existing worktree was attached. */
+  baseRef: Schema.NullOr(TrimmedNonEmptyString),
   startedFromOrigin: Schema.Boolean,
   setupScript: WorktreeMcpSetupScriptStatus,
   continuation: WorktreeMcpContinuationStatus,
