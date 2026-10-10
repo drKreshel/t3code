@@ -4277,14 +4277,17 @@ export default function Sidebar() {
     setThreadsSettled: (threadKeys, settled) => {
       const coSettlingKeys = new Set(threadKeys);
       for (const threadKey of threadKeys) {
-        const thread = threadByKeyRef.current.get(threadKey);
+        // Folder actions include chats hidden by collapse, shelves, or project scope.
+        const threadRef = parseScopedThreadKey(threadKey);
+        if (threadRef === null) continue;
+        const thread = readThreadShell(threadRef);
         if (
           !thread ||
+          thread.archivedAt !== null ||
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement !==
             true
         )
           continue;
-        const threadRef = scopeThreadRef(thread.environmentId, thread.id);
         if (settled && thread.settledOverride !== "settled")
           attemptSettle(threadRef, { coSettlingKeys });
         else if (
