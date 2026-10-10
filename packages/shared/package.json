@@ -255,6 +255,10 @@
       "types": "./src/threadLinks.ts",
       "import": "./src/threadLinks.ts"
     },
+    "./forkBoardLinks": {
+      "types": "./src/forkBoardLinks.ts",
+      "import": "./src/forkBoardLinks.ts"
+    },
     "./composerContextReferences": {
       "types": "./src/composerContextReferences.ts",
       "import": "./src/composerContextReferences.ts"

@@ -14,6 +14,9 @@ describe("buildRuntimeInstructions", () => {
     const instructions = buildRuntimeInstructions({ harness: "Codex" });
     expect(instructions).toContain("<t3_boards>");
     expect(instructions).toContain("Never read or write T3 Code's databases");
+    expect(instructions).toContain("[board name](/boards/WEB)");
+    expect(instructions).toContain("[WEB-12](/boards/WEB/12)");
+    expect(instructions).toContain("traverse from a note");
   });
 
   it("keeps known model and effort metadata on one line", () => {

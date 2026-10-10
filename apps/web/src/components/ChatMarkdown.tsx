@@ -104,7 +104,9 @@ import { defaultUrlTransform } from "react-markdown";
 import { parseAssistantCitationHref } from "@t3tools/shared/assistantCitations";
 import { parseComposerContextHref } from "@t3tools/shared/composerContextReferences";
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
+import { boardRouteLinkLabel, parseBoardRouteLinkHref } from "@t3tools/shared/forkBoardLinks";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
+import { MarkdownBoardRouteLink } from "./chat/MarkdownBoardRouteLink";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import {
@@ -2926,6 +2928,11 @@ const CHAT_MARKDOWN_COMPONENTS = {
       ) : (
         <span>{label}</span>
       );
+    }
+    const boardTarget = href ? parseBoardRouteLinkHref(href) : null;
+    if (boardTarget) {
+      const label = hastPlainTextDeep(node) || boardRouteLinkLabel(boardTarget);
+      return <MarkdownBoardRouteLink target={boardTarget} label={label} />;
     }
     const contextReference = href ? parseComposerContextHref(href) : null;
     if (contextReference) {
