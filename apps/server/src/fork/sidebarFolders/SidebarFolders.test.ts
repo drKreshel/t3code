@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { type SidebarFolderStreamEvent } from "@t3tools/contracts";
+import { EnvironmentId, type SidebarFolderStreamEvent, ThreadId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -30,7 +30,7 @@ const listen = Effect.fnUntraced(function* (
 });
 
 it.effect(
-  "lists each client's independent layout and routes deletion only to the selected client",
+  "lists each client's independent layout and routes mutations only to the selected client",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -61,13 +61,19 @@ it.effect(
                         },
                       ],
                     }
-                  : {
-                      type: "deleted",
-                      deletedFolderIds: [request.action.folderId],
-                      releasedThreadCount: 0,
-                      queuedTicketFolderClears: 0,
-                      queuedTaskFolderClears: 0,
-                    },
+                  : request.action.type === "delete"
+                    ? {
+                        type: "deleted",
+                        deletedFolderIds: [request.action.folderId],
+                        releasedThreadCount: 0,
+                        queuedTicketFolderClears: 0,
+                        queuedTaskFolderClears: 0,
+                      }
+                    : {
+                        type: "thread-moved",
+                        thread: request.action.thread,
+                        folderId: request.action.folderId,
+                      },
             });
           });
         }
@@ -77,8 +83,17 @@ it.effect(
           ["web", "web"],
         ]);
         yield* service.delete("web", "empty");
+        const thread = {
+          environmentId: EnvironmentId.make("environment"),
+          threadId: ThreadId.make("thread"),
+        };
+        expect(yield* service.moveThread("web", thread, "folder")).toEqual({
+          type: "thread-moved",
+          thread,
+          folderId: "folder",
+        });
         expect(actions.slice(0, 2).toSorted()).toEqual(["desktop:list", "web:list"]);
-        expect(actions.slice(2)).toEqual(["web:delete"]);
+        expect(actions.slice(2)).toEqual(["web:delete", "web:move-thread"]);
       }),
     ).pipe(Effect.provide(TestLayer)),
 );

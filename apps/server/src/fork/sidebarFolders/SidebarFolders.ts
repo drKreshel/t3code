@@ -6,6 +6,7 @@ import {
   type SidebarFolderResult,
   type SidebarFolderListing,
   type SidebarFolderStreamEvent,
+  type ScopedThreadRef,
   SidebarFoldersError,
 } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
@@ -28,6 +29,11 @@ export class SidebarFolders extends Context.Service<
       clientId: string,
       folderId: string,
     ) => Effect.Effect<Extract<SidebarFolderResult, { type: "deleted" }>, SidebarFoldersError>;
+    readonly moveThread: (
+      clientId: string,
+      thread: ScopedThreadRef,
+      folderId: string | null,
+    ) => Effect.Effect<Extract<SidebarFolderResult, { type: "thread-moved" }>, SidebarFoldersError>;
     readonly respond: (reply: SidebarFolderReply) => Effect.Effect<void>;
     readonly claim: (request: SidebarFolderRequestRef) => Effect.Effect<boolean>;
   }
@@ -123,7 +129,10 @@ const make = Effect.gen(function* () {
     if (reply.error) yield* Deferred.fail(request.deferred, reply.error);
     else if (
       reply.result &&
-      reply.result.type === (request.action.type === "list" ? "listed" : "deleted")
+      reply.result.type ===
+        ({ list: "listed", delete: "deleted", "move-thread": "thread-moved" } as const)[
+          request.action.type
+        ]
     )
       yield* Deferred.succeed(request.deferred, reply.result);
     else yield* Deferred.fail(request.deferred, SidebarFoldersError.fromCode("invalid-response"));
@@ -192,6 +201,14 @@ const make = Effect.gen(function* () {
       invoke(clientId, { type: "delete", folderId }).pipe(
         Effect.flatMap((result) =>
           result.type === "deleted"
+            ? Effect.succeed(result)
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
+        ),
+      ),
+    moveThread: (clientId, thread, folderId) =>
+      invoke(clientId, { type: "move-thread", thread, folderId }).pipe(
+        Effect.flatMap((result) =>
+          result.type === "thread-moved"
             ? Effect.succeed(result)
             : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
         ),

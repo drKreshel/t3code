@@ -1,3 +1,4 @@
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   SidebarFoldersError,
   type SidebarFolderAction,
@@ -21,6 +22,10 @@ import {
 type FolderStore = SidebarFolderLayout &
   TicketFolderRoutingState & {
     readonly deleteFolder: (folderId: string) => void;
+    readonly moveThread: (
+      threadKey: string,
+      target: { readonly folderId: string; readonly position: "end" } | null,
+    ) => void;
   };
 
 export function listSidebarFolderSummaries(
@@ -45,7 +50,7 @@ export function listSidebarFolderSummaries(
   });
 }
 
-/** Uses the same deletion action as the folder menu, including routed folder paths. */
+/** Uses the same folder-store mutations as the sidebar UI. */
 export function executeSidebarFolderAction(
   store: FolderStore,
   action: SidebarFolderAction,
@@ -55,6 +60,24 @@ export function executeSidebarFolderAction(
     return {
       result: { type: "listed", folders: listSidebarFolderSummaries(store, isExistingThread) },
     };
+  if (action.type === "move-thread") {
+    const threadKey = scopedThreadKey(action.thread);
+    if (!isExistingThread(threadKey))
+      return { error: SidebarFoldersError.fromCode("thread-not-found") };
+    if (action.folderId !== null && !store.folders.some((folder) => folder.id === action.folderId))
+      return { error: SidebarFoldersError.fromCode("not-found") };
+    store.moveThread(
+      threadKey,
+      action.folderId === null ? null : { folderId: action.folderId, position: "end" },
+    );
+    return {
+      result: {
+        type: "thread-moved",
+        thread: action.thread,
+        folderId: action.folderId,
+      },
+    };
+  }
   if (!store.folders.some((folder) => folder.id === action.folderId))
     return { error: SidebarFoldersError.fromCode("not-found") };
   const deletedFolderIds = [...folderSubtreeIds(store, action.folderId)];

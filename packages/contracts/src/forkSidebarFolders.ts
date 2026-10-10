@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ScopedThreadRef } from "./environment.ts";
 
 export const FORK_SIDEBAR_FOLDERS_WS_METHODS = {
   connect: "fork.sidebarFolders.connect",
@@ -15,6 +16,7 @@ const SidebarFoldersErrorCode = Schema.Literals([
   "busy",
   "timeout",
   "not-found",
+  "thread-not-found",
   "invalid-response",
 ]);
 
@@ -25,6 +27,7 @@ const errorMessages = {
   busy: "The sidebar folder client is busy. Wait for current calls to finish.",
   timeout: "The sidebar folder client did not respond in time. List folders again before retrying.",
   "not-found": "The sidebar folder was not found in the selected client.",
+  "thread-not-found": "The thread was not found in the selected client.",
   "invalid-response": "The sidebar folder client returned an invalid response.",
 };
 
@@ -75,6 +78,11 @@ export type SidebarFolderListing = typeof SidebarFolderListing.Type;
 export const SidebarFolderAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("list") }),
   Schema.Struct({ type: Schema.Literal("delete"), folderId: TrimmedNonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("move-thread"),
+    thread: ScopedThreadRef,
+    folderId: Schema.NullOr(TrimmedNonEmptyString),
+  }),
 ]);
 export type SidebarFolderAction = typeof SidebarFolderAction.Type;
 
@@ -86,9 +94,16 @@ export const SidebarFolderDeletionResult = Schema.Struct({
   queuedTaskFolderClears: NonNegativeInt,
 });
 
+export const SidebarFolderThreadMoveResult = Schema.Struct({
+  type: Schema.Literal("thread-moved"),
+  thread: ScopedThreadRef,
+  folderId: Schema.NullOr(TrimmedNonEmptyString),
+});
+
 export const SidebarFolderResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("listed"), folders: Schema.Array(SidebarFolderSummary) }),
   SidebarFolderDeletionResult,
+  SidebarFolderThreadMoveResult,
 ]);
 export type SidebarFolderResult = typeof SidebarFolderResult.Type;
 

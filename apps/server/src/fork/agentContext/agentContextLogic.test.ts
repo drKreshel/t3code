@@ -50,6 +50,10 @@ describe("t3Tools", () => {
     expect(byName.get("t3_terminal_start")?.enabled).toBe(true);
     expect(byName.get("list_sidebar_folders")).toMatchObject({ enabled: true, readonly: true });
     expect(byName.get("delete_sidebar_folder")).toMatchObject({ enabled: true, readonly: false });
+    expect(byName.get("move_thread_to_sidebar_folder")).toMatchObject({
+      enabled: true,
+      readonly: false,
+    });
     expect(byName.get("preview_snapshot")?.enabled).toBe(false);
     expect(byName.get("device_screenshot")?.enabled).toBe(true);
     expect(byName.get("t3_environment_read")?.readonly).toBe(true);

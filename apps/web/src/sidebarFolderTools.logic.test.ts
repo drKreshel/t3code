@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "@effect/vitest";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import {
   createSidebarFolder,
@@ -134,6 +136,52 @@ describe("sidebar folder agent actions", () => {
         .error?.code,
     ).toBe("not-found");
     expect(store.getState()).toBe(before);
+  });
+
+  it("moves an existing thread into a folder and back to the main list", () => {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Scheduled tasks", parentId: null });
+    const thread = scopeThreadRef(
+      EnvironmentId.make("environment"),
+      ThreadId.make("thread:shared"),
+    );
+    const threadKey = scopedThreadKey(thread);
+    const exists = (key: string) => key === threadKey;
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "move-thread", thread, folderId },
+        exists,
+      ),
+    ).toEqual({ result: { type: "thread-moved", thread, folderId } });
+    expect(store.getState().threadKeysByFolderId[folderId]).toEqual([threadKey]);
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "move-thread", thread, folderId: null },
+        exists,
+      ),
+    ).toEqual({ result: { type: "thread-moved", thread, folderId: null } });
+    expect(store.getState().threadKeysByFolderId[folderId]).toEqual([]);
+  });
+
+  it("refuses to file a missing thread or use a missing folder", () => {
+    const store = useSidebarFolderStore;
+    const thread = scopeThreadRef(EnvironmentId.make("environment"), ThreadId.make("thread"));
+    const missingThread = executeSidebarFolderAction(
+      store.getState(),
+      { type: "move-thread", thread, folderId: null },
+      () => false,
+    );
+    expect(missingThread.error?.code).toBe("thread-not-found");
+    const missingFolder = executeSidebarFolderAction(
+      store.getState(),
+      { type: "move-thread", thread, folderId: "missing" },
+      () => true,
+    );
+    expect(missingFolder.error?.code).toBe("not-found");
   });
 });
 

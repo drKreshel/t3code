@@ -189,9 +189,9 @@ active, a settled folder shows with the others. Subfolders offer **Settle all
 chats** instead.
 
 With a web or desktop client connected, you can ask an agent to list or delete
-sidebar folders. Deleting a folder removes its subfolders and returns their chats
-to the main list. Clearing a ticket or scheduled task's folder field leaves the
-sidebar folder in place.
+sidebar folders, or move an individual chat into or out of one. Deleting a folder
+removes its subfolders and returns their chats to the main list. Clearing a ticket
+or scheduled task's folder field leaves the sidebar folder in place.
 
 ## Organize scheduled task runs
 

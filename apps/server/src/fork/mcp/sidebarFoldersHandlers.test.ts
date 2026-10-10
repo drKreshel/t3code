@@ -73,7 +73,7 @@ const tools = Effect.gen(function* () {
     );
 });
 
-it.effect("lists and deletes through the registered tools and connected client", () =>
+it.effect("lists, deletes, and moves threads through the connected client", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const service = yield* SidebarFolders.SidebarFolders;
@@ -81,6 +81,7 @@ it.effect("lists and deletes through the registered tools and connected client",
       expect(server.tools.map(({ tool }) => tool.name).toSorted()).toEqual([
         "delete_sidebar_folder",
         "list_sidebar_folders",
+        "move_thread_to_sidebar_folder",
       ]);
       const call = (name: string, args: Record<string, unknown>) =>
         server.callTool({ name, arguments: args }).pipe(
@@ -103,13 +104,19 @@ it.effect("lists and deletes through the registered tools and connected client",
             result:
               event.action.type === "list"
                 ? { type: "listed", folders: [] }
-                : {
-                    type: "deleted",
-                    deletedFolderIds: [event.action.folderId],
-                    releasedThreadCount: 0,
-                    queuedTicketFolderClears: 0,
-                    queuedTaskFolderClears: 0,
-                  },
+                : event.action.type === "delete"
+                  ? {
+                      type: "deleted",
+                      deletedFolderIds: [event.action.folderId],
+                      releasedThreadCount: 0,
+                      queuedTicketFolderClears: 0,
+                      queuedTaskFolderClears: 0,
+                    }
+                  : {
+                      type: "thread-moved",
+                      thread: event.action.thread,
+                      folderId: event.action.folderId,
+                    },
           });
         }),
         Effect.forkChild,
@@ -122,11 +129,32 @@ it.effect("lists and deletes through the registered tools and connected client",
       expect(
         yield* call("delete_sidebar_folder", { clientId: "desktop", folderId: "empty" }),
       ).toMatchObject({ type: "deleted", deletedFolderIds: ["empty"] });
+      expect(
+        yield* call("move_thread_to_sidebar_folder", {
+          clientId: "desktop",
+          folderId: "scheduled-tasks",
+        }),
+      ).toEqual({
+        type: "thread-moved",
+        thread: { environmentId: "environment", threadId: "thread" },
+        folderId: "scheduled-tasks",
+      });
+      expect(
+        yield* call("move_thread_to_sidebar_folder", {
+          clientId: "desktop",
+          threadId: "thread:shared",
+          folderId: null,
+        }),
+      ).toEqual({
+        type: "thread-moved",
+        thread: { environmentId: "environment", threadId: "thread:shared" },
+        folderId: null,
+      });
     }),
   ).pipe(Effect.provide(RegistrationLayer)),
 );
 
-it.effect("refuses outside callers and read-only MCP clients before deleting", () =>
+it.effect("refuses outside callers and read-only MCP clients before folder writes", () =>
   Effect.gen(function* () {
     const call = yield* tools;
     expect(
@@ -140,6 +168,16 @@ it.effect("refuses outside callers and read-only MCP clients before deleting", (
       yield* call(
         "delete_sidebar_folder",
         { clientId: "desktop", folderId: "empty" },
+        {
+          ...invocation,
+          client: { sessionId: "external", label: "External", access: "read-only" },
+        },
+      ).pipe(Effect.flip),
+    ).toMatchObject({ code: "capability_denied" });
+    expect(
+      yield* call(
+        "move_thread_to_sidebar_folder",
+        { clientId: "desktop", threadId: "thread", folderId: "folder" },
         {
           ...invocation,
           client: { sessionId: "external", label: "External", access: "read-only" },
