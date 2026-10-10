@@ -56,4 +56,18 @@ describe("sidebar folder error transport", () => {
     };
     expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
   });
+
+  it("transports folder image icon changes", () => {
+    const reply = {
+      clientId: "web",
+      connectionId: "connection",
+      requestId: "request",
+      result: {
+        type: "folder-icon-updated" as const,
+        folderId: "folder",
+        icon: { kind: "image" as const, dataUrl: "data:image/png;base64,aWNvbg==" },
+      },
+    };
+    expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
+  });
 });

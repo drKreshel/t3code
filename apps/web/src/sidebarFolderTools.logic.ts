@@ -1,6 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   SidebarFoldersError,
+  type OrganizingIconOverride,
   type SidebarFolderAction,
   type SidebarFolderReply,
   type SidebarFolderSummary,
@@ -22,6 +23,7 @@ import {
 type FolderStore = SidebarFolderLayout &
   TicketFolderRoutingState & {
     readonly deleteFolder: (folderId: string) => void;
+    readonly setFolderIcon: (folderId: string, icon: OrganizingIconOverride | null) => void;
     readonly setFolderSettled: (folderId: string, settled: boolean) => void;
     readonly moveThread: (
       threadKey: string,
@@ -40,6 +42,7 @@ export function listSidebarFolderSummaries(
       name: folder.name,
       path: sidebarFolderPath(layout, folder.id) ?? folder.name,
       parentId: folder.parentId,
+      icon: folder.icon ?? null,
       threadCount: new Set((layout.threadKeysByFolderId[folder.id] ?? []).filter(isExistingThread))
         .size,
       subtreeThreadCount: folderSubtreeThreadKeys(layout, folder.id).filter(isExistingThread)
@@ -81,6 +84,16 @@ export function executeSidebarFolderAction(
   }
   const folder = store.folders.find((candidate) => candidate.id === action.folderId);
   if (folder === undefined) return { error: SidebarFoldersError.fromCode("not-found") };
+  if (action.type === "set-icon") {
+    store.setFolderIcon(action.folderId, action.icon);
+    return {
+      result: {
+        type: "folder-icon-updated",
+        folderId: action.folderId,
+        icon: action.icon,
+      },
+    };
+  }
   if (action.type === "set-settled") {
     if (folder.parentId !== null) return { error: SidebarFoldersError.fromCode("nested-folder") };
     store.setFolderSettled(action.folderId, action.settled);

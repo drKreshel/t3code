@@ -5,7 +5,7 @@
  */
 import {
   BoardColumnColor,
-  ProjectIconOverride,
+  OrganizingIconOverride,
   BoardKey,
   BoardsCommandError,
   OrchestratorMcpFailure,
@@ -73,7 +73,7 @@ const FlagSummary = Schema.NullOr(
 export const BoardSummary = Schema.Struct({
   key: Schema.String,
   name: Schema.String,
-  icon: Schema.NullOr(ProjectIconOverride),
+  icon: Schema.NullOr(OrganizingIconOverride),
   defaultProject: Schema.NullOr(Schema.String),
   newChatMessage: Schema.NullOr(Schema.String),
   pinned: Schema.Boolean,
@@ -216,9 +216,9 @@ const GetTicketTool = Tool.make("get_ticket", {
   .annotate(Tool.OpenWorld, false);
 
 const BoardIcon = Schema.optional(
-  Schema.NullOr(ProjectIconOverride).annotate({
+  Schema.NullOr(OrganizingIconOverride).annotate({
     description:
-      "Custom icon: a Lucide name and color, emoji, or monogram text and color. Null restores the board icon.",
+      "Custom icon: a Lucide name and color, emoji, monogram text and color, or a bitmap image as a data URL no longer than 32 KiB. Null restores the board icon.",
   }),
 );
 

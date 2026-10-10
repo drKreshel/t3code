@@ -53,5 +53,23 @@ describe("ProjectIconPickerDialog", () => {
     expect(markup).toContain('data-current="lucide"');
     expect(markup.indexOf(">Icons<")).toBeLessThan(markup.indexOf(">Emoji<"));
     expect(markup).toContain('aria-label="Icon color"');
+    expect(markup).not.toContain(">Image<");
+  });
+
+  it("offers an image for board and folder icons", () => {
+    for (const entityType of ["board", "folder"] as const) {
+      const markup = renderToStaticMarkup(
+        <ProjectIconPickerDialog
+          current={null}
+          projectName="Test"
+          entityType={entityType}
+          open
+          onOpenChange={() => {}}
+          onSelect={() => {}}
+        />,
+      );
+
+      expect(markup).toContain(">Image<");
+    }
   });
 });

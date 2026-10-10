@@ -1,4 +1,4 @@
-import type { ProjectIconOverride } from "@t3tools/contracts";
+import type { OrganizingIconOverride } from "@t3tools/contracts";
 import { OrganizingIcon } from "../OrganizingIcon";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -16,7 +16,7 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 
 export interface BoardsCrumb {
   readonly label: string;
-  readonly boardIcon?: ProjectIconOverride | null;
+  readonly boardIcon?: OrganizingIconOverride | null;
   /** Omitted on the current page. */
   readonly to?: { readonly boardKey?: string };
 }

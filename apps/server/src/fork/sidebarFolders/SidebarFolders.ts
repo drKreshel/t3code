@@ -6,6 +6,7 @@ import {
   type SidebarFolderResult,
   type SidebarFolderListing,
   type SidebarFolderStreamEvent,
+  type OrganizingIconOverride,
   type ScopedThreadRef,
   SidebarFoldersError,
 } from "@t3tools/contracts";
@@ -35,6 +36,14 @@ export class SidebarFolders extends Context.Service<
       settled: boolean,
     ) => Effect.Effect<
       Extract<SidebarFolderResult, { type: "folder-settled" }>,
+      SidebarFoldersError
+    >;
+    readonly setIcon: (
+      clientId: string,
+      folderId: string,
+      icon: OrganizingIconOverride | null,
+    ) => Effect.Effect<
+      Extract<SidebarFolderResult, { type: "folder-icon-updated" }>,
       SidebarFoldersError
     >;
     readonly moveThread: (
@@ -142,6 +151,7 @@ const make = Effect.gen(function* () {
           {
             list: "listed",
             delete: "deleted",
+            "set-icon": "folder-icon-updated",
             "set-settled": "folder-settled",
             "move-thread": "thread-moved",
           } as const
@@ -222,6 +232,14 @@ const make = Effect.gen(function* () {
       invoke(clientId, { type: "set-settled", folderId, settled }).pipe(
         Effect.flatMap((result) =>
           result.type === "folder-settled"
+            ? Effect.succeed(result)
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
+        ),
+      ),
+    setIcon: (clientId, folderId, icon) =>
+      invoke(clientId, { type: "set-icon", folderId, icon }).pipe(
+        Effect.flatMap((result) =>
+          result.type === "folder-icon-updated"
             ? Effect.succeed(result)
             : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
         ),

@@ -92,6 +92,33 @@ describe("sidebar folder agent actions", () => {
     expect(store.getState().folders).toEqual([]);
   });
 
+  it("changes and clears a folder image through the existing store", () => {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Images", parentId: null });
+    const icon = { kind: "image", dataUrl: "data:image/png;base64,aWNvbg==" } as const;
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-icon", folderId, icon },
+        isExistingThread,
+      ),
+    ).toEqual({ result: { type: "folder-icon-updated", folderId, icon } });
+    expect(store.getState().folders.find((folder) => folder.id === folderId)?.icon).toEqual(icon);
+    expect(listSidebarFolderSummaries(store.getState(), isExistingThread)[0]?.icon).toEqual(icon);
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-icon", folderId, icon: null },
+        isExistingThread,
+      ),
+    ).toEqual({
+      result: { type: "folder-icon-updated", folderId, icon: null },
+    });
+    expect(store.getState().folders.find((folder) => folder.id === folderId)?.icon).toBeNull();
+  });
+
   it("removes descendants, preserves chats, and queues ticket and task routing cleanup through the existing store", () => {
     const store = useSidebarFolderStore;
     store.getState().syncTicketFolders([

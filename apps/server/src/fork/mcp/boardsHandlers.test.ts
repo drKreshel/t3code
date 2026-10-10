@@ -108,7 +108,7 @@ describe("boards toolkit handlers", () => {
         icon,
       );
       expect((yield* call("list_boards", {})).boards[0]!.icon).toEqual(icon);
-      const next = { kind: "lucide", name: "rocket", color: "blue" } as const;
+      const next = { kind: "image", dataUrl: "data:image/png;base64,aWNvbg==" } as const;
       expect((yield* call("update_board", { board: "ICON", icon: next })).icon).toEqual(next);
       yield* call("update_board", { board: "ICON", name: "Renamed" });
       expect((yield* call("list_boards", {})).boards[0]!.icon).toEqual(next);

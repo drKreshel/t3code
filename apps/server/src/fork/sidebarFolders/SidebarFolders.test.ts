@@ -53,6 +53,7 @@ it.effect(
                           name: clientId,
                           path: clientId,
                           parentId: null,
+                          icon: null,
                           threadCount: 0,
                           subtreeThreadCount: 0,
                           settled: false,
@@ -69,17 +70,23 @@ it.effect(
                         queuedTicketFolderClears: 0,
                         queuedTaskFolderClears: 0,
                       }
-                    : request.action.type === "set-settled"
+                    : request.action.type === "set-icon"
                       ? {
-                          type: "folder-settled",
+                          type: "folder-icon-updated",
                           folderId: request.action.folderId,
-                          settled: request.action.settled,
+                          icon: request.action.icon,
                         }
-                      : {
-                          type: "thread-moved",
-                          thread: request.action.thread,
-                          folderId: request.action.folderId,
-                        },
+                      : request.action.type === "set-settled"
+                        ? {
+                            type: "folder-settled",
+                            folderId: request.action.folderId,
+                            settled: request.action.settled,
+                          }
+                        : {
+                            type: "thread-moved",
+                            thread: request.action.thread,
+                            folderId: request.action.folderId,
+                          },
             });
           });
         }
@@ -103,8 +110,19 @@ it.effect(
           folderId: "folder",
           settled: true,
         });
+        const icon = { kind: "emoji", emoji: "🎉" } as const;
+        expect(yield* service.setIcon("web", "folder", icon)).toEqual({
+          type: "folder-icon-updated",
+          folderId: "folder",
+          icon,
+        });
         expect(actions.slice(0, 2).toSorted()).toEqual(["desktop:list", "web:list"]);
-        expect(actions.slice(2)).toEqual(["web:delete", "web:move-thread", "web:set-settled"]);
+        expect(actions.slice(2)).toEqual([
+          "web:delete",
+          "web:move-thread",
+          "web:set-settled",
+          "web:set-icon",
+        ]);
       }),
     ).pipe(Effect.provide(TestLayer)),
 );
@@ -260,6 +278,7 @@ it.effect(
           yield* service.list("old-client").pipe(Effect.flip),
           yield* service.delete("old-client", "folder").pipe(Effect.flip),
           yield* service.setSettled("old-client", "folder", true).pipe(Effect.flip),
+          yield* service.setIcon("old-client", "folder", null).pipe(Effect.flip),
         ];
         for (const error of errors) {
           expect(error.code).toBe("client-disconnected");

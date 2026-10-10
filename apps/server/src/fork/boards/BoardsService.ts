@@ -7,7 +7,7 @@
  */
 import {
   type Board,
-  ProjectIconOverride,
+  OrganizingIconOverride,
   BoardsCommandError,
   type BoardsCommand,
   type BoardsCommandErrorCode,
@@ -68,7 +68,7 @@ export const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
   { name: "Done", color: "green" },
 ];
 
-const IconJson = Schema.fromJsonString(ProjectIconOverride);
+const IconJson = Schema.fromJsonString(OrganizingIconOverride);
 const decodeIcon = Schema.decodeUnknownSync(IconJson);
 const encodeIcon = Schema.encodeSync(IconJson);
 

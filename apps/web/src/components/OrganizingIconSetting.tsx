@@ -1,4 +1,4 @@
-import type { ProjectIconOverride } from "@t3tools/contracts";
+import type { OrganizingIconOverride } from "@t3tools/contracts";
 import { lazy, Suspense, useState } from "react";
 
 import { OrganizingIcon } from "./OrganizingIcon";
@@ -16,10 +16,10 @@ export function OrganizingIconSetting({
   name,
   onSelect,
 }: {
-  readonly icon?: ProjectIconOverride | null | undefined;
+  readonly icon?: OrganizingIconOverride | null | undefined;
   readonly kind: "board" | "folder";
   readonly name: string;
-  readonly onSelect: (icon: ProjectIconOverride | null) => void;
+  readonly onSelect: (icon: OrganizingIconOverride | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (

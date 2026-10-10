@@ -3,6 +3,7 @@ import * as Rpc from "effect/rpc/Rpc";
 
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ScopedThreadRef } from "./environment.ts";
+import { OrganizingIconOverride } from "./forkOrganizingIcon.ts";
 
 export const FORK_SIDEBAR_FOLDERS_WS_METHODS = {
   connect: "fork.sidebarFolders.connect",
@@ -56,6 +57,7 @@ export const SidebarFolderSummary = Schema.Struct({
   name: Schema.String,
   path: Schema.String,
   parentId: Schema.NullOr(Schema.String),
+  icon: Schema.NullOr(OrganizingIconOverride),
   threadCount: NonNegativeInt,
   subtreeThreadCount: NonNegativeInt,
   settled: Schema.Boolean,
@@ -83,6 +85,11 @@ export type SidebarFolderListing = typeof SidebarFolderListing.Type;
 export const SidebarFolderAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("list") }),
   Schema.Struct({ type: Schema.Literal("delete"), folderId: TrimmedNonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("set-icon"),
+    folderId: TrimmedNonEmptyString,
+    icon: Schema.NullOr(OrganizingIconOverride),
+  }),
   Schema.Struct({
     type: Schema.Literal("set-settled"),
     folderId: TrimmedNonEmptyString,
@@ -116,9 +123,16 @@ export const SidebarFolderSettlementResult = Schema.Struct({
   settled: Schema.Boolean,
 });
 
+export const SidebarFolderIconResult = Schema.Struct({
+  type: Schema.Literal("folder-icon-updated"),
+  folderId: TrimmedNonEmptyString,
+  icon: Schema.NullOr(OrganizingIconOverride),
+});
+
 export const SidebarFolderResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("listed"), folders: Schema.Array(SidebarFolderSummary) }),
   SidebarFolderDeletionResult,
+  SidebarFolderIconResult,
   SidebarFolderSettlementResult,
   SidebarFolderThreadMoveResult,
 ]);

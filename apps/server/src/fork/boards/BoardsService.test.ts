@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import type { BoardsCommand, BoardsSnapshot, ProjectIconOverride } from "@t3tools/contracts";
+import type { BoardsCommand, BoardsSnapshot, OrganizingIconOverride } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -110,10 +110,11 @@ it.layer(TestLayer)("BoardsService", (it) => {
         Effect.map((state) => state.boards.find((board) => board.id === boardId)!),
       );
       assert.deepEqual((yield* read).icon, initial);
-      const icons: ProjectIconOverride[] = [
+      const icons: OrganizingIconOverride[] = [
         { kind: "lucide", name: "rocket", color: "blue" },
         { kind: "monogram", text: "IC", color: "violet" },
         { kind: "emoji", emoji: "👩🏽‍💻" },
+        { kind: "image", dataUrl: "data:image/png;base64,aWNvbg==" },
       ];
       for (const icon of icons) {
         yield* dispatch({ type: "board.update", boardId, icon });

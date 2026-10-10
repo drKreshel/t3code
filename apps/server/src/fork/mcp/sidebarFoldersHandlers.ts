@@ -31,6 +31,9 @@ const make = Effect.gen(function* () {
         folders.setSettled(input.clientId, input.folderId, input.settled ?? true),
       ),
     ),
+    set_sidebar_folder_icon: McpToolAccess.actsAsCaller((input) =>
+      withService((folders) => folders.setIcon(input.clientId, input.folderId, input.icon)),
+    ),
     move_thread_to_sidebar_folder: McpToolAccess.writesThreads(
       (input) => [input.threadId],
       (input) =>

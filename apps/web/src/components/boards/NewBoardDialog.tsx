@@ -4,7 +4,7 @@ import { Trash2Icon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
-import type { BoardTemplate, ProjectIconOverride } from "@t3tools/contracts";
+import type { BoardTemplate, OrganizingIconOverride } from "@t3tools/contracts";
 
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "../../localApi";
@@ -40,7 +40,7 @@ export function NewBoardDialog({
   const dispatch = useTemplatesDispatch();
   const templates = useBoardTemplates();
   const navigate = useNavigate();
-  const [icon, setIcon] = useState<ProjectIconOverride | null>(null);
+  const [icon, setIcon] = useState<OrganizingIconOverride | null>(null);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState(DEFAULT_TEMPLATE_ID);
   // A deleted template falls back to the default.
@@ -152,7 +152,7 @@ export function NewBoardDialog({
                         value={template.id}
                         className={cn(
                           "flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 text-left outline-none transition-colors",
-                          "focus-visible:ring-2 focus-visible:ring-ring",
+                          "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                           template.id === templateId
                             ? "border-primary bg-primary/5"
                             : "border-border hover:bg-muted/50",

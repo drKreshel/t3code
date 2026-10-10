@@ -69,6 +69,7 @@ export * from "./forkBoardTemplates.ts";
 export * from "./forkTaskFolders.ts";
 export * from "./forkThreadPins.ts";
 export * from "./forkSidebarFolders.ts";
+export * from "./forkOrganizingIcon.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";

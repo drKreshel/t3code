@@ -73,7 +73,7 @@ const tools = Effect.gen(function* () {
     );
 });
 
-it.effect("lists, deletes, settles, and moves threads through the connected client", () =>
+it.effect("lists, deletes, changes icons, settles, and moves through the connected client", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const service = yield* SidebarFolders.SidebarFolders;
@@ -82,6 +82,7 @@ it.effect("lists, deletes, settles, and moves threads through the connected clie
         "delete_sidebar_folder",
         "list_sidebar_folders",
         "move_thread_to_sidebar_folder",
+        "set_sidebar_folder_icon",
         "settle_sidebar_folder",
       ]);
       const call = (name: string, args: Record<string, unknown>) =>
@@ -113,17 +114,23 @@ it.effect("lists, deletes, settles, and moves threads through the connected clie
                       queuedTicketFolderClears: 0,
                       queuedTaskFolderClears: 0,
                     }
-                  : event.action.type === "set-settled"
+                  : event.action.type === "set-icon"
                     ? {
-                        type: "folder-settled",
+                        type: "folder-icon-updated",
                         folderId: event.action.folderId,
-                        settled: event.action.settled,
+                        icon: event.action.icon,
                       }
-                    : {
-                        type: "thread-moved",
-                        thread: event.action.thread,
-                        folderId: event.action.folderId,
-                      },
+                    : event.action.type === "set-settled"
+                      ? {
+                          type: "folder-settled",
+                          folderId: event.action.folderId,
+                          settled: event.action.settled,
+                        }
+                      : {
+                          type: "thread-moved",
+                          thread: event.action.thread,
+                          folderId: event.action.folderId,
+                        },
           });
         }),
         Effect.forkChild,
@@ -158,6 +165,28 @@ it.effect("lists, deletes, settles, and moves threads through the connected clie
         folderId: null,
       });
       expect(
+        yield* call("set_sidebar_folder_icon", {
+          clientId: "desktop",
+          folderId: "scheduled-tasks",
+          icon: { kind: "image", dataUrl: "data:image/png;base64,aWNvbg==" },
+        }),
+      ).toEqual({
+        type: "folder-icon-updated",
+        folderId: "scheduled-tasks",
+        icon: { kind: "image", dataUrl: "data:image/png;base64,aWNvbg==" },
+      });
+      expect(
+        yield* call("set_sidebar_folder_icon", {
+          clientId: "desktop",
+          folderId: "scheduled-tasks",
+          icon: null,
+        }),
+      ).toEqual({
+        type: "folder-icon-updated",
+        folderId: "scheduled-tasks",
+        icon: null,
+      });
+      expect(
         yield* call("settle_sidebar_folder", {
           clientId: "desktop",
           folderId: "scheduled-tasks",
@@ -185,6 +214,16 @@ it.effect("lists, deletes, settles, and moves threads through the connected clie
 it.effect("refuses outside callers and read-only MCP clients before folder writes", () =>
   Effect.gen(function* () {
     const call = yield* tools;
+    expect(
+      yield* call(
+        "set_sidebar_folder_icon",
+        { clientId: "desktop", folderId: "folder", icon: null },
+        {
+          ...invocation,
+          client: { sessionId: "external", label: "External", access: "read-only" },
+        },
+      ).pipe(Effect.flip),
+    ).toMatchObject({ code: "capability_denied" });
     expect(
       yield* call(
         "delete_sidebar_folder",

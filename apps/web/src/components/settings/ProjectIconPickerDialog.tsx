@@ -2,9 +2,9 @@ import * as Schema from "effect/Schema";
 import { deriveProjectIdentity } from "../../projectIdentity";
 import { ProjectMonogram } from "../ProjectMonogram";
 import {
+  type OrganizingIconOverride,
   ProjectMonogramText,
   type ProjectIconColor,
-  type ProjectIconOverride,
 } from "@t3tools/contracts";
 import { DynamicIcon, type IconName } from "lucide-react/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -29,6 +29,7 @@ import {
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { createOrganizingIconImage, organizingIconImageError } from "../../organizingIconImage";
 
 const DEFAULT_ICON: IconName = "folder-code";
 const isMonogramText = Schema.is(ProjectMonogramText);
@@ -49,21 +50,23 @@ export function ProjectIconPickerDialog({
   onOpenChange,
   onSelect,
 }: {
-  readonly current: ProjectIconOverride | null;
+  readonly current: OrganizingIconOverride | null;
   readonly projectName: string;
   readonly entityType?: "project" | "board" | "folder";
   readonly defaultIcon?: IconName;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
-  readonly onSelect: (icon: ProjectIconOverride) => void;
+  readonly onSelect: (icon: OrganizingIconOverride) => void;
 }) {
   const automatic = deriveProjectIdentity(projectName);
-  const [mode, setMode] = useState<ProjectIconOverride["kind"]>(current?.kind ?? "lucide");
+  const [mode, setMode] = useState<OrganizingIconOverride["kind"]>(current?.kind ?? "lucide");
   const [iconName, setIconName] = useState<IconName>(
     current?.kind === "lucide" ? (current.name as IconName) : defaultIcon,
   );
   const [color, setColor] = useState<ProjectIconColor>(
-    current && current.kind !== "emoji" ? current.color : automatic.color,
+    current && current.kind !== "emoji" && current.kind !== "image"
+      ? current.color
+      : automatic.color,
   );
   const [letters, setLetters] = useState(
     current?.kind === "monogram" ? current.text : automatic.monogram,
@@ -71,17 +74,30 @@ export function ProjectIconPickerDialog({
   const [emoji, setEmoji] = useState(current?.kind === "emoji" ? current.emoji : "💻");
   const [query, setQuery] = useState("");
   const [customEmoji, setCustomEmoji] = useState("");
+  const [imageDataUrl, setImageDataUrl] = useState(
+    current?.kind === "image" ? current.dataUrl : "",
+  );
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [readingImage, setReadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const previousOpenRef = useRef(false);
 
   useEffect(() => {
     if (open && !previousOpenRef.current) {
       setMode(current?.kind ?? "lucide");
       setIconName(current?.kind === "lucide" ? (current.name as IconName) : defaultIcon);
-      setColor(current && current.kind !== "emoji" ? current.color : automatic.color);
+      setColor(
+        current && current.kind !== "emoji" && current.kind !== "image"
+          ? current.color
+          : automatic.color,
+      );
       setLetters(current?.kind === "monogram" ? current.text : automatic.monogram);
       setEmoji(current?.kind === "emoji" ? current.emoji : "💻");
       setQuery("");
       setCustomEmoji("");
+      setImageDataUrl(current?.kind === "image" ? current.dataUrl : "");
+      setImageError(null);
+      setReadingImage(false);
     }
     previousOpenRef.current = open;
   }, [current, open, automatic.color, automatic.monogram, defaultIcon]);
@@ -92,12 +108,15 @@ export function ProjectIconPickerDialog({
   const validMonogram = isMonogramText(monogram);
   const save = () => {
     if (mode === "monogram" && !validMonogram) return;
+    if (mode === "image" && imageDataUrl.length === 0) return;
     onSelect(
-      mode === "monogram"
-        ? { kind: "monogram", text: monogram, color }
-        : mode === "lucide"
-          ? { kind: "lucide", name: iconName, color }
-          : { kind: "emoji", emoji },
+      mode === "image"
+        ? { kind: "image", dataUrl: imageDataUrl }
+        : mode === "monogram"
+          ? { kind: "monogram", text: monogram, color }
+          : mode === "lucide"
+            ? { kind: "lucide", name: iconName, color }
+            : { kind: "emoji", emoji },
     );
     onOpenChange(false);
   };
@@ -107,7 +126,11 @@ export function ProjectIconPickerDialog({
       <DialogPopup className="w-full sm:w-[32rem]">
         <DialogHeader>
           <DialogTitle>Choose {entityType} icon</DialogTitle>
-          <DialogDescription>Choose an icon, emoji, or monogram.</DialogDescription>
+          <DialogDescription>
+            {entityType === "project"
+              ? "Choose an icon, emoji, or monogram."
+              : "Choose an icon, image, emoji, or monogram."}
+          </DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex min-h-0 flex-col">
           <ToggleGroup
@@ -116,15 +139,24 @@ export function ProjectIconPickerDialog({
             value={[mode]}
             onValueChange={(next) => {
               const value = next[0];
-              if (value === "lucide" || value === "emoji" || value === "monogram") setMode(value);
+              if (
+                value === "lucide" ||
+                value === "image" ||
+                value === "emoji" ||
+                value === "monogram"
+              )
+                setMode(value);
             }}
           >
             <Toggle value="lucide">Icons</Toggle>
+            {entityType === "board" || entityType === "folder" ? (
+              <Toggle value="image">Image</Toggle>
+            ) : null}
             <Toggle value="emoji">Emoji</Toggle>
             <Toggle value="monogram">Monogram</Toggle>
           </ToggleGroup>
 
-          {mode !== "emoji" ? (
+          {mode !== "emoji" && mode !== "image" ? (
             <div>
               <div className="mb-2 text-xs font-medium text-muted-foreground">Color</div>
               <div className="flex flex-wrap gap-1.5" role="group" aria-label="Icon color">
@@ -204,6 +236,57 @@ export function ProjectIconPickerDialog({
                 </p>
               </div>
             </div>
+          ) : mode === "image" ? (
+            <div className="flex flex-col items-center gap-3 py-2">
+              {imageDataUrl ? (
+                <img
+                  src={imageDataUrl}
+                  alt=""
+                  className="size-20 rounded-xl border border-border object-contain"
+                />
+              ) : (
+                <div className="flex size-20 items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground">
+                  No image
+                </div>
+              )}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (!file) return;
+                  setReadingImage(true);
+                  setImageError(null);
+                  void createOrganizingIconImage(file).then((result) => {
+                    setReadingImage(false);
+                    if (result.ok) {
+                      setImageDataUrl(result.dataUrl);
+                      return;
+                    }
+                    setImageError(organizingIconImageError(result.reason));
+                  });
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={readingImage}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                {readingImage
+                  ? "Preparing image…"
+                  : imageDataUrl
+                    ? "Replace image"
+                    : "Choose image"}
+              </Button>
+              {imageError ? <p className="text-xs text-destructive">{imageError}</p> : null}
+              <p className="text-center text-xs text-muted-foreground">
+                T3 Code stores a small local copy for this {entityType}.
+              </p>
+            </div>
           ) : (
             <>
               <ScrollArea scrollFade className="max-h-64">
@@ -248,7 +331,13 @@ export function ProjectIconPickerDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={mode === "monogram" && !validMonogram}>
+          <Button
+            onClick={save}
+            disabled={
+              (mode === "monogram" && !validMonogram) ||
+              (mode === "image" && (imageDataUrl.length === 0 || readingImage))
+            }
+          >
             Save icon
           </Button>
         </DialogFooter>
