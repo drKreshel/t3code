@@ -4,7 +4,7 @@ import {
   type SidebarFolderReply,
   type SidebarFolderRequestRef,
   type SidebarFolderResult,
-  type SidebarFolderSummary,
+  type SidebarFolderListing,
   type SidebarFolderStreamEvent,
   SidebarFoldersError,
 } from "@t3tools/contracts";
@@ -22,14 +22,7 @@ import * as Stream from "effect/Stream";
 export class SidebarFolders extends Context.Service<
   SidebarFolders,
   {
-    readonly list: (clientId?: string) => Effect.Effect<
-      {
-        readonly clients: ReadonlyArray<
-          SidebarFolderClient & { readonly folders: ReadonlyArray<SidebarFolderSummary> }
-        >;
-      },
-      SidebarFoldersError
-    >;
+    readonly list: (clientId?: string) => Effect.Effect<SidebarFolderListing, SidebarFoldersError>;
     readonly connect: (client: SidebarFolderClient) => Stream.Stream<SidebarFolderStreamEvent>;
     readonly delete: (
       clientId: string,
@@ -69,10 +62,7 @@ const make = Effect.gen(function* () {
     for (const [requestId, request] of pending) {
       if (request.clientId !== clientId || request.connectionId !== connectionId) continue;
       pending.delete(requestId);
-      yield* Deferred.fail(
-        request.deferred,
-        new SidebarFoldersError({ code: "client-disconnected" }),
-      );
+      yield* Deferred.fail(request.deferred, SidebarFoldersError.fromCode("client-disconnected"));
     }
   });
 
@@ -100,7 +90,7 @@ const make = Effect.gen(function* () {
     const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
     const deferred = yield* Deferred.make<SidebarFolderResult, SidebarFoldersError>();
     const client = clients.get(clientId);
-    if (!client) return yield* new SidebarFoldersError({ code: "unavailable" });
+    if (!client) return yield* SidebarFoldersError.fromCode("unavailable");
     pending.set(requestId, {
       clientId,
       connectionId: client.connectionId,
@@ -115,11 +105,9 @@ const make = Effect.gen(function* () {
         requestId,
         action,
       });
-      if (!offered) return yield* new SidebarFoldersError({ code: "busy" });
+      if (!offered) return yield* SidebarFoldersError.fromCode("busy");
       const result = yield* Deferred.await(deferred).pipe(Effect.timeoutOption("10 seconds"));
-      return Option.isSome(result)
-        ? result.value
-        : yield* new SidebarFoldersError({ code: "timeout" });
+      return Option.isSome(result) ? result.value : yield* SidebarFoldersError.fromCode("timeout");
     }).pipe(Effect.ensuring(Effect.sync(() => pending.delete(requestId))));
   });
 
@@ -138,8 +126,7 @@ const make = Effect.gen(function* () {
       reply.result.type === (request.action.type === "list" ? "listed" : "deleted")
     )
       yield* Deferred.succeed(request.deferred, reply.result);
-    else
-      yield* Deferred.fail(request.deferred, new SidebarFoldersError({ code: "invalid-response" }));
+    else yield* Deferred.fail(request.deferred, SidebarFoldersError.fromCode("invalid-response"));
   });
 
   // Reject queued requests after their MCP invocation ends.
@@ -161,24 +148,37 @@ const make = Effect.gen(function* () {
     const selected = [...clients.values()].filter(
       (client) => clientId === undefined || client.clientId === clientId,
     );
-    if (selected.length === 0) return yield* new SidebarFoldersError({ code: "unavailable" });
+    if (selected.length === 0) return yield* SidebarFoldersError.fromCode("unavailable");
+    const listClient = (client: SidebarFolderClient) =>
+      invoke(client.clientId, { type: "list" }).pipe(
+        Effect.flatMap((result) =>
+          result.type === "listed"
+            ? Effect.succeed({
+                clientId: client.clientId,
+                label: client.label,
+                folders: result.folders,
+              })
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
+        ),
+      );
+    if (clientId !== undefined) return { clients: [yield* listClient(selected[0]!)], failures: [] };
+    const results = yield* Effect.forEach(
+      selected,
+      (client) =>
+        listClient(client).pipe(
+          Effect.match({
+            onSuccess: (value) => ({ type: "success" as const, value }),
+            onFailure: (error) => ({
+              type: "failure" as const,
+              value: { clientId: client.clientId, label: client.label, error },
+            }),
+          }),
+        ),
+      { concurrency: "unbounded" },
+    );
     return {
-      clients: yield* Effect.forEach(
-        selected,
-        (client) =>
-          invoke(client.clientId, { type: "list" }).pipe(
-            Effect.flatMap((result) =>
-              result.type === "listed"
-                ? Effect.succeed({
-                    clientId: client.clientId,
-                    label: client.label,
-                    folders: result.folders,
-                  })
-                : Effect.fail(new SidebarFoldersError({ code: "invalid-response" })),
-            ),
-          ),
-        { concurrency: "unbounded" },
-      ),
+      clients: results.flatMap((result) => (result.type === "success" ? [result.value] : [])),
+      failures: results.flatMap((result) => (result.type === "failure" ? [result.value] : [])),
     };
   });
 
@@ -190,7 +190,7 @@ const make = Effect.gen(function* () {
         Effect.flatMap((result) =>
           result.type === "deleted"
             ? Effect.succeed(result)
-            : Effect.fail(new SidebarFoldersError({ code: "invalid-response" })),
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
         ),
       ),
     respond,

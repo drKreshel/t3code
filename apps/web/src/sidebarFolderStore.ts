@@ -133,6 +133,17 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
   ),
 );
 
+// Other tabs in the same profile share this layout. Apply their edits before
+// our next mutation can save a stale copy and restore a deleted folder.
+if (typeof window !== "undefined") {
+  const syncLayout = (event: StorageEvent) => {
+    if (event.key === SIDEBAR_FOLDER_STORAGE_KEY && event.storageArea === window.localStorage)
+      void useSidebarFolderStore.persist.rehydrate();
+  };
+  window.addEventListener("storage", syncLayout);
+  import.meta.hot?.dispose(() => window.removeEventListener("storage", syncLayout));
+}
+
 /**
  * Transient folder UI: the folder being renamed and the live drop slot while
  * dragging. Kept out of the Sidebar component so pointer moves only re-render

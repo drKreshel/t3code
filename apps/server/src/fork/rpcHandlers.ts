@@ -96,17 +96,17 @@ export const makeForkRpcHandlers = () =>
     return {
       [FORK_SIDEBAR_FOLDERS_WS_METHODS.connect]: (input: SidebarFolderClient) =>
         Option.match(sidebarFolders, {
-          onNone: () => Stream.fail(new SidebarFoldersError({ code: "unavailable" })),
+          onNone: () => Stream.fail(SidebarFoldersError.fromCode("unavailable")),
           onSome: (service) => service.connect(input),
         }),
       [FORK_SIDEBAR_FOLDERS_WS_METHODS.claim]: (input: SidebarFolderRequestRef) =>
         Option.match(sidebarFolders, {
-          onNone: () => Effect.fail(new SidebarFoldersError({ code: "unavailable" })),
+          onNone: () => Effect.fail(SidebarFoldersError.fromCode("unavailable")),
           onSome: (service) => service.claim(input),
         }),
       [FORK_SIDEBAR_FOLDERS_WS_METHODS.respond]: (input: SidebarFolderReply) =>
         Option.match(sidebarFolders, {
-          onNone: () => Effect.fail(new SidebarFoldersError({ code: "unavailable" })),
+          onNone: () => Effect.fail(SidebarFoldersError.fromCode("unavailable")),
           onSome: (service) => service.respond(input),
         }),
       [FORK_SKILLS_WS_METHODS.list]: () => withSkills((service) => service.list),

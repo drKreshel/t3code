@@ -1,7 +1,7 @@
 import {
   OrchestratorMcpFailure,
   SidebarFolderDeletionResult,
-  SidebarFolderSummary,
+  SidebarFolderListing,
   SidebarFoldersError,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
@@ -23,17 +23,9 @@ const shared = {
 const ListSidebarFolders = Tool.make("list_sidebar_folders", {
   ...shared,
   description:
-    "List sidebar folders in connected writable web and desktop clients, including empty folders, nesting, chat counts, and ticket or scheduled task routing. Sidebar folders are client-local: use the returned clientId and folder id with delete_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind.",
+    "List sidebar folders in connected writable web and desktop clients, including empty folders, nesting, chat counts, and ticket or scheduled task routing. Sidebar folders are client-local: use the returned clientId and folder id with delete_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind. Unresponsive clients are reported in failures; healthy layouts remain available.",
   parameters: Schema.Struct({ clientId: Schema.optionalKey(TrimmedNonEmptyString) }),
-  success: Schema.Struct({
-    clients: Schema.Array(
-      Schema.Struct({
-        clientId: Schema.String,
-        label: Schema.String,
-        folders: Schema.Array(SidebarFolderSummary),
-      }),
-    ),
-  }),
+  success: SidebarFolderListing,
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)

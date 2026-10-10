@@ -1,3 +1,4 @@
+import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { requestGuarded } from "@t3tools/client-runtime/rpc";
 import {
   createEnvironmentRpcCommand,
@@ -15,7 +16,8 @@ import { Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { useSidebarFolderStore } from "../sidebarFolderStore";
-import { executeSidebarFolderAction } from "../sidebarFolderTools.logic";
+import { executeClaimedSidebarFolderAction } from "../sidebarFolderTools.logic";
+import { readThreadShell } from "../state/entities";
 import { randomUUID } from "../lib/utils";
 import { appAtomRegistry } from "./atomRegistry";
 
@@ -35,12 +37,17 @@ export const sidebarFolderRespond = createEnvironmentRpcCommand(connectionAtomRu
         connectionId: input.connectionId,
         requestId: input.requestId,
       };
-      const active = yield* requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.claim, ref);
-      if (!active) return;
-      const result = executeSidebarFolderAction(
-        useSidebarFolderStore.getState(),
+      const result = yield* executeClaimedSidebarFolderAction(
+        requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.claim, ref),
+        useSidebarFolderStore.getState,
         input.event.action,
+        (key) => {
+          const ref = parseScopedThreadKey(key);
+          const shell = ref === null ? null : readThreadShell(ref);
+          return shell !== null && shell.archivedAt === null && shell.deletedAt === null;
+        },
       );
+      if (result === null) return;
       yield* requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.respond, { ...ref, ...result });
     }),
 });
@@ -73,7 +80,7 @@ export const sidebarFolderClientAtom = Atom.family((environmentId: EnvironmentId
     environmentId,
     input: {
       clientId,
-      label: typeof window !== "undefined" && window.desktopBridge ? "Desktop" : "Web",
+      label: `${typeof window !== "undefined" && window.desktopBridge ? "Desktop" : "Web"} (${typeof navigator !== "undefined" ? navigator.platform : "unknown platform"}, ${clientId.slice(0, 8)})`,
     },
   });
 });

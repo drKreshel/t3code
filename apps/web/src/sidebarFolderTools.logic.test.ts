@@ -1,11 +1,21 @@
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it } from "@effect/vitest";
 
 import {
   createSidebarFolder,
   EMPTY_SIDEBAR_FOLDER_LAYOUT,
 } from "./components/SidebarFolders.logic";
 import { useSidebarFolderStore } from "./sidebarFolderStore";
-import { executeSidebarFolderAction, listSidebarFolderSummaries } from "./sidebarFolderTools.logic";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import {
+  executeClaimedSidebarFolderAction,
+  executeSidebarFolderAction,
+  listSidebarFolderSummaries,
+} from "./sidebarFolderTools.logic";
+
+const isExistingThread = (key: string) =>
+  !["local:deleted", "local:archived", "offline:missing"].includes(key);
 
 beforeEach(() => {
   useSidebarFolderStore.getState().syncTicketFolders([]);
@@ -29,12 +39,15 @@ describe("sidebar folder agent actions", () => {
       ),
       { id: "empty", name: "Empty", parentId: null },
     );
-    const summaries = listSidebarFolderSummaries({
-      ...layout,
-      threadKeysByFolderId: { parent: ["local:a"], child: ["remote:b"] },
-      collapsedFolderIds: ["parent"],
-      settledFolderIds: ["empty"],
-    });
+    const summaries = listSidebarFolderSummaries(
+      {
+        ...layout,
+        threadKeysByFolderId: { parent: ["local:a"], child: ["remote:b"] },
+        collapsedFolderIds: ["parent"],
+        settledFolderIds: ["empty"],
+      },
+      isExistingThread,
+    );
     expect(
       summaries.map(({ id, path, threadCount, subtreeThreadCount, settled }) => ({
         id,
@@ -63,7 +76,9 @@ describe("sidebar folder agent actions", () => {
     const folderId = store.getState().folders[0]!.id;
     store.getState().syncTicketFolders([{ ...ticket, folder: null }]);
     expect(store.getState().folders).toHaveLength(1);
-    expect(executeSidebarFolderAction(store.getState(), { type: "delete", folderId })).toEqual({
+    expect(
+      executeSidebarFolderAction(store.getState(), { type: "delete", folderId }, isExistingThread),
+    ).toEqual({
       result: {
         type: "deleted",
         deletedFolderIds: [folderId],
@@ -83,14 +98,18 @@ describe("sidebar folder agent actions", () => {
       { id: "other", folder: "Keep", archivedAt: null, threadKeys: ["local:other"] },
     ]);
     const parentId = store.getState().folders.find((folder) => folder.name === "Project")!.id;
-    const listed = listSidebarFolderSummaries(store.getState()).find(
+    const listed = listSidebarFolderSummaries(store.getState(), isExistingThread).find(
       (folder) => folder.id === parentId,
     );
     expect(listed).toMatchObject({ subtreeThreadCount: 2, routedTickets: 1, routedTasks: 1 });
-    const result = executeSidebarFolderAction(store.getState(), {
-      type: "delete",
-      folderId: parentId,
-    });
+    const result = executeSidebarFolderAction(
+      store.getState(),
+      {
+        type: "delete",
+        folderId: parentId,
+      },
+      isExistingThread,
+    );
     expect(result.result).toMatchObject({
       type: "deleted",
       releasedThreadCount: 2,
@@ -111,8 +130,64 @@ describe("sidebar folder agent actions", () => {
     store.getState().createFolder({ name: "Keep", parentId: null });
     const before = store.getState();
     expect(
-      executeSidebarFolderAction(before, { type: "delete", folderId: "missing" }).error?.code,
+      executeSidebarFolderAction(before, { type: "delete", folderId: "missing" }, isExistingThread)
+        .error?.code,
     ).toBe("not-found");
     expect(store.getState()).toBe(before);
   });
 });
+
+it("counts only existing, unarchived chats when listing and releasing a folder", () => {
+  const store = useSidebarFolderStore;
+  const folderId = store.getState().createFolder({ name: "Old", parentId: null });
+  store.setState({
+    threadKeysByFolderId: {
+      [folderId]: ["local:chat", "local:deleted", "local:archived", "offline:missing"],
+    },
+  });
+  expect(listSidebarFolderSummaries(store.getState(), isExistingThread)[0]).toMatchObject({
+    threadCount: 1,
+    subtreeThreadCount: 1,
+  });
+  expect(
+    executeSidebarFolderAction(store.getState(), { type: "delete", folderId }, isExistingThread)
+      .result,
+  ).toMatchObject({ releasedThreadCount: 1 });
+  expect(store.getState().folders).toEqual([]);
+});
+
+it.effect("does not apply a delete after its queued request expires", () =>
+  Effect.gen(function* () {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Keep", parentId: null });
+    const before = store.getState();
+    const result = yield* executeClaimedSidebarFolderAction(
+      Effect.succeed(false),
+      store.getState,
+      { type: "delete", folderId },
+      isExistingThread,
+    );
+    expect(result).toBeNull();
+    expect(store.getState()).toBe(before);
+  }),
+);
+
+it.effect("waits for the claim and reads the latest folder state before deleting", () =>
+  Effect.gen(function* () {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Old", parentId: null });
+    const claim = yield* Deferred.make<boolean>();
+    const response = yield* executeClaimedSidebarFolderAction(
+      Deferred.await(claim),
+      store.getState,
+      { type: "delete", folderId },
+      isExistingThread,
+    ).pipe(Effect.forkChild);
+    expect(store.getState().folders).toHaveLength(1);
+    store.getState().deleteFolder(folderId);
+    store.getState().createFolder({ name: "New", parentId: null });
+    yield* Deferred.succeed(claim, true);
+    expect((yield* Fiber.join(response))?.error?.code).toBe("not-found");
+    expect(store.getState().folders.map((folder) => folder.name)).toEqual(["New"]);
+  }),
+);

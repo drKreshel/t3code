@@ -240,6 +240,7 @@ import {
   type SidebarListMarker,
   type SidebarSection,
 } from "./Sidebar.logic";
+import { folderThreadSettlementTargets } from "../sidebarFolderSettlement.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
   createSidebarCollisionDetection,
@@ -3386,7 +3387,10 @@ export default function Sidebar() {
   const planForwardNavigation = useCallback(
     (threadKey: string, coParkingKeys?: ReadonlySet<string>): (() => void) | null => {
       if (routeThreadKeyRef.current !== threadKey) return null;
-      const shell = threadByKeyRef.current.get(threadKey);
+      const threadRef = parseScopedThreadKey(threadKey);
+      const shell =
+        threadByKeyRef.current.get(threadKey) ??
+        (threadRef === null ? null : readThreadShell(threadRef));
       const orderedKeys = orderedThreadKeysRef.current;
       const settledKeys = settledThreadKeysRef.current;
       const snoozedKeys = snoozedThreadKeysRef.current;
@@ -4276,25 +4280,17 @@ export default function Sidebar() {
   const folderChatActions = useSidebarFolderChatActions({
     setThreadsSettled: (threadKeys, settled) => {
       const coSettlingKeys = new Set(threadKeys);
-      for (const threadKey of threadKeys) {
-        // Folder actions include chats hidden by collapse, shelves, or project scope.
-        const threadRef = parseScopedThreadKey(threadKey);
-        if (threadRef === null) continue;
-        const thread = readThreadShell(threadRef);
-        if (
-          !thread ||
-          thread.archivedAt !== null ||
-          serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSettlement !==
-            true
-        )
-          continue;
-        if (settled && thread.settledOverride !== "settled")
-          attemptSettle(threadRef, { coSettlingKeys });
-        else if (
-          !settled &&
-          (thread.settledOverride === "settled" || settledThreadKeysRef.current.has(threadKey))
-        )
-          attemptUnsettle(threadRef);
+      const targets = folderThreadSettlementTargets(
+        threadKeys,
+        settled,
+        readThreadShell,
+        (environmentId) =>
+          serverConfigs.get(environmentId)?.environment.capabilities.threadSettlement === true,
+        settledThreadKeysRef.current,
+      );
+      for (const threadRef of targets) {
+        if (settled) attemptSettle(threadRef, { coSettlingKeys });
+        else attemptUnsettle(threadRef);
       }
     },
     projects: projectGroups,

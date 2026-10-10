@@ -121,6 +121,7 @@ it.effect("ignores responses from a different client or stale connection", () =>
       );
       expect(yield* service.list("desktop")).toEqual({
         clients: [{ clientId: "desktop", label: "desktop", folders: [] }],
+        failures: [],
       });
     }),
   ).pipe(Effect.provide(TestLayer)),
@@ -180,6 +181,37 @@ it.effect("rejects a result for the wrong action", () =>
       expect((yield* service.delete("desktop", "empty").pipe(Effect.flip)).code).toBe(
         "invalid-response",
       );
+    }),
+  ).pipe(Effect.provide(TestLayer)),
+);
+
+it.effect("keeps healthy folder listings when another connected client times out", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const service = yield* SidebarFolders.SidebarFolders;
+      yield* listen(service, "healthy", (request) =>
+        service.respond({
+          clientId: "healthy",
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          result: { type: "listed", folders: [] },
+        }),
+      );
+      const requested = yield* Deferred.make<void>();
+      yield* listen(service, "silent", () =>
+        Deferred.succeed(requested, undefined).pipe(Effect.asVoid),
+      );
+      const action = yield* service.list().pipe(Effect.forkChild);
+      yield* Deferred.await(requested);
+      yield* TestClock.adjust("11 seconds");
+      const result = yield* Fiber.join(action);
+      expect(result.clients).toEqual([{ clientId: "healthy", label: "healthy", folders: [] }]);
+      expect(result.failures).toMatchObject([
+        { clientId: "silent", label: "silent", error: { code: "timeout" } },
+      ]);
+      const targeted = yield* service.list("silent").pipe(Effect.flip, Effect.forkChild);
+      yield* TestClock.adjust("11 seconds");
+      expect((yield* Fiber.join(targeted)).code).toBe("timeout");
     }),
   ).pipe(Effect.provide(TestLayer)),
 );

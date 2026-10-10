@@ -14,7 +14,7 @@ const make = Effect.gen(function* () {
     ) => Effect.Effect<A, SidebarFoldersError>,
   ) =>
     Option.match(service, {
-      onNone: () => Effect.fail(new SidebarFoldersError({ code: "unavailable" })),
+      onNone: () => Effect.fail(SidebarFoldersError.fromCode("unavailable")),
       onSome: use,
     });
 

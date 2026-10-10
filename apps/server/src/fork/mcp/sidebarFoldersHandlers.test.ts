@@ -78,6 +78,7 @@ it.effect("lists and deletes through the registered tools and connected client",
       yield* Deferred.await(connected);
       expect(yield* call("list_sidebar_folders", {})).toEqual({
         clients: [{ clientId: "desktop", label: "Desktop", folders: [] }],
+        failures: [],
       });
       expect(
         yield* call("delete_sidebar_folder", { clientId: "desktop", folderId: "empty" }),
