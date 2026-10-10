@@ -377,7 +377,8 @@ Updates metadata for the calling thread or any other thread in the environment.
 The typed actions are `rename`, `regenerate_title`, `link_pull_request`, and
 `unlink_pull_request`. A link input supplies the repository, number, and URL;
 the server records the target thread's project ID. Branch and workspace changes
-are outside this tool.
+are outside this tool; use `t3_worktree_handoff` with its optional `threadId` to
+move a thread to a new or existing worktree, or back to the project checkout.
 
 The result includes the command ID and durable event sequence together with the
 resultant title, title-regeneration marker, and linked pull request. Reusing a
