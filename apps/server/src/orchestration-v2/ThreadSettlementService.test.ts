@@ -276,6 +276,25 @@ describe("resolveAutoSettlementAt", () => {
     ).toBeNull();
   });
 
+  it("supports sub-day inactivity windows", () => {
+    const input = {
+      thread: shell({ latestRunCompletedAt: at(-5 * 60 * 60 * 1_000) }),
+      pullRequest: null,
+      nowMs: NOW_MS,
+      autoSettleAfterDays: 4 / 24,
+      autoSettleOnMerge: false,
+    };
+    expect(ThreadSettlementService.resolveAutoSettlementAt(input)).toEqual(
+      at(-5 * 60 * 60 * 1_000),
+    );
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({
+        ...input,
+        thread: shell({ latestRunCompletedAt: at(-3 * 60 * 60 * 1_000) }),
+      }),
+    ).toBeNull();
+  });
+
   it.each(["manual", "timer"])("restarts inactivity on a %s snooze wake", (wake) => {
     const thread = {
       ...shell({ latestRunCompletedAt: at(-4 * DAY_MS) }),
