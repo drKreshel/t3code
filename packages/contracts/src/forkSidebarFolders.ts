@@ -20,7 +20,8 @@ const SidebarFoldersErrorCode = Schema.Literals([
 
 const errorMessages = {
   unavailable: "No writable web or desktop client is connected for sidebar folder tools.",
-  "client-disconnected": "The selected sidebar folder client disconnected.",
+  "client-disconnected":
+    "The selected sidebar folder client is no longer connected. Client IDs change after a reload or restart. List folders again before retrying.",
   busy: "The sidebar folder client is busy. Wait for current calls to finish.",
   timeout: "The sidebar folder client did not respond in time. List folders again before retrying.",
   "not-found": "The sidebar folder was not found in the selected client.",

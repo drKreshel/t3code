@@ -23,7 +23,7 @@ const shared = {
 const ListSidebarFolders = Tool.make("list_sidebar_folders", {
   ...shared,
   description:
-    "List sidebar folders in connected writable web and desktop clients, including empty folders, nesting, chat counts, and ticket or scheduled task routing. Sidebar folders are client-local: use the returned clientId and folder id with delete_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind. Unresponsive clients are reported in failures; healthy layouts remain available.",
+    "List sidebar folders in connected writable web and desktop clients, including empty folders, nesting, chat counts, and ticket or scheduled task routing. Sidebar folders are client-local. Client IDs last only until that client reloads or restarts; list again before deleting and use the returned clientId and folder id with delete_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind. Unresponsive clients are reported in failures; healthy layouts remain available.",
   parameters: Schema.Struct({ clientId: Schema.optionalKey(TrimmedNonEmptyString) }),
   success: SidebarFolderListing,
 })

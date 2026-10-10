@@ -1842,7 +1842,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+export const CoreWsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -2029,6 +2029,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
+).middleware(RpcScopeAuthorization);
+
+// Type core and fork handlers separately to stay below TypeScript's instantiation limit.
+export const ForkWsRpcGroup = RpcGroup.make(
   ForkBoardsSubscribeRpc,
   ForkBoardsSubscribeTicketRpc,
   ForkBoardsDispatchRpc,
@@ -2050,3 +2054,5 @@ export const WsRpcGroup = RpcGroup.make(
   ForkSidebarFoldersClaimRpc,
   ForkSidebarFoldersRespondRpc,
 ).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = CoreWsRpcGroup.merge(ForkWsRpcGroup);

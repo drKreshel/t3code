@@ -5,6 +5,9 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import { McpSchema, McpServer } from "effect/ai";
+
+import * as McpHttpServer from "../../mcp/McpHttpServer.ts";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
 import * as McpToolAccess from "../../mcp/McpToolAccess.ts";
@@ -32,6 +35,29 @@ const TestLayer = McpToolAccess.HandlersLayer.layer(SidebarFoldersToolkitHandler
   Layer.provide(NodeServices.layer),
 );
 
+const RegistrationLayer = McpHttpServer.toolkitRegistration(
+  SidebarFoldersToolkit,
+  SidebarFoldersToolkitHandlersLive,
+).pipe(
+  Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provideMerge(SidebarFolders.layer),
+  Layer.provideMerge(liveThreadsLayer),
+  Layer.provide(NodeServices.layer),
+);
+
+const mcpClient = McpSchema.McpServerClient.of({
+  clientId: 1,
+  protocolVersion: "2025-06-18",
+  clientCapabilities: {},
+  clientInfo: { name: "folder-test", version: "1" },
+  initializePayload: {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "folder-test", version: "1" },
+  },
+  getClient: Effect.die("unused"),
+});
+
 const tools = Effect.gen(function* () {
   const toolkit = yield* SidebarFoldersToolkit;
   return <Name extends keyof typeof SidebarFoldersToolkit.tools>(
@@ -51,7 +77,20 @@ it.effect("lists and deletes through the registered tools and connected client",
   Effect.scoped(
     Effect.gen(function* () {
       const service = yield* SidebarFolders.SidebarFolders;
-      const call = yield* tools;
+      const server = yield* McpServer.McpServer;
+      expect(server.tools.map(({ tool }) => tool.name).toSorted()).toEqual([
+        "delete_sidebar_folder",
+        "list_sidebar_folders",
+      ]);
+      const call = (name: string, args: Record<string, unknown>) =>
+        server.callTool({ name, arguments: args }).pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, mcpClient),
+          Effect.map((result) => {
+            expect(result.isError).toBe(false);
+            return result.structuredContent;
+          }),
+        );
       const connected = yield* Deferred.make<void>();
       yield* service.connect({ clientId: "desktop", label: "Desktop" }).pipe(
         Stream.runForEach((event) => {
@@ -84,7 +123,7 @@ it.effect("lists and deletes through the registered tools and connected client",
         yield* call("delete_sidebar_folder", { clientId: "desktop", folderId: "empty" }),
       ).toMatchObject({ type: "deleted", deletedFolderIds: ["empty"] });
     }),
-  ).pipe(Effect.provide(TestLayer)),
+  ).pipe(Effect.provide(RegistrationLayer)),
 );
 
 it.effect("refuses outside callers and read-only MCP clients before deleting", () =>

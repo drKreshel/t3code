@@ -90,7 +90,7 @@ const make = Effect.gen(function* () {
     const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
     const deferred = yield* Deferred.make<SidebarFolderResult, SidebarFoldersError>();
     const client = clients.get(clientId);
-    if (!client) return yield* SidebarFoldersError.fromCode("unavailable");
+    if (!client) return yield* SidebarFoldersError.fromCode("client-disconnected");
     pending.set(requestId, {
       clientId,
       connectionId: client.connectionId,
@@ -148,7 +148,10 @@ const make = Effect.gen(function* () {
     const selected = [...clients.values()].filter(
       (client) => clientId === undefined || client.clientId === clientId,
     );
-    if (selected.length === 0) return yield* SidebarFoldersError.fromCode("unavailable");
+    if (selected.length === 0)
+      return yield* SidebarFoldersError.fromCode(
+        clientId === undefined ? "unavailable" : "client-disconnected",
+      );
     const listClient = (client: SidebarFolderClient) =>
       invoke(client.clientId, { type: "list" }).pipe(
         Effect.flatMap((result) =>

@@ -215,3 +215,32 @@ it.effect("keeps healthy folder listings when another connected client times out
     }),
   ).pipe(Effect.provide(TestLayer)),
 );
+
+it.effect(
+  "tells callers with an expired client ID to list again while another client remains available",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* SidebarFolders.SidebarFolders;
+        yield* listen(service, "new-client", (request) =>
+          service.respond({
+            clientId: "new-client",
+            connectionId: request.connectionId,
+            requestId: request.requestId,
+            result: { type: "listed", folders: [] },
+          }),
+        );
+        const errors = [
+          yield* service.list("old-client").pipe(Effect.flip),
+          yield* service.delete("old-client", "folder").pipe(Effect.flip),
+        ];
+        for (const error of errors) {
+          expect(error.code).toBe("client-disconnected");
+          expect(error.message).toContain("List folders again before retrying.");
+        }
+        expect((yield* service.list()).clients.map((client) => client.clientId)).toEqual([
+          "new-client",
+        ]);
+      }),
+    ).pipe(Effect.provide(TestLayer)),
+);
