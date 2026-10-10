@@ -42,6 +42,7 @@ import * as ForkLegacyAutomations from "./fork/automations/LegacyAutomations.ts"
 import * as ForkBoards from "./fork/boards/BoardsService.ts";
 import * as ForkBoardUpkeep from "./fork/boards/BoardUpkeep.ts";
 import * as ForkSkills from "./fork/skills/SkillsService.ts";
+import * as ForkSidebarFolders from "./fork/sidebarFolders/SidebarFolders.ts";
 import * as ForkThreadPins from "./fork/threadPins/ThreadPinsService.ts";
 import * as ForkTaskFolders from "./fork/taskFolders/TaskFolders.ts";
 import * as ForkBoardTemplates from "./fork/templates/BoardTemplates.ts";
@@ -573,6 +574,7 @@ const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer
     Layer.provideMerge(ForkBoards.layer),
     Layer.provideMerge(ForkSkills.layer),
     Layer.provideMerge(ForkThreadPins.layer),
+    Layer.provideMerge(ForkSidebarFolders.layer),
     Layer.provideMerge(
       Layer.mergeAll(
         AgentAwarenessRelay.layer,

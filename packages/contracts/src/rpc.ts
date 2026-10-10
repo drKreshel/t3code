@@ -31,6 +31,11 @@ import {
   ForkBoardsSubscribeRpc,
   ForkBoardsSubscribeTicketRpc,
 } from "./forkBoards.ts";
+import {
+  ForkSidebarFoldersConnectRpc,
+  ForkSidebarFoldersRespondRpc,
+  ForkSidebarFoldersClaimRpc,
+} from "./forkSidebarFolders.ts";
 import { ForkAgentContextThreadRpc } from "./forkAgentContext.ts";
 import {
   ForkSkillsListRpc,
@@ -2041,4 +2046,7 @@ export const WsRpcGroup = RpcGroup.make(
   ForkSkillsSaveSettingsRpc,
   ForkThreadPinsSubscribeRpc,
   ForkThreadPinsDispatchRpc,
+  ForkSidebarFoldersConnectRpc,
+  ForkSidebarFoldersClaimRpc,
+  ForkSidebarFoldersRespondRpc,
 ).middleware(RpcScopeAuthorization);

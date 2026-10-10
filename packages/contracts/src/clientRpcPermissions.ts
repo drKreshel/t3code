@@ -5,10 +5,13 @@ import {
   AuthSourceControlWriteScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
+import { FORK_SIDEBAR_FOLDERS_WS_METHODS } from "./forkSidebarFolders.ts";
 import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
+  [FORK_SIDEBAR_FOLDERS_WS_METHODS.claim]: AuthOrchestrationOperateScope,
+  [FORK_SIDEBAR_FOLDERS_WS_METHODS.respond]: AuthOrchestrationOperateScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsComment]: AuthSourceControlWriteScope,

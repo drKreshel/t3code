@@ -1,5 +1,6 @@
 import {
   FORK_BOARDS_WS_METHODS,
+  FORK_SIDEBAR_FOLDERS_WS_METHODS,
   FORK_THREAD_PINS_WS_METHODS,
   FORK_TASK_FOLDERS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
@@ -76,6 +77,7 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.terminalAttach
   | typeof WS_METHODS.terminalObserve
   | typeof FORK_BOARDS_WS_METHODS.subscribe
+  | typeof FORK_SIDEBAR_FOLDERS_WS_METHODS.connect
   | typeof FORK_BOARDS_WS_METHODS.subscribeTicket
   | typeof FORK_WORKSPACES_WS_METHODS.subscribe
   | typeof FORK_TEMPLATES_WS_METHODS.subscribe

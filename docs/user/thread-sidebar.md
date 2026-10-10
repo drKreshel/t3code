@@ -188,6 +188,11 @@ brings the folder back and keeps its chats settled. While any chat inside is
 active, a settled folder shows with the others. Subfolders offer **Settle all
 chats** instead.
 
+With a web or desktop client connected, you can ask an agent to list or delete
+sidebar folders. Deleting a folder removes its subfolders and returns their chats
+to the main list. Clearing a ticket or scheduled task's folder field leaves the
+sidebar folder in place.
+
 ## Organize scheduled task runs
 
 Open **Scheduled Tasks** from the bottom of the sidebar to see every task.

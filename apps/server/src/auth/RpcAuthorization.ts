@@ -8,6 +8,7 @@ import {
   FORK_AGENT_CONTEXT_WS_METHODS,
   FORK_SKILLS_WS_METHODS,
   FORK_BOARDS_WS_METHODS,
+  FORK_SIDEBAR_FOLDERS_WS_METHODS,
   FORK_TASK_FOLDERS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   FORK_WORKSPACES_WS_METHODS,
@@ -214,6 +215,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.subscribeServerLifecycle]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeAuthAccess]: AuthAccessReadScope,
   [WS_METHODS.subscribeBackgroundPolicy]: AuthOrchestrationReadScope,
+  [FORK_SIDEBAR_FOLDERS_WS_METHODS.connect]: AuthOrchestrationOperateScope,
   // Fork: boards and tickets.
   [FORK_BOARDS_WS_METHODS.subscribe]: AuthOrchestrationReadScope,
   [FORK_BOARDS_WS_METHODS.subscribeTicket]: AuthOrchestrationReadScope,

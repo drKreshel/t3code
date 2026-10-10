@@ -1,6 +1,7 @@
 import {
   FORK_AGENT_CONTEXT_WS_METHODS,
   FORK_BOARDS_WS_METHODS,
+  FORK_SIDEBAR_FOLDERS_WS_METHODS,
   FORK_SKILLS_WS_METHODS,
   FORK_TASK_FOLDERS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
@@ -213,6 +214,9 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeAuthAccess]: "auth",
   [WS_METHODS.subscribeBackgroundPolicy]: "server",
   // Fork features.
+  [FORK_SIDEBAR_FOLDERS_WS_METHODS.connect]: "fork-sidebar-folders",
+  [FORK_SIDEBAR_FOLDERS_WS_METHODS.claim]: "fork-sidebar-folders",
+  [FORK_SIDEBAR_FOLDERS_WS_METHODS.respond]: "fork-sidebar-folders",
   [FORK_BOARDS_WS_METHODS.subscribe]: "fork-boards",
   [FORK_BOARDS_WS_METHODS.subscribeTicket]: "fork-boards",
   [FORK_BOARDS_WS_METHODS.dispatch]: "fork-boards",

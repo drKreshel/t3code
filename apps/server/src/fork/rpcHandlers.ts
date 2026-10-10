@@ -12,6 +12,11 @@ import {
   SkillsError,
   type SkillsSettings,
   FORK_BOARDS_WS_METHODS,
+  FORK_SIDEBAR_FOLDERS_WS_METHODS,
+  SidebarFoldersError,
+  type SidebarFolderClient,
+  type SidebarFolderReply,
+  type SidebarFolderRequestRef,
   FORK_TASK_FOLDERS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
   type SetTaskFolderInput,
@@ -30,6 +35,7 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import { makeThreadAgentContext } from "./agentContext/AgentContext.ts";
+import * as SidebarFolders from "./sidebarFolders/SidebarFolders.ts";
 import { BoardsService } from "./boards/BoardsService.ts";
 import { SkillsService } from "./skills/SkillsService.ts";
 import { ThreadPinsService } from "./threadPins/ThreadPinsService.ts";
@@ -71,6 +77,7 @@ export const makeForkRpcHandlers = () =>
   Effect.gen(function* () {
     // Optional so runtimes that do not provide fork services (upstream's own
     // server tests) still build; there, fork methods report unavailability.
+    const sidebarFolders = yield* Effect.serviceOption(SidebarFolders.SidebarFolders);
     const maybeBoards = yield* Effect.serviceOption(BoardsService);
     const boards = Option.getOrElse(maybeBoards, () => unavailableBoards);
     const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
@@ -87,6 +94,21 @@ export const makeForkRpcHandlers = () =>
         onSome: run,
       });
     return {
+      [FORK_SIDEBAR_FOLDERS_WS_METHODS.connect]: (input: SidebarFolderClient) =>
+        Option.match(sidebarFolders, {
+          onNone: () => Stream.fail(new SidebarFoldersError({ code: "unavailable" })),
+          onSome: (service) => service.connect(input),
+        }),
+      [FORK_SIDEBAR_FOLDERS_WS_METHODS.claim]: (input: SidebarFolderRequestRef) =>
+        Option.match(sidebarFolders, {
+          onNone: () => Effect.fail(new SidebarFoldersError({ code: "unavailable" })),
+          onSome: (service) => service.claim(input),
+        }),
+      [FORK_SIDEBAR_FOLDERS_WS_METHODS.respond]: (input: SidebarFolderReply) =>
+        Option.match(sidebarFolders, {
+          onNone: () => Effect.fail(new SidebarFoldersError({ code: "unavailable" })),
+          onSome: (service) => service.respond(input),
+        }),
       [FORK_SKILLS_WS_METHODS.list]: () => withSkills((service) => service.list),
       [FORK_SKILLS_WS_METHODS.read]: (input: { readonly path: string }) =>
         withSkills((service) => service.read(input.path)),
