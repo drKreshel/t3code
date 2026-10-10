@@ -7238,6 +7238,84 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ],
   });
 
+  it.effect("uses the model and effort reported by native subagent activity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const model = "gpt-6-luna";
+        const reasoningEffort = "high";
+        const selectionObserved = yield* Deferred.make<void>();
+        let metadataRequests = 0;
+        const transcript = makeCodexReplayTranscript({
+          scenario: "codex-subagent-activity-selection",
+          entries: resumeSubagentTranscript.entries.map((entry) => {
+            if (
+              entry.type !== "emit_inbound" ||
+              entry.label !== "item/completed/subAgentActivity-started" ||
+              !Predicate.isObject(entry.frame) ||
+              !Predicate.isObject(entry.frame.params) ||
+              !Predicate.isObject(entry.frame.params.item)
+            ) {
+              return entry;
+            }
+            return {
+              ...entry,
+              frame: {
+                ...entry.frame,
+                params: {
+                  ...entry.frame.params,
+                  item: {
+                    ...entry.frame.params.item,
+                    model,
+                    reasoningEffort,
+                  },
+                },
+              },
+            } as CodexReplay.CodexAppServerReplayEntry;
+          }),
+        });
+        const harness = yield* makeCodexReplayHarness(
+          transcript,
+          (event) =>
+            event.type === "subagent.updated" && event.subagent.model === model
+              ? Deferred.succeed(selectionObserved, undefined)
+              : Effect.void,
+          undefined,
+          () => {
+            metadataRequests++;
+            return Effect.succeed({ thread: { id: RESUME_CHILD_THREAD }, model: "gpt-5.6-sol" });
+          },
+        );
+
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("attempt-subagent-activity-selection"),
+            text: RESUME_PROMPT,
+          }),
+        );
+        yield* Deferred.await(selectionObserved);
+
+        const subagent = harness
+          .subagentUpdates()
+          .find((event) => event.subagent.model === model)?.subagent;
+        assert.deepEqual(subagent?.modelSelection, {
+          instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
+          model,
+          options: [{ id: "reasoningEffort", value: reasoningEffort }],
+        });
+        const child = harness.events.find((event) => event.type === "app_thread.created");
+        assert.equal(child?.appThread.modelSelection.model, model);
+        assert.equal(metadataRequests, 0);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
   it.effect.each([
     { name: "current Codex Sol", model: "gpt-6-sol" },
     { name: "current Codex wrong child", model: null },
