@@ -16,7 +16,9 @@ const SidebarFoldersErrorCode = Schema.Literals([
   "busy",
   "timeout",
   "not-found",
+  "nested-folder",
   "thread-not-found",
+  "thread-settlement-failed",
   "invalid-response",
 ]);
 
@@ -27,7 +29,10 @@ const errorMessages = {
   busy: "The sidebar folder client is busy. Wait for current calls to finish.",
   timeout: "The sidebar folder client did not respond in time. List folders again before retrying.",
   "not-found": "The sidebar folder was not found in the selected client.",
+  "nested-folder": "Only top-level sidebar folders can be settled or un-settled.",
   "thread-not-found": "The thread was not found in the selected client.",
+  "thread-settlement-failed":
+    "The folder was not settled because one or more of its chats could not be settled.",
   "invalid-response": "The sidebar folder client returned an invalid response.",
 };
 
@@ -79,6 +84,11 @@ export const SidebarFolderAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("list") }),
   Schema.Struct({ type: Schema.Literal("delete"), folderId: TrimmedNonEmptyString }),
   Schema.Struct({
+    type: Schema.Literal("set-settled"),
+    folderId: TrimmedNonEmptyString,
+    settled: Schema.Boolean,
+  }),
+  Schema.Struct({
     type: Schema.Literal("move-thread"),
     thread: ScopedThreadRef,
     folderId: Schema.NullOr(TrimmedNonEmptyString),
@@ -100,9 +110,16 @@ export const SidebarFolderThreadMoveResult = Schema.Struct({
   folderId: Schema.NullOr(TrimmedNonEmptyString),
 });
 
+export const SidebarFolderSettlementResult = Schema.Struct({
+  type: Schema.Literal("folder-settled"),
+  folderId: TrimmedNonEmptyString,
+  settled: Schema.Boolean,
+});
+
 export const SidebarFolderResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("listed"), folders: Schema.Array(SidebarFolderSummary) }),
   SidebarFolderDeletionResult,
+  SidebarFolderSettlementResult,
   SidebarFolderThreadMoveResult,
 ]);
 export type SidebarFolderResult = typeof SidebarFolderResult.Type;

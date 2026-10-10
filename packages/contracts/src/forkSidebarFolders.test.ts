@@ -42,4 +42,18 @@ describe("sidebar folder error transport", () => {
     };
     expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
   });
+
+  it("transports folder settlement results", () => {
+    const reply = {
+      clientId: "web",
+      connectionId: "connection",
+      requestId: "request",
+      result: {
+        type: "folder-settled" as const,
+        folderId: "folder",
+        settled: true,
+      },
+    };
+    expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
+  });
 });

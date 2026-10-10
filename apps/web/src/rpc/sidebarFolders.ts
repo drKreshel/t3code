@@ -16,12 +16,34 @@ import { Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { useSidebarFolderStore } from "../sidebarFolderStore";
+import { folderThreadSettlementTargets } from "../sidebarFolderSettlement.logic";
 import { executeClaimedSidebarFolderAction } from "../sidebarFolderTools.logic";
-import { readThreadShell } from "../state/entities";
+import { readEnvironmentSupportsSettlement, readThreadShell } from "../state/entities";
+import { threadEnvironment } from "../state/threads";
 import { randomUUID } from "../lib/utils";
 import { appAtomRegistry } from "./atomRegistry";
 
 const clientId = randomUUID();
+
+const settleFolderThreads = (threadKeys: readonly string[]) =>
+  Effect.promise(async () => {
+    const targets = folderThreadSettlementTargets(
+      threadKeys,
+      true,
+      readThreadShell,
+      readEnvironmentSupportsSettlement,
+      new Set(),
+    );
+    const results = await Promise.all(
+      targets.map((target) =>
+        threadEnvironment.settle.run(appAtomRegistry, {
+          environmentId: target.environmentId,
+          input: { threadId: target.threadId },
+        }),
+      ),
+    );
+    return results.every((result) => result._tag === "Success");
+  });
 
 export const sidebarFolderRespond = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "fork:sidebar-folders:respond",
@@ -46,6 +68,7 @@ export const sidebarFolderRespond = createEnvironmentRpcCommand(connectionAtomRu
           const shell = ref === null ? null : readThreadShell(ref);
           return shell !== null && shell.archivedAt === null && shell.deletedAt === null;
         },
+        settleFolderThreads,
       );
       if (result === null) return;
       yield* requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.respond, { ...ref, ...result });

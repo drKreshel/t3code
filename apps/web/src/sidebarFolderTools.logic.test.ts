@@ -183,6 +183,61 @@ describe("sidebar folder agent actions", () => {
     );
     expect(missingFolder.error?.code).toBe("not-found");
   });
+
+  it.effect("settles a top-level folder and all chats in its subtree", () =>
+    Effect.gen(function* () {
+      const store = useSidebarFolderStore;
+      const parentId = store.getState().createFolder({ name: "Project", parentId: null });
+      const childId = store.getState().createFolder({ name: "Feature", parentId });
+      store.setState({
+        threadKeysByFolderId: {
+          [parentId]: ["local:parent"],
+          [childId]: ["local:child"],
+        },
+      });
+      let requested: readonly string[] = [];
+      const result = yield* executeClaimedSidebarFolderAction(
+        Effect.succeed(true),
+        store.getState,
+        { type: "set-settled", folderId: parentId, settled: true },
+        isExistingThread,
+        (threadKeys) =>
+          Effect.sync(() => {
+            requested = threadKeys;
+            return true;
+          }),
+      );
+      expect(result).toEqual({
+        result: { type: "folder-settled", folderId: parentId, settled: true },
+      });
+      expect(store.getState().settledFolderIds).toEqual([parentId]);
+      expect(requested).toEqual(["local:parent", "local:child"]);
+    }),
+  );
+
+  it("un-settles a top-level folder without un-settling its chats and rejects nested folders", () => {
+    const store = useSidebarFolderStore;
+    const parentId = store.getState().createFolder({ name: "Project", parentId: null });
+    const childId = store.getState().createFolder({ name: "Feature", parentId });
+    store.getState().setFolderSettled(parentId, true);
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-settled", folderId: parentId, settled: false },
+        isExistingThread,
+      ),
+    ).toEqual({
+      result: { type: "folder-settled", folderId: parentId, settled: false },
+    });
+    expect(store.getState().settledFolderIds).toEqual([]);
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-settled", folderId: childId, settled: true },
+        isExistingThread,
+      ).error?.code,
+    ).toBe("nested-folder");
+  });
 });
 
 it("counts only existing, unarchived chats when listing and releasing a folder", () => {
@@ -217,6 +272,23 @@ it.effect("does not apply a delete after its queued request expires", () =>
     );
     expect(result).toBeNull();
     expect(store.getState()).toBe(before);
+  }),
+);
+
+it.effect("leaves the folder active when one of its chats does not settle", () =>
+  Effect.gen(function* () {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Project", parentId: null });
+    store.setState({ threadKeysByFolderId: { [folderId]: ["local:chat"] } });
+    const result = yield* executeClaimedSidebarFolderAction(
+      Effect.succeed(true),
+      store.getState,
+      { type: "set-settled", folderId, settled: true },
+      isExistingThread,
+      () => Effect.succeed(false),
+    );
+    expect(result?.error?.code).toBe("thread-settlement-failed");
+    expect(store.getState().settledFolderIds).toEqual([]);
   }),
 );
 

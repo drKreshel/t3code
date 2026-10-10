@@ -73,7 +73,7 @@ const tools = Effect.gen(function* () {
     );
 });
 
-it.effect("lists, deletes, and moves threads through the connected client", () =>
+it.effect("lists, deletes, settles, and moves threads through the connected client", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const service = yield* SidebarFolders.SidebarFolders;
@@ -82,6 +82,7 @@ it.effect("lists, deletes, and moves threads through the connected client", () =
         "delete_sidebar_folder",
         "list_sidebar_folders",
         "move_thread_to_sidebar_folder",
+        "settle_sidebar_folder",
       ]);
       const call = (name: string, args: Record<string, unknown>) =>
         server.callTool({ name, arguments: args }).pipe(
@@ -112,11 +113,17 @@ it.effect("lists, deletes, and moves threads through the connected client", () =
                       queuedTicketFolderClears: 0,
                       queuedTaskFolderClears: 0,
                     }
-                  : {
-                      type: "thread-moved",
-                      thread: event.action.thread,
-                      folderId: event.action.folderId,
-                    },
+                  : event.action.type === "set-settled"
+                    ? {
+                        type: "folder-settled",
+                        folderId: event.action.folderId,
+                        settled: event.action.settled,
+                      }
+                    : {
+                        type: "thread-moved",
+                        thread: event.action.thread,
+                        folderId: event.action.folderId,
+                      },
           });
         }),
         Effect.forkChild,
@@ -150,6 +157,27 @@ it.effect("lists, deletes, and moves threads through the connected client", () =
         thread: { environmentId: "environment", threadId: "thread:shared" },
         folderId: null,
       });
+      expect(
+        yield* call("settle_sidebar_folder", {
+          clientId: "desktop",
+          folderId: "scheduled-tasks",
+        }),
+      ).toEqual({
+        type: "folder-settled",
+        folderId: "scheduled-tasks",
+        settled: true,
+      });
+      expect(
+        yield* call("settle_sidebar_folder", {
+          clientId: "desktop",
+          folderId: "scheduled-tasks",
+          settled: false,
+        }),
+      ).toEqual({
+        type: "folder-settled",
+        folderId: "scheduled-tasks",
+        settled: false,
+      });
     }),
   ).pipe(Effect.provide(RegistrationLayer)),
 );
@@ -178,6 +206,16 @@ it.effect("refuses outside callers and read-only MCP clients before folder write
       yield* call(
         "move_thread_to_sidebar_folder",
         { clientId: "desktop", threadId: "thread", folderId: "folder" },
+        {
+          ...invocation,
+          client: { sessionId: "external", label: "External", access: "read-only" },
+        },
+      ).pipe(Effect.flip),
+    ).toMatchObject({ code: "capability_denied" });
+    expect(
+      yield* call(
+        "settle_sidebar_folder",
+        { clientId: "desktop", folderId: "folder" },
         {
           ...invocation,
           client: { sessionId: "external", label: "External", access: "read-only" },

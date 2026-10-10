@@ -2,6 +2,7 @@ import {
   OrchestratorMcpFailure,
   SidebarFolderDeletionResult,
   SidebarFolderListing,
+  SidebarFolderSettlementResult,
   SidebarFolderThreadMoveResult,
   SidebarFoldersError,
   ThreadId,
@@ -25,7 +26,7 @@ const shared = {
 const ListSidebarFolders = Tool.make("list_sidebar_folders", {
   ...shared,
   description:
-    "List sidebar folders in connected writable web and desktop clients, including empty folders, nesting, chat counts, and ticket or scheduled task routing. Sidebar folders are client-local. Client IDs last only until that client reloads or restarts; list again before changing a layout and use the returned clientId and folder id with delete_sidebar_folder or move_thread_to_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind. Unresponsive clients are reported in failures; healthy layouts remain available.",
+    "List sidebar folders in connected writable web and desktop clients, including empty folders, nesting, chat counts, settled state, and ticket or scheduled task routing. Sidebar folders are client-local. Client IDs last only until that client reloads or restarts; list again before changing a layout and use the returned clientId and folder id with settle_sidebar_folder, delete_sidebar_folder, or move_thread_to_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind. Unresponsive clients are reported in failures; healthy layouts remain available.",
   parameters: Schema.Struct({ clientId: Schema.optionalKey(TrimmedNonEmptyString) }),
   success: SidebarFolderListing,
 })
@@ -44,6 +45,22 @@ const DeleteSidebarFolder = Tool.make("delete_sidebar_folder", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const SettleSidebarFolder = Tool.make("settle_sidebar_folder", {
+  ...shared,
+  description:
+    "Settle or un-settle a top-level sidebar folder in the selected connected client, using clientId and folderId from list_sidebar_folders. Settling also settles every eligible chat in the folder and its subfolders. Set settled=false to return the folder to the active Folders section; its chats stay settled, matching the UI. The layout is client-local, so repeat for another listed client when desired.",
+  parameters: Schema.Struct({
+    clientId: TrimmedNonEmptyString,
+    folderId: TrimmedNonEmptyString,
+    settled: Schema.optionalKey(Schema.Boolean),
+  }),
+  success: SidebarFolderSettlementResult,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
 const MoveThreadToSidebarFolder = Tool.make("move_thread_to_sidebar_folder", {
@@ -65,5 +82,6 @@ const MoveThreadToSidebarFolder = Tool.make("move_thread_to_sidebar_folder", {
 export const SidebarFoldersToolkit = Toolkit.make(
   ListSidebarFolders,
   DeleteSidebarFolder,
+  SettleSidebarFolder,
   MoveThreadToSidebarFolder,
 );

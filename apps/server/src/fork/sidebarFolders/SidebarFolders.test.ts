@@ -69,11 +69,17 @@ it.effect(
                         queuedTicketFolderClears: 0,
                         queuedTaskFolderClears: 0,
                       }
-                    : {
-                        type: "thread-moved",
-                        thread: request.action.thread,
-                        folderId: request.action.folderId,
-                      },
+                    : request.action.type === "set-settled"
+                      ? {
+                          type: "folder-settled",
+                          folderId: request.action.folderId,
+                          settled: request.action.settled,
+                        }
+                      : {
+                          type: "thread-moved",
+                          thread: request.action.thread,
+                          folderId: request.action.folderId,
+                        },
             });
           });
         }
@@ -92,8 +98,13 @@ it.effect(
           thread,
           folderId: "folder",
         });
+        expect(yield* service.setSettled("web", "folder", true)).toEqual({
+          type: "folder-settled",
+          folderId: "folder",
+          settled: true,
+        });
         expect(actions.slice(0, 2).toSorted()).toEqual(["desktop:list", "web:list"]);
-        expect(actions.slice(2)).toEqual(["web:delete", "web:move-thread"]);
+        expect(actions.slice(2)).toEqual(["web:delete", "web:move-thread", "web:set-settled"]);
       }),
     ).pipe(Effect.provide(TestLayer)),
 );
@@ -248,6 +259,7 @@ it.effect(
         const errors = [
           yield* service.list("old-client").pipe(Effect.flip),
           yield* service.delete("old-client", "folder").pipe(Effect.flip),
+          yield* service.setSettled("old-client", "folder", true).pipe(Effect.flip),
         ];
         for (const error of errors) {
           expect(error.code).toBe("client-disconnected");

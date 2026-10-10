@@ -26,6 +26,11 @@ const make = Effect.gen(function* () {
     delete_sidebar_folder: McpToolAccess.actsAsCaller((input) =>
       withService((folders) => folders.delete(input.clientId, input.folderId)),
     ),
+    settle_sidebar_folder: McpToolAccess.actsAsCaller((input) =>
+      withService((folders) =>
+        folders.setSettled(input.clientId, input.folderId, input.settled ?? true),
+      ),
+    ),
     move_thread_to_sidebar_folder: McpToolAccess.writesThreads(
       (input) => [input.threadId],
       (input) =>

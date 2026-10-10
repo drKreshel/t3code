@@ -22,6 +22,7 @@ import {
 type FolderStore = SidebarFolderLayout &
   TicketFolderRoutingState & {
     readonly deleteFolder: (folderId: string) => void;
+    readonly setFolderSettled: (folderId: string, settled: boolean) => void;
     readonly moveThread: (
       threadKey: string,
       target: { readonly folderId: string; readonly position: "end" } | null,
@@ -78,8 +79,19 @@ export function executeSidebarFolderAction(
       },
     };
   }
-  if (!store.folders.some((folder) => folder.id === action.folderId))
-    return { error: SidebarFoldersError.fromCode("not-found") };
+  const folder = store.folders.find((candidate) => candidate.id === action.folderId);
+  if (folder === undefined) return { error: SidebarFoldersError.fromCode("not-found") };
+  if (action.type === "set-settled") {
+    if (folder.parentId !== null) return { error: SidebarFoldersError.fromCode("nested-folder") };
+    store.setFolderSettled(action.folderId, action.settled);
+    return {
+      result: {
+        type: "folder-settled",
+        folderId: action.folderId,
+        settled: action.settled,
+      },
+    };
+  }
   const deletedFolderIds = [...folderSubtreeIds(store, action.folderId)];
   const releasedThreadCount = folderSubtreeThreadKeys(store, action.folderId).filter(
     isExistingThread,
@@ -98,15 +110,27 @@ export function executeSidebarFolderAction(
 }
 
 /** Claims before reading or changing the layout, so expired queued calls cannot mutate it. */
-export function executeClaimedSidebarFolderAction<E, R>(
+export function executeClaimedSidebarFolderAction<E, R, R2 = never>(
   claim: Effect.Effect<boolean, E, R>,
   readStore: () => FolderStore,
   action: SidebarFolderAction,
   isExistingThread: (threadKey: string) => boolean,
+  settleThreads?: (threadKeys: readonly string[]) => Effect.Effect<boolean, never, R2>,
 ) {
-  return claim.pipe(
-    Effect.map((active) =>
-      active ? executeSidebarFolderAction(readStore(), action, isExistingThread) : null,
-    ),
-  );
+  return Effect.gen(function* () {
+    if (!(yield* claim)) return null;
+    const store = readStore();
+    if (
+      action.type === "set-settled" &&
+      action.settled &&
+      settleThreads !== undefined &&
+      store.folders.some((folder) => folder.id === action.folderId && folder.parentId === null)
+    ) {
+      const threadKeys = folderSubtreeThreadKeys(store, action.folderId);
+      if (threadKeys.length > 0 && !(yield* settleThreads(threadKeys))) {
+        return { error: SidebarFoldersError.fromCode("thread-settlement-failed") };
+      }
+    }
+    return executeSidebarFolderAction(store, action, isExistingThread);
+  });
 }
