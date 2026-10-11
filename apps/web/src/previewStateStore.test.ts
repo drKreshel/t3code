@@ -16,6 +16,7 @@ import {
   cancelPreviewSessionClose,
   previewStateAtom,
   readThreadPreviewState,
+  reconcilePreviewServerSessionIndex,
   reconcilePreviewServerSessions,
   rememberPreviewUrl,
   resetPreviewStateForTests,
@@ -451,6 +452,27 @@ describe("previewStateStore (single-tab)", () => {
     expect(state.sessions).toEqual({});
     expect(state.activeTabId).toBeNull();
     expect(state.snapshot).toBeNull();
+  });
+
+  it("reconciles the app-wide session index across threads", () => {
+    const first = makeSnapshot({ tabId: "tab_first" });
+    const second = makeSnapshot({ threadId: "thread-2", tabId: "tab_second" });
+
+    reconcilePreviewServerSessionIndex(environmentId, {
+      sessions: [first, second],
+      serverEpoch,
+      revision: 1,
+    });
+    expect(readThreadPreviewState(ref).sessions).toEqual({ [first.tabId]: first });
+    expect(readThreadPreviewState(otherRef).sessions).toEqual({ [second.tabId]: second });
+
+    reconcilePreviewServerSessionIndex(environmentId, {
+      sessions: [second],
+      serverEpoch,
+      revision: 2,
+    });
+    expect(readThreadPreviewState(ref).sessions).toEqual({});
+    expect(readThreadPreviewState(otherRef).sessions).toEqual({ [second.tabId]: second });
   });
 
   it("ignores a list response older than the latest server event", () => {

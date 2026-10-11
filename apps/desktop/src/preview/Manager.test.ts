@@ -313,6 +313,7 @@ const managerLayer = (platform: NodeJS.Platform = "darwin") =>
     Layer.provideMerge(layerFileSystem),
     Layer.provideMerge(Path.layer),
     Layer.provideMerge(NodeCrypto.layer),
+    Layer.provideMerge(Layer.succeed(HostProcess.Architecture, "arm64")),
     Layer.provideMerge(Layer.succeed(HostProcess.Platform, platform)),
   );
 
@@ -445,6 +446,10 @@ const setupRecordingRaceTabs = (manager: PreviewManager.PreviewManager["Service"
   });
 
 const TEST_FAVICON = "data:image/png;base64,cG5n";
+const NATIVE_PREVIEW_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) T3Code(Alpha)/0.0.33 Chrome/152.0.7977.130 Electron/44.4.5 Safari/537.36";
+const WHATSAPP_PREVIEW_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 
 const makeSourcePng = (width = 1, height = 1): Buffer => {
   const buffer = Buffer.alloc(24);
@@ -482,6 +487,8 @@ const makeFaviconWebContents = (options?: {
   });
   const off = vi.fn();
   const debuggerOff = vi.fn();
+  const debuggerSendCommand = vi.fn(async () => undefined);
+  const setUserAgent = vi.fn();
   const webContents = {
     id: options?.id ?? 42,
     isDestroyed: () => destroyed,
@@ -503,7 +510,8 @@ const makeFaviconWebContents = (options?: {
     off,
     ipc: { on: vi.fn(), off: vi.fn() },
     send: webviewSend,
-    session: { fetch },
+    session: { fetch, getUserAgent: () => NATIVE_PREVIEW_USER_AGENT },
+    setUserAgent,
     navigationHistory: { canGoBack: () => false, canGoForward: () => false },
     setIgnoreMenuShortcuts: vi.fn(),
     setWindowOpenHandler: vi.fn(),
@@ -511,7 +519,7 @@ const makeFaviconWebContents = (options?: {
     debugger: {
       isAttached: () => false,
       attach: vi.fn(),
-      sendCommand: vi.fn(async () => undefined),
+      sendCommand: debuggerSendCommand,
       on: vi.fn(),
       off: debuggerOff,
     },
@@ -519,11 +527,13 @@ const makeFaviconWebContents = (options?: {
   return {
     executeJavaScriptInIsolatedWorld,
     fetch,
+    debuggerSendCommand,
     debuggerOff,
     listeners,
     loadURL,
     off,
     reload,
+    setUserAgent,
     setDestroyed: (value: boolean) => {
       destroyed = value;
     },
@@ -940,6 +950,7 @@ describe("PreviewManager", () => {
     withManager((manager) =>
       Effect.gen(function* () {
         const loadURL = vi.fn(async () => undefined);
+        const setUserAgent = vi.fn();
         const listeners = new Map<string, (...args: never[]) => void>();
         fromId.mockReturnValue({
           id: 42,
@@ -953,6 +964,8 @@ describe("PreviewManager", () => {
           setAudioMuted: vi.fn(),
           isCurrentlyAudible: () => false,
           loadURL,
+          session: { getUserAgent: () => NATIVE_PREVIEW_USER_AGENT },
+          setUserAgent,
           on: vi.fn((event: string, listener: (...args: never[]) => void) => {
             listeners.set(event, listener);
           }),
@@ -978,6 +991,94 @@ describe("PreviewManager", () => {
 
         expect(loadURL).toHaveBeenCalledOnce();
         expect(loadURL).toHaveBeenCalledWith("http://localhost:3200/");
+        expect(setUserAgent).toHaveBeenCalledWith(NATIVE_PREVIEW_USER_AGENT);
+      }),
+    ),
+  );
+
+  effectIt.effect("uses plain Chrome only for WhatsApp navigations", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const preview = makeFaviconWebContents();
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_whatsapp_identity");
+        yield* manager.registerWebview("tab_whatsapp_identity", 42);
+
+        yield* manager.navigate("tab_whatsapp_identity", "https://web.whatsapp.com/");
+        expect(preview.setUserAgent).toHaveBeenLastCalledWith(WHATSAPP_PREVIEW_USER_AGENT);
+        expect(preview.loadURL).toHaveBeenLastCalledWith("https://web.whatsapp.com/");
+        expect(preview.debuggerSendCommand).toHaveBeenCalledWith(
+          "Emulation.setUserAgentOverride",
+          expect.objectContaining({
+            userAgent: WHATSAPP_PREVIEW_USER_AGENT,
+            userAgentMetadata: expect.objectContaining({
+              brands: expect.arrayContaining([
+                { brand: "Google Chrome", version: "152" },
+                { brand: "Chromium", version: "152" },
+              ]),
+              platform: "macOS",
+              mobile: false,
+            }),
+          }),
+        );
+
+        yield* manager.navigate("tab_whatsapp_identity", "https://example.com/");
+        expect(preview.setUserAgent).toHaveBeenLastCalledWith(NATIVE_PREVIEW_USER_AGENT);
+        expect(preview.loadURL).toHaveBeenLastCalledWith("https://example.com/");
+        expect(preview.debuggerSendCommand).toHaveBeenLastCalledWith(
+          "Emulation.setUserAgentOverride",
+          { userAgent: NATIVE_PREVIEW_USER_AGENT },
+        );
+
+        const preventDefault = vi.fn();
+        preview.listeners.get("will-navigate")?.(
+          { preventDefault } as never,
+          "https://web.whatsapp.com/send?phone=123" as never,
+        );
+        expect(preview.setUserAgent).toHaveBeenLastCalledWith(WHATSAPP_PREVIEW_USER_AGENT);
+        expect(preventDefault).toHaveBeenCalledOnce();
+        yield* settle(() =>
+          preview.loadURL.mock.calls.some(
+            ([url]) => url === "https://web.whatsapp.com/send?phone=123",
+          ),
+        );
+
+        const leavePreventDefault = vi.fn();
+        preview.listeners.get("will-navigate")?.(
+          { preventDefault: leavePreventDefault } as never,
+          "https://example.com/after-whatsapp" as never,
+        );
+        expect(leavePreventDefault).toHaveBeenCalledOnce();
+        yield* settle(() =>
+          preview.loadURL.mock.calls.some(([url]) => url === "https://example.com/after-whatsapp"),
+        );
+        expect(preview.setUserAgent).toHaveBeenLastCalledWith(NATIVE_PREVIEW_USER_AGENT);
+        expect(preview.debuggerSendCommand).toHaveBeenLastCalledWith(
+          "Emulation.setUserAgentOverride",
+          { userAgent: NATIVE_PREVIEW_USER_AGENT },
+        );
+      }),
+    ),
+  );
+
+  effectIt.effect("retries an initially loaded WhatsApp page with Chrome client hints", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const preview = makeFaviconWebContents({ url: "https://web.whatsapp.com/" });
+        fromId.mockReturnValue(preview.webContents);
+        yield* manager.createTab("tab_initial_whatsapp_identity");
+        yield* manager.registerWebview("tab_initial_whatsapp_identity", 42);
+
+        yield* settle(() => preview.reload.mock.calls.length === 1);
+        expect(preview.debuggerSendCommand).toHaveBeenCalledWith(
+          "Emulation.setUserAgentOverride",
+          expect.objectContaining({
+            userAgent: WHATSAPP_PREVIEW_USER_AGENT,
+            userAgentMetadata: expect.objectContaining({
+              brands: expect.arrayContaining([{ brand: "Google Chrome", version: "152" }]),
+            }),
+          }),
+        );
       }),
     ),
   );
@@ -1987,6 +2088,8 @@ describe("PreviewManager", () => {
           return audible;
         },
         loadURL: vi.fn(async () => undefined),
+        session: { getUserAgent: () => NATIVE_PREVIEW_USER_AGENT },
+        setUserAgent: vi.fn(),
         on: vi.fn((event: string, listener: (...args: never[]) => void) => {
           listeners.set(event, listener);
         }),

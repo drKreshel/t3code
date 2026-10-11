@@ -745,10 +745,21 @@ const make = Effect.gen(function* () {
   const createTab = async (snapshot: PreviewSessionSnapshot): Promise<ServerTab> => {
     const adopted = adoptedPages.get(tabKey(snapshot.threadId, snapshot.tabId));
     adoptedPages.delete(tabKey(snapshot.threadId, snapshot.tabId));
-    const desktop =
-      adopted === undefined && (await desktopRenders(snapshot))
-        ? await connectDesktop(snapshot)
-        : null;
+    const desktopAttached = adopted === undefined && (await desktopRenders(snapshot));
+    if (
+      adopted === undefined &&
+      desktopChannel.available &&
+      !desktopAttached &&
+      snapshot.profileId !== undefined &&
+      snapshot.profileId !== INCOGNITO_BROWSER_PROFILE_ID
+    ) {
+      throw new ServerBrowserPage.ServerBrowserOperationError(
+        "PreviewAutomationExecutionError",
+        `The desktop browser did not attach profile "${snapshot.profileId}". T3 did not open a separate headless profile because it would not share the desktop profile's saved login. Reload the desktop app and retry.`,
+        { reason: "desktopProfileUnavailable", profileId: snapshot.profileId },
+      );
+    }
+    const desktop = desktopAttached ? await connectDesktop(snapshot) : null;
     // An agent tab without a profile (no client reported one) keeps throwaway storage.
     const isolatedContext =
       adopted === undefined &&
@@ -1220,6 +1231,22 @@ const make = Effect.gen(function* () {
       });
     });
 
+  /**
+   * Preview sessions can predate this automation host, for example when the
+   * user opens a tab while the host is starting or reconnecting. Rehydrate
+   * those durable sessions before deciding the thread has no browser tab.
+   */
+  const ensureThreadTabs = async (threadId: string) => {
+    const { sessions } = await Effect.runPromise(
+      manager.list({ threadId: ThreadId.make(threadId) }),
+    );
+    await Promise.all(
+      sessions
+        .filter((snapshot) => snapshot.runtime === "server")
+        .map((snapshot) => ensureTab(snapshot).catch(constVoid)),
+    );
+  };
+
   const atTabLimit = (agentSessionId: string) =>
     tabs.size + pendingTabs.size >= SERVER_TAB_LIMIT ||
     [...tabs.values()].filter((tab) => tab.control.agentId === agentSessionId).length >=
@@ -1640,6 +1667,7 @@ const make = Effect.gen(function* () {
   const requireTab = async (request: PreviewAutomationRequest) => {
     if (!request.agentSessionId)
       throw new BrowserControlInterrupted("The agent session is missing. Reconnect the provider.");
+    await ensureThreadTabs(request.threadId);
     const owned = [...tabs.values()].filter(
       (tab) => tab.threadId === request.threadId && tab.control.agentId === request.agentSessionId,
     );
@@ -1688,6 +1716,7 @@ const make = Effect.gen(function* () {
     const input = request.input;
     switch (request.operation) {
       case "status":
+        await ensureThreadTabs(request.threadId);
         return statusWithTitle(
           request.tabId === undefined
             ? latestThreadTab(request.threadId, request.agentSessionId)
@@ -1702,6 +1731,7 @@ const make = Effect.gen(function* () {
         const open = input as PreviewAutomationOpenInput;
         const url = open.url === undefined ? undefined : normalizePreviewUrl(open.url);
         const reuse = open.reuseExistingTab ?? true;
+        if (reuse) await ensureThreadTabs(request.threadId);
         if (
           reuse &&
           !request.tabIdExplicit &&
@@ -1715,16 +1745,17 @@ const make = Effect.gen(function* () {
             "tabRequired",
           );
         // A tab still launching exists only as a session, so resolve it like a viewer would.
-        const found =
-          reuse && request.tabId !== undefined
-            ? await Effect.runPromise(
+        const found = reuse
+          ? request.tabId === undefined
+            ? latestThreadTab(request.threadId, request.agentSessionId)
+            : await Effect.runPromise(
                 findTab(request.threadId, request.tabId).pipe(
                   Effect.catchTags({
                     ServerBrowserTabNotFoundError: () => Effect.succeed(undefined),
                   }),
                 ),
               )
-            : undefined;
+          : undefined;
         // Only an explicit tabId reuses a tab this session did not open; a tab
         // it last read (such as the user's) is not taken over implicitly.
         const existing =

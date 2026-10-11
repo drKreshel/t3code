@@ -24,9 +24,10 @@ import {
   PreviewForwardedShortcut,
   MAX_KEYBINDINGS_COUNT,
 } from "@t3tools/contracts";
+import { whatsAppChromeUserAgent } from "@t3tools/shared/preview";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as NodeURL from "node:url";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
@@ -310,12 +311,13 @@ export const getPreviewConfig = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.preview.getConfig")(function* ({ environmentId, profileId }) {
     const manager = yield* PreviewManager.PreviewManager;
     const { scope, persistent, namespace } = resolvePartitionScope(environmentId, profileId);
-    // Creating the session first is what installs the UA rewrite and permission
-    // handlers; a guest that attached to an untouched partition would run with
-    // Electron's default UA and Chromium's default permission behaviour.
-    yield* manager.getBrowserSession(scope, persistent, namespace);
+    // Creating the session first installs permission and passkey handlers. Its
+    // native UA stays unchanged; WhatsApp's per-webview identity is returned
+    // separately so it cannot affect another site sharing this profile.
+    const browserSession = yield* manager.getBrowserSession(scope, persistent, namespace);
     return {
       partition: yield* manager.getBrowserPartition(scope, persistent, namespace),
+      whatsAppUserAgent: whatsAppChromeUserAgent(browserSession.getUserAgent()),
       webPreferences: PREVIEW_WEBVIEW_PREFERENCES,
       preloadUrl: NodeURL.pathToFileURL(`${__dirname}/preview-pick-preload.cjs`).href,
     };

@@ -158,6 +158,8 @@ let clipboardBinding: ClipboardBinding | null = null;
 let contextFailure: Error | null = null;
 /** Server tabs the fake desktop renders, and the endpoints the server connected to. */
 let desktopRendersNext = false;
+/** Most tests exercise a server-only host; desktop-specific cases opt into its channel. */
+let desktopAvailable = false;
 /** Pages the fake desktop takes back or returns; the channel's streams emit them. */
 const desktopDetaches = new NodeEvents.EventEmitter();
 const desktopTabs = new Set<string>();
@@ -201,7 +203,9 @@ const dependencies = Layer.mergeAll(
   }),
   Layer.succeed(DesktopChannel.DesktopBrowserChannel, {
     // Only tabs a test marks render on the desktop; the rest stay headless.
-    available: true,
+    get available() {
+      return desktopAvailable;
+    },
     awaitAttached: (key) => Effect.sync(() => desktopRenders(key.tabId)),
     detached: Stream.callback<{ threadId: string; tabId: string }>((queue) =>
       Effect.acquireRelease(
@@ -272,6 +276,7 @@ beforeEach(() => {
   contextRequests.length = 0;
   contextGate = null;
   contextFailure = null;
+  desktopAvailable = false;
   desktopTabs.clear();
   desktopRendersNext = false;
   releasedDesktopTabs.length = 0;
@@ -1317,6 +1322,7 @@ it.live("drives the desktop's own page for a tab the desktop renders", () =>
       const broker = yield* Broker.PreviewAutomationBroker;
       const manager = yield* Manager.PreviewManager;
       yield* Effect.yieldNow;
+      desktopAvailable = true;
       desktopRendersNext = true;
       const opened = yield* manager.open({ threadId: scope.thread.threadId, runtime: "server" });
       const viewer = yield* browser.attachViewer(viewerInput(opened.tabId, true));
@@ -1354,6 +1360,7 @@ it.live("a desktop page the desktop takes back reconnects instead of closing", (
       const browser = yield* ServerBrowser.ServerBrowser;
       const manager = yield* Manager.PreviewManager;
       yield* Effect.yieldNow;
+      desktopAvailable = true;
       desktopRendersNext = true;
       const opened = yield* manager.open({ threadId: scope.thread.threadId, runtime: "server" });
       const viewer = yield* browser.attachViewer(viewerInput(opened.tabId, false));
@@ -1458,6 +1465,76 @@ it.live("agents read a human's tab with no arguments and act on it only while no
   ).pipe(Effect.provide(layer)),
 );
 
+it.live("agents discover a human tab opened before the automation host starts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const manager = yield* Manager.PreviewManager;
+      const opened = yield* manager.open({
+        threadId: scope.thread.threadId,
+        url: "http://localhost:5173/already-open",
+        runtime: "server",
+      });
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* ServerBrowser.ServerBrowser;
+      yield* Effect.yieldNow;
+
+      const status = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "status",
+        input: {},
+      });
+
+      expect(status).toMatchObject({
+        available: true,
+        tabId: opened.tabId,
+        url: "http://localhost:5173/already-open",
+        control: { owner: "unclaimed", ownedByCaller: false },
+      });
+      expect(status.tabs).toEqual([
+        expect.objectContaining({
+          tabId: opened.tabId,
+          owner: "unclaimed",
+          ownedByCaller: false,
+        }),
+      ]);
+      const snapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
+        scope,
+        operation: "snapshot",
+        input: {},
+      });
+      expect(snapshot).toMatchObject({
+        url: "http://localhost:5173/already-open",
+      });
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("preview_open reuses an agent tab created before the automation host starts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const manager = yield* Manager.PreviewManager;
+      const existing = yield* manager.open({
+        threadId: scope.thread.threadId,
+        runtime: "server",
+        automationOwner: `${scope.environmentId}\u0000${scope.thread.providerSessionId}`,
+      });
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* ServerBrowser.ServerBrowser;
+      yield* Effect.yieldNow;
+
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: {},
+      });
+      const { sessions } = yield* manager.list({ threadId: scope.thread.threadId });
+
+      expect(opened.tabId).toBe(existing.tabId);
+      expect(sessions).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live("a session's own tab stays its default while other sessions' tabs are listed", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -1539,6 +1616,34 @@ it.live(
     ).pipe(Effect.provide(layer)),
 );
 
+it.live("does not replace a desktop profile with separate headless storage", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      desktopAvailable = true;
+      const browser = yield* ServerBrowser.ServerBrowser;
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* Effect.yieldNow;
+      yield* browser.reportProfiles({ profiles: [], defaultProfileId: "default" });
+
+      const failed = yield* broker
+        .invoke<PreviewAutomationStatus>({
+          scope,
+          operation: "open",
+          input: { reuseExistingTab: false, show: false, profileId: "default" },
+        })
+        .pipe(Effect.flip);
+
+      expect(failed).toMatchObject({
+        _tag: "PreviewAutomationExecutionError",
+        reason: expect.stringContaining(
+          "T3 did not open a separate headless profile because it would not share the desktop profile's saved login.",
+        ),
+      });
+      expect(contextRequests).toEqual([]);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live("an agent tab keeps throwaway storage when no client reported profiles", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -1554,6 +1659,7 @@ it.live("a desktop page that comes back reconnects without waiting for a viewer"
       const manager = yield* Manager.PreviewManager;
       yield* ServerBrowser.ServerBrowser;
       yield* Effect.yieldNow;
+      desktopAvailable = true;
       desktopRendersNext = true;
       const opened = yield* manager.open({ threadId: scope.thread.threadId, runtime: "server" });
       while (desktopConnections.length === 0) yield* Effect.yieldNow;

@@ -475,6 +475,19 @@ it.layer(layer)("PreviewManager", (it) => {
     }),
   );
 
+  it.effect("list without a thread returns snapshots across every thread", () =>
+    Effect.gen(function* () {
+      const firstThreadId = freshThreadId();
+      const secondThreadId = freshThreadId();
+      const manager = yield* PreviewManager.PreviewManager;
+      const first = yield* manager.open({ threadId: firstThreadId });
+      const second = yield* manager.open({ threadId: secondThreadId });
+
+      const result = yield* manager.list({});
+      expect(result.sessions).toEqual(expect.arrayContaining([first, second]));
+    }),
+  );
+
   it.effect("open creates an independent tab on every call", () =>
     Effect.gen(function* () {
       const threadId = freshThreadId();

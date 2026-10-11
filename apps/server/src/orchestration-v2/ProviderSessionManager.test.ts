@@ -2638,6 +2638,62 @@ it.effect("ProviderSessionManagerV2 terminal detach revokes the thread's MCP cre
   }),
 );
 
+it.effect("ProviderSessionManagerV2 tells a running turn that its session was detached", () =>
+  Effect.gen(function* () {
+    const state = yield* Ref.make(emptyState);
+    const effect = Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const now = yield* DateTime.now;
+      const streamEnd = Effect.fnUntraced(function* <E>(
+        key: string,
+        end: (input: {
+          readonly providerSessionId: ProviderSessionId;
+          readonly threadId: ThreadId;
+        }) => Effect.Effect<void, E>,
+      ) {
+        const threadId = ThreadId.make(`thread-provider-session-manager-${key}`);
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId,
+        });
+        yield* eventSink.write({
+          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+        });
+        const runtime = yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const subscription = yield* runtime.subscribeEvents!;
+        yield* end({ providerSessionId, threadId });
+        return yield* subscription.events.pipe(Stream.runDrain, Effect.flip);
+      });
+
+      // A workspace change releases a single-process session under its turn.
+      const detached = yield* streamEnd("detached-stream", (input) =>
+        manager.detach({ ...input, detail: "Workspace changed." }),
+      );
+      assert.instanceOf(detached, ProviderAdapter.ProviderAdapterEventStreamError);
+      assert.isTrue(detached.detached);
+
+      const closed = yield* streamEnd("closed-stream", (input) =>
+        manager.close(input.providerSessionId),
+      );
+      assert.instanceOf(closed, ProviderAdapter.ProviderAdapterEventStreamError);
+      assert.isUndefined(closed.detached);
+    });
+
+    yield* effect.pipe(
+      Effect.provide(
+        layerTest({ state, idleTimeoutMs: 60_000, capabilities: ExclusiveCapabilities }),
+      ),
+    );
+  }),
+);
+
 it.effect("ProviderSessionManagerV2 releases idle sessions without sweeping all sessions", () =>
   Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);

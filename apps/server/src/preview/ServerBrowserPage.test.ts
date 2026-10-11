@@ -5,7 +5,16 @@ import {
   type CDPSession,
   type Page,
 } from "playwright-core";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { presentAsChrome } from "./ServerBrowserContexts.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
@@ -56,6 +65,30 @@ describe("server browser element refs", () => {
     return locator!;
   };
   const repeatedRows = `<ul>${Array.from({ length: 5 }, (_, i) => `<li>row ${i + 1}<button data-testid="delete-row" onclick="this.parentElement.remove()">delete</button></li>`).join("")}</ul>`;
+
+  it("returns readable page text when supporting captures stall", async () => {
+    await page.setContent("<main>Authenticated dashboard</main>");
+    vi.spyOn(page, "ariaSnapshot").mockImplementation(() => new Promise(() => {}));
+    const stalledCdp = {
+      send: vi.fn(() => new Promise(() => {})),
+    } as unknown as CDPSession;
+
+    const result = await ServerBrowserPage.snapshot(
+      {
+        page,
+        cdp: stalledCdp,
+        renderScale: 1,
+        consoleEntries: [],
+        networkEntries: [],
+        actionTimeline: [],
+      },
+      50,
+    );
+
+    expect(result.visibleText).toContain("Authenticated dashboard");
+    expect(result.accessibilityTree).toBe("");
+    expect(result.screenshot).toMatchObject({ mimeType: "image/png", width: 1, height: 1 });
+  });
 
   it("clicks the fifth repeated delete control without touching row one", async () => {
     await page.setContent(repeatedRows);

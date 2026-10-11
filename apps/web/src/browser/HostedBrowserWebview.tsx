@@ -5,6 +5,7 @@ import type {
   PreviewViewportSetting,
   ScopedThreadRef,
 } from "@t3tools/contracts";
+import { isWhatsAppWebUrl } from "@t3tools/shared/preview";
 import { useShallow } from "zustand/react/shallow";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -298,6 +299,11 @@ export function HostedBrowserWebview(props: {
 
   if (!clientSettingsHydrated || !config) return null;
 
+  const initialUserAgent =
+    config.whatsAppUserAgent !== null && isWhatsAppWebUrl(initialSrc)
+      ? config.whatsAppUserAgent
+      : null;
+
   const renderingActive = active || backgroundActivity || pictureInPicture || recordingActive;
   const wrapperStyle = resolveHostedBrowserWebviewWrapperStyle({
     active,
@@ -342,6 +348,7 @@ export function HostedBrowserWebview(props: {
           {...({ allowpopups: "true" } as unknown as { readonly allowpopups?: boolean })}
           src={webviewGeneration === 0 ? initialSrc : recoverySrc}
           partition={config.partition}
+          {...(initialUserAgent === null ? {} : { useragent: initialUserAgent })}
           webpreferences={config.webPreferences}
           {...(config.preloadUrl ? { preload: config.preloadUrl } : {})}
           data-preview-tab={runtimeTabId}

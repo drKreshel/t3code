@@ -309,7 +309,8 @@ export const PreviewClearProfileInput = Schema.Struct({
 export type PreviewClearProfileInput = typeof PreviewClearProfileInput.Type;
 
 export const PreviewListInput = Schema.Struct({
-  threadId: ThreadId,
+  /** Omit only for an app-wide host that must render tabs from every thread. */
+  threadId: Schema.optional(ThreadId),
 });
 export type PreviewListInput = typeof PreviewListInput.Type;
 
