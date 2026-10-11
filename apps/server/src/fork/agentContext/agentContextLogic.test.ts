@@ -62,6 +62,8 @@ describe("t3Tools", () => {
       enabled: true,
       readonly: false,
     });
+    expect(byName.get("create_board")).toMatchObject({ enabled: true, readonly: false });
+    expect(byName.get("delete_board")).toMatchObject({ enabled: true, readonly: false });
     expect(byName.get("preview_snapshot")?.enabled).toBe(false);
     expect(byName.get("device_screenshot")?.enabled).toBe(true);
     expect(byName.get("t3_environment_read")?.readonly).toBe(true);

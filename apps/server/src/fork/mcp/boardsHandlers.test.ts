@@ -115,6 +115,43 @@ describe("boards toolkit handlers", () => {
       expect((yield* call("update_board", { board: "ICON", icon: null })).icon).toBeNull();
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
+  it.effect("archives and restores tickets through MCP", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", { name: "Tickets", key: "TIX" });
+      expect((yield* call("create_ticket", { board: "TIX", title: "Archive me" })).archived).toBe(
+        false,
+      );
+
+      expect((yield* call("update_ticket", { ticket: "TIX-1", archived: true })).archived).toBe(
+        true,
+      );
+      expect((yield* call("get_ticket", { ticket: "TIX-1" })).archived).toBe(true);
+      expect((yield* call("list_tickets", { board: "TIX" })).tickets).toEqual([]);
+      expect(
+        (yield* call("list_tickets", { board: "TIX", includeArchived: true })).tickets,
+      ).toMatchObject([{ key: "TIX-1", archived: true }]);
+
+      expect((yield* call("update_ticket", { ticket: "TIX-1", archived: false })).archived).toBe(
+        false,
+      );
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
+  it.effect("permanently deletes only archived boards through MCP", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", { name: "Temporary", key: "TEMP" });
+      yield* call("create_ticket", { board: "TEMP", title: "Remove me", linkThisChat: true });
+
+      const activeError = yield* call("delete_board", { board: "TEMP" }).pipe(Effect.flip);
+      expect(activeError).toMatchObject({ code: "blocked" });
+
+      yield* call("update_board", { board: "TEMP", archived: true });
+      expect(yield* call("delete_board", { board: "TEMP" })).toEqual({ deleted: "TEMP" });
+      expect((yield* call("list_boards", { includeArchived: true })).boards).toEqual([]);
+      expect((yield* call("list_tickets", { includeArchived: true })).tickets).toEqual([]);
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
   it.effect("rejects threadless board mutations without creating a board", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;
@@ -185,7 +222,12 @@ describe("boards toolkit handlers", () => {
         criteria: ["Notes show in overview", "Notes are editable"],
         linkThisChat: true,
       });
-      expect(created).toEqual({ key: "ATLAS-1", column: "Backlog", path: "/boards/ATLAS/1" });
+      expect(created).toEqual({
+        key: "ATLAS-1",
+        column: "Backlog",
+        archived: false,
+        path: "/boards/ATLAS/1",
+      });
 
       const ticket = yield* call("get_ticket", {});
       expect(ticket.key).toBe("ATLAS-1");

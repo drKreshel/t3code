@@ -212,6 +212,7 @@ export const BoardsCommand = Schema.Union([
     pinned: Schema.optional(Schema.Boolean),
   }),
   command("board.archive", { boardId: Id, archived: Schema.Boolean }),
+  command("board.delete", { boardId: Id }),
   command("board.reorder", { boardId: Id, position: Schema.Number }),
   command("column.create", {
     boardId: Id,
