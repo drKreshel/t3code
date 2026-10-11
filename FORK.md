@@ -32,6 +32,7 @@ Small fixes to upstream behavior. When upstream fixes the same thing, take upstr
 - External folders preview as directory trees: `files/FilePreviewPanel.tsx`, `filePreviewMode.ts`, `FileBrowserPanel.tsx`, `projectFilesQueryState.ts`, `fileTreeDragMention.ts`.
 - A picked `$skill` or `@file` survives in question answers: `ChatView.tsx`, `ChatComposer.tsx`, `ComposerPrimaryActions.tsx`.
 - Codex native subagents keep the model and reasoning effort reported by newer `SubAgentActivity` notifications: `effect-codex-app-server/_internal/shared.ts`, `orchestration-v2/Adapters/CodexAdapterV2.ts`.
+- Agents can permanently delete chats through `t3_thread_organize`: `mcp/toolkits/thread/{tools,handlers}.ts`.
 - User docs additions: `docs/user/composer.md`, `docs/user/thread-sidebar.md`.
 
 ## Data

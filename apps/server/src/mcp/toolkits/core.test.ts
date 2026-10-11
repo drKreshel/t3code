@@ -443,6 +443,14 @@ it.effect("a client caller targets any thread within its ceiling and cannot act 
     expect(pinned.isError).toBe(false);
     expect(pinned.structuredContent).toMatchObject({ sequence: 7 });
 
+    const deleted = yield* call(
+      "t3_thread_organize",
+      { action: "delete", threadId: "other-project-thread" },
+      clientScope("auto"),
+    );
+    expect(deleted.isError).toBe(false);
+    expect(deleted.structuredContent).toMatchObject({ sequence: 8 });
+
     const aboveCeiling = yield* call(
       "t3_thread_organize",
       { action: "pin", threadId: "other-project-thread" },
@@ -477,7 +485,11 @@ it.effect("a client caller targets any thread within its ceiling and cannot act 
                   deletedAt: null,
                 },
               } as never),
-            dispatch: () => Effect.succeed({ sequence: 7, storedEvents: [] }),
+            dispatch: (command) =>
+              Effect.succeed({
+                sequence: command.type === "thread.delete" ? 8 : 7,
+                storedEvents: [],
+              }),
           }),
         ),
       ),
