@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   resolveThreadDetailsCardDensity,
+  resolveThreadDetailsFittingHeight,
   resolveThreadDetailsCardLayout,
 } from "./threadDetailsCardLayout";
 
@@ -97,5 +98,14 @@ describe("card content fitting", () => {
   it("measures unseen content before deciding to fold it", () => {
     expect(resolveThreadDetailsCardDensity(300, { full: 0, compact: 0 })).toBe("full");
     expect(resolveThreadDetailsCardDensity(300, { full: 570, compact: 0 })).toBe("compact");
+  });
+
+  it("does not let flexible lineage or pinned notes force the card to hide subagents", () => {
+    const fittingHeight = resolveThreadDetailsFittingHeight(920, [240, 410]);
+
+    expect(fittingHeight).toBe(270);
+    expect(resolveThreadDetailsCardDensity(300, { full: fittingHeight, compact: 180 })).toBe(
+      "full",
+    );
   });
 });

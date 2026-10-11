@@ -411,6 +411,7 @@ export function ThreadRelationshipsPanel(props: {
       headingId="thread-details-lineage-heading"
       title={runningCount > 0 ? `Lineage · ${runningCount} running` : "Lineage"}
       data-thread-relationships-panel
+      data-thread-details-flexible-section
       actions={
         canDetach ? (
           <Menu>

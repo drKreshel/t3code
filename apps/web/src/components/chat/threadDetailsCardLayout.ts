@@ -16,6 +16,21 @@ export function resolveThreadDetailsCardDensity(
 }
 
 /**
+ * Flexible sections already bound or collapse their own content. Excluding
+ * them from density prevents a long note or lineage list from hiding the
+ * controls and subagents that make the card useful in the first place.
+ */
+export function resolveThreadDetailsFittingHeight(
+  contentHeight: number,
+  flexibleSectionHeights: ReadonlyArray<number>,
+): number {
+  return Math.max(
+    0,
+    contentHeight - flexibleSectionHeights.reduce((total, height) => total + height, 0),
+  );
+}
+
+/**
  * The card pins to the top right while a readable chat lane fits beside it.
  * The chat canvas decides whether chat moves over to make room.
  */

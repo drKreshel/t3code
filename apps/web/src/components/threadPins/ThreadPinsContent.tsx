@@ -2,8 +2,8 @@ import type { ScopedThreadRef, ThreadPin, ThreadPins } from "@t3tools/contracts"
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { projectScriptCwd } from "@t3tools/shared/projectScripts";
-import { GlobeIcon, PencilIcon, StickyNoteIcon, XIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronRightIcon, GlobeIcon, PencilIcon, StickyNoteIcon, XIcon } from "lucide-react";
+import { useId, useMemo, useState } from "react";
 
 import { useTheme } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
@@ -116,17 +116,35 @@ function NoteRow({
   readonly onUnpin: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(true);
+  const bodyId = useId();
   const save = (value: string) => {
     setDraft(null);
     if (value.trim() !== text) onSave(value.trim());
   };
   return (
     <li className="group/note rounded-lg py-1.5">
-      <div className={cn("flex min-h-5 items-center", THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS)}>
-        <StickyNoteIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/80">
-          {pin.title}
-        </span>
+      <div className="flex min-h-8 items-center px-2.5">
+        <button
+          type="button"
+          aria-controls={bodyId}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} ${pin.title}`}
+          onClick={() => setExpanded((value) => !value)}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <ChevronRightIcon
+            aria-hidden
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-90",
+            )}
+          />
+          <StickyNoteIcon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/80">
+            {pin.title}
+          </span>
+        </button>
         <span className="shrink-0 text-2xs text-muted-foreground group-hover/note:hidden">
           {formatRelativeTimeLabel(pin.updatedAt)}
         </span>
@@ -135,7 +153,10 @@ function NoteRow({
             size="icon-xs"
             variant="ghost"
             aria-label={`Edit ${pin.title}`}
-            onClick={() => setDraft(text)}
+            onClick={() => {
+              setExpanded(true);
+              setDraft(text);
+            }}
           >
             <PencilIcon />
           </Button>
@@ -149,8 +170,8 @@ function NoteRow({
           </Button>
         </span>
       </div>
-      {draft !== null ? (
-        <div className="flex flex-col gap-1.5 px-2.5 pt-1.5">
+      {expanded && draft !== null ? (
+        <div id={bodyId} className="flex flex-col gap-1.5 px-2.5 pt-1.5">
           <Textarea
             size="sm"
             autoFocus
@@ -177,8 +198,12 @@ function NoteRow({
             </Button>
           </div>
         </div>
-      ) : (
-        <div className="mt-0.5 max-h-[40dvh] overflow-y-auto overscroll-contain ps-9 pe-2.5">
+      ) : expanded ? (
+        <div
+          id={bodyId}
+          data-thread-pin-note-body
+          className="mt-0.5 max-h-[40dvh] overflow-y-auto ps-14 pe-2.5"
+        >
           {/* Agents write notes line by line, so single newlines stay breaks. */}
           <ChatMarkdown
             text={text}
@@ -190,7 +215,7 @@ function NoteRow({
             className="text-xs"
           />
         </div>
-      )}
+      ) : null}
     </li>
   );
 }
@@ -217,7 +242,7 @@ function PinRow({
               type="button"
               onClick={() => onOpen(target)}
               className={cn(
-                "flex h-full min-w-0 flex-1 cursor-pointer items-center outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg",
+                "flex h-full min-w-0 flex-1 cursor-pointer items-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring rounded-lg",
                 THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS,
               )}
             />

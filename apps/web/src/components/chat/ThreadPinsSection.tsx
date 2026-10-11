@@ -22,7 +22,11 @@ export function ThreadPinsSection({
 }) {
   const openLink = useOpenLink(threadRef);
   return (
-    <ThreadDetailsSection headingId="thread-details-pins-heading" title="Pinned">
+    <ThreadDetailsSection
+      headingId="thread-details-pins-heading"
+      title="Pinned"
+      data-thread-details-flexible-section
+    >
       <ThreadPinsContent
         threadRef={threadRef}
         pins={pins}
