@@ -2,6 +2,7 @@ import type { Ticket } from "@t3tools/contracts";
 
 import {
   createSidebarFolder,
+  hasSidebarThreadFolderOverride,
   moveThreadToSidebarFolder,
   type SidebarFolderLayout,
 } from "../SidebarFolders.logic";
@@ -119,7 +120,8 @@ export function syncTicketFolders(
     }
     const alreadyFiled = new Set(reuse ? prior.threadKeys : []);
     for (const threadKey of source.threadKeys) {
-      if (alreadyFiled.has(threadKey)) continue;
+      if (alreadyFiled.has(threadKey) || hasSidebarThreadFolderOverride(layout, threadKey))
+        continue;
       layout = moveThreadToSidebarFolder(layout, threadKey, { folderId, position: "end" });
     }
     if (

@@ -12,6 +12,7 @@ import {
   folderSubtreeThreadKeys,
   moveSidebarFolder,
   moveThreadToSidebarFolder,
+  moveThreadToSidebarFolderManually,
   planSidebarFolderDrop,
   renderedSidebarFolderThreads,
   resolveSidebarFolderDefaultProject,
@@ -185,6 +186,16 @@ describe("moveThreadToSidebarFolder", () => {
   it("unfiles with a null target", () => {
     expect(moveThreadToSidebarFolder(layout, "t3", null).threadKeysByFolderId.b).toEqual([]);
   });
+
+  it("remembers a user's folder choice, including no folder", () => {
+    const moved = moveThreadToSidebarFolderManually(layout, "t1", {
+      folderId: "b",
+      position: "end",
+    });
+    const unfiled = moveThreadToSidebarFolderManually(moved, "t3", null);
+    expect(unfiled.threadFolderOverrides).toEqual({ t1: "b", t3: null });
+    expect(unfiled.threadKeysByFolderId).toEqual({ a: ["t2"], b: ["t1"] });
+  });
 });
 
 describe("fileForksWithSources", () => {
@@ -215,6 +226,13 @@ describe("fileForksWithSources", () => {
       { threadKey: "t3", sourceThreadKey: "t1" },
     ]);
     expect(next).toBe(layout);
+  });
+
+  it("does not refile a fork the user moved out", () => {
+    const unfiled = moveThreadToSidebarFolderManually(layout, "f1", null);
+    const next = fileForksWithSources(unfiled, [{ threadKey: "f1", sourceThreadKey: "t1" }]);
+    expect(next).toBe(unfiled);
+    expect(next.threadKeysByFolderId.a).toEqual(["t1", "t2"]);
   });
 });
 

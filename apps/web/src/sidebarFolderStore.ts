@@ -13,7 +13,7 @@ import {
   EMPTY_SIDEBAR_FOLDER_LAYOUT,
   fileForksWithSources,
   moveSidebarFolder,
-  moveThreadToSidebarFolder,
+  moveThreadToSidebarFolderManually,
   renameSidebarFolder,
   setSidebarFolderDefaultProject,
   setSidebarFolderIcon,
@@ -61,6 +61,7 @@ function layoutOf(
   return {
     folders: state.folders,
     threadKeysByFolderId: state.threadKeysByFolderId,
+    threadFolderOverrides: state.threadFolderOverrides ?? {},
     collapsedFolderIds: state.collapsedFolderIds,
     expandedSettledFolderIds: state.expandedSettledFolderIds ?? [],
     settledFolderIds: state.settledFolderIds ?? [],
@@ -119,7 +120,7 @@ export const useSidebarFolderStore = create<SidebarFolderStoreState>()(
       setFolderSettled: (folderId, settled) =>
         set((state) => setSidebarFolderSettled(layoutOf(state), folderId, settled)),
       moveThread: (threadKey, target) =>
-        set((state) => moveThreadToSidebarFolder(layoutOf(state), threadKey, target)),
+        set((state) => moveThreadToSidebarFolderManually(layoutOf(state), threadKey, target)),
       fileForks: (forks) => set((state) => fileForksWithSources(layoutOf(state), forks)),
     }),
     {
