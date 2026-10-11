@@ -340,6 +340,11 @@ export class ProviderAdapterEventStreamError extends Schema.TaggedError<Provider
     driver: ProviderDriverKind,
     providerSessionId: ProviderSessionId,
     cause: Schema.optional(Schema.Defect()),
+    /**
+     * T3 detached the session on purpose (workspace change, archive), so a turn
+     * still streaming on it was ended rather than failed.
+     */
+    detached: Schema.optional(Schema.Boolean),
   },
 ) {
   override get message(): string {
