@@ -1136,6 +1136,7 @@ export function ScheduledTaskEditorDialog({
 
             <Field label="Model">
               <ProviderModelPicker
+                environmentId={environmentId}
                 disabled={saving || !connected}
                 activeInstanceId={activeInstanceId}
                 model={activeModel}
