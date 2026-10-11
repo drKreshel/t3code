@@ -109,6 +109,28 @@ function isSettledTurnItemStatus(status: OrchestrationV2TurnItem["status"]): boo
   return !isOrchestrationV2WorkActive(status);
 }
 
+// Turn item types a provider opens and closes as tool calls.
+const toolCallTurnItemTypes: ReadonlySet<OrchestrationV2TurnItem["type"]> = new Set([
+  "command_execution",
+  "dynamic_tool",
+  "file_change",
+  "file_search",
+  "web_search",
+]);
+
+/** The root turn's tool calls that its provider has not reported closed. */
+type OpenRootToolCalls = {
+  readonly nodes: ReadonlyMap<NodeId, OrchestrationV2ExecutionNode>;
+  readonly turnItems: ReadonlyMap<TurnItemId, OrchestrationV2TurnItem>;
+};
+
+const isEventStreamError = Schema.is(ProviderAdapter.ProviderAdapterEventStreamError);
+
+/** Whether a provider event stream ended because T3 detached the session on purpose. */
+function isSessionDetached(error: unknown): boolean {
+  return isEventStreamError(error) && error.detached === true;
+}
+
 function isSettledRunEligibleForInheritedBackground(status: OrchestrationV2Run["status"]): boolean {
   return status === "interrupted" || status === "failed" || status === "cancelled";
 }
@@ -834,6 +856,12 @@ export const layer: Layer.Layer<
               ),
             ),
           );
+          const terminalProviderTurnId =
+            input.attempt.providerTurnId ??
+            idAllocator.derive.providerTurn({
+              driver: input.providerThread.driver,
+              nativeTurnId: `failed:${input.attempt.id}`,
+            });
           const makeFailedTerminalEvent = (
             failure: OrchestrationV2ProviderFailure,
             failureItemOrdinal: number,
@@ -841,12 +869,7 @@ export const layer: Layer.Layer<
             type: "turn.terminal",
             driver: input.providerThread.driver,
             providerThreadId: input.providerThread.id,
-            providerTurnId:
-              input.attempt.providerTurnId ??
-              idAllocator.derive.providerTurn({
-                driver: input.providerThread.driver,
-                nativeTurnId: `failed:${input.attempt.id}`,
-              }),
+            providerTurnId: terminalProviderTurnId,
             runOrdinal: input.run.ordinal,
             failureItemOrdinal,
             status: "failed",
@@ -982,6 +1005,10 @@ export const layer: Layer.Layer<
             ReadonlySet<OrchestrationV2TurnItem["id"]>
           >(new Set(inheritedBackgroundTurnItemsById.keys()));
           const openRunOwnedSubagents = yield* Ref.make(emptyOpenRunOwnedSubagentProjection());
+          const openRootToolCalls = yield* Ref.make<OpenRootToolCalls>({
+            nodes: new Map(),
+            turnItems: new Map(),
+          });
           const finalizeRootRun = (terminal: ProviderTerminalEvent) =>
             Effect.gen(function* () {
               if (yield* Ref.get(rootRunFinalized)) {
@@ -1025,6 +1052,32 @@ export const layer: Layer.Layer<
               }
               yield* Ref.set(rootRunFinalized, true);
             });
+          // T3 detached the session from under this turn (workspace change,
+          // archive). Nothing failed: the turn ends as cancelled, and the tool
+          // calls its provider never got to close end with it.
+          const endDetachedRootRun = Effect.gen(function* () {
+            if ((yield* Ref.get(terminalEvent)) !== null) {
+              return;
+            }
+            const toolCalls = yield* Ref.get(openRootToolCalls);
+            yield* Ref.update(openRunOwnedSubagents, (open) => ({
+              ...open,
+              nodes: new Map([...open.nodes, ...toolCalls.nodes]),
+              childTurnItems: new Map([...open.childTurnItems, ...toolCalls.turnItems]),
+              // The cascade ends items by thread, so the root's thread joins it.
+              linkedChildThreadIds: new Set([...open.linkedChildThreadIds, input.run.threadId]),
+            }));
+            yield* Ref.set(terminalEvent, {
+              type: "turn.terminal",
+              driver: input.providerThread.driver,
+              providerThreadId: input.providerThread.id,
+              providerTurnId: terminalProviderTurnId,
+              runOrdinal: input.run.ordinal,
+              status: "cancelled",
+              failure: null,
+              threadDisposition: "reusable",
+            });
+          });
           const trackChildLifecycle = (
             event: ProviderAdapter.ProviderAdapterV2Event,
             deliverable: boolean,
@@ -1088,6 +1141,21 @@ export const layer: Layer.Layer<
                 }
               }
               if (event.type === "node.updated") {
+                if (
+                  event.node.kind === "tool_call" &&
+                  event.node.threadId === input.run.threadId &&
+                  event.node.runId === input.run.id
+                ) {
+                  yield* Ref.update(openRootToolCalls, (current) => {
+                    const nodes = new Map(current.nodes);
+                    if (isOpenExecutionNodeStatus(event.node.status)) {
+                      nodes.set(event.node.id, event.node);
+                    } else {
+                      nodes.delete(event.node.id);
+                    }
+                    return { ...current, nodes };
+                  });
+                }
                 const belongsToRootSubagent =
                   event.node.kind === "subagent" && event.node.runId === input.run.id;
                 const belongsToOwnedChildThread =
@@ -1121,6 +1189,21 @@ export const layer: Layer.Layer<
                   event.turnItem.threadId === input.run.threadId &&
                   event.turnItem.runId !== null &&
                   inheritedBackgroundTurnItemsById.get(event.turnItem.id) === event.turnItem.runId;
+                if (
+                  belongsToRootRun &&
+                  event.turnItem.threadId === input.run.threadId &&
+                  toolCallTurnItemTypes.has(event.turnItem.type)
+                ) {
+                  yield* Ref.update(openRootToolCalls, (current) => {
+                    const turnItems = new Map(current.turnItems);
+                    if (isSettledTurnItemStatus(event.turnItem.status)) {
+                      turnItems.delete(event.turnItem.id);
+                    } else {
+                      turnItems.set(event.turnItem.id, event.turnItem);
+                    }
+                    return { ...current, turnItems };
+                  });
+                }
                 if (
                   backgroundCapableTurnItemTypes.has(event.turnItem.type) &&
                   (belongsToRootRun ||
@@ -1311,6 +1394,7 @@ export const layer: Layer.Layer<
             ),
             Stream.takeUntilEffect(() => shouldStopProviderEventIngestion),
             Stream.runDrain,
+            Effect.catchIf(isSessionDetached, () => endDetachedRootRun),
             Effect.mapError((cause) => new RunExecutionIngestError({ runId: input.run.id, cause })),
             Effect.flatMap(() =>
               Effect.gen(function* () {

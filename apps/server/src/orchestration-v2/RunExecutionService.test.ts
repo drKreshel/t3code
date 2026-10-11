@@ -3772,6 +3772,51 @@ it.effect("refreshes pull requests after a provider stream exits with an error",
   }),
 );
 
+it.effect(
+  "ends a turn as cancelled, closing its open tool calls, when its session is detached",
+  () =>
+    Effect.gen(function* () {
+      const finishedItemId = TurnItemId.make("turn-item:session-detached:finished");
+      const { written, closedNodes, observed } = yield* captureRootRunTermination({
+        key: "session-detached",
+        shouldFinalizeRun: () => Effect.succeed(true),
+        events: (ids) =>
+          Stream.fromIterable([
+            backgroundTurnItemEvent(ids, "command_execution", "running", 101, finishedItemId),
+            backgroundTurnItemEvent(ids, "command_execution", "completed", 101, finishedItemId),
+            {
+              type: "node.updated",
+              driver,
+              node: {
+                ...makeRunOwnedSubagentNodeFixture({ ids, status: "running" }),
+                kind: "tool_call",
+              },
+            } as const,
+            backgroundTurnItemEvent(ids, "dynamic_tool", "running", 102),
+          ] satisfies ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>).pipe(
+            // What a workspace handoff does to the turn that called it.
+            Stream.concat(
+              Stream.fail(
+                new ProviderAdapter.ProviderAdapterEventStreamError({
+                  driver,
+                  providerSessionId: ProviderSessionId.make("session:detached"),
+                  cause: "Workspace changed.",
+                  detached: true,
+                }),
+              ),
+            ),
+          ),
+      });
+      // Not a provider failure: no error row, and a queue behind it is not held.
+      assert.deepEqual(observed, ["run:cancelled", "pull-requests-refreshed"]);
+      assert.deepEqual(
+        written.map((item) => [item.id, item.type, item.status]),
+        [[TurnItemId.make("turn-item:session-detached"), "dynamic_tool", "cancelled"]],
+      );
+      assert.deepEqual(closedNodes, [[NodeId.make("node:session-detached:subagent"), "cancelled"]]);
+    }),
+);
+
 it.effect("refreshes pull requests only once when startup failure closes its event stream", () =>
   Effect.gen(function* () {
     const ingestionStarted = yield* Deferred.make<void>();
@@ -3840,6 +3885,7 @@ function captureRootRunTermination(input: {
       status: "running",
     });
     const writtenItems = yield* Ref.make<ReadonlyArray<OrchestrationV2TurnItem>>([]);
+    const closedNodes = yield* Ref.make<ReadonlyArray<readonly [NodeId, string]>>([]);
     const observed = yield* Ref.make<ReadonlyArray<string>>([]);
     const submittedEffects = yield* Ref.make<ReadonlyArray<PendingOrchestrationEffectV2>>([]);
     const committedEffects = yield* Ref.make<ReadonlyArray<PendingOrchestrationEffectV2>>([]);
@@ -3851,6 +3897,13 @@ function captureRootRunTermination(input: {
         for (const event of events) {
           if (event.type === "turn-item.updated") {
             yield* captureTurnItem(event.payload);
+          }
+          // The root node settles with every run; only the nodes under it are of interest.
+          if (event.type === "node.updated" && event.payload.id !== ids.rootNodeId) {
+            yield* Ref.update(closedNodes, (current) => [
+              ...current,
+              [event.payload.id, event.payload.status] as const,
+            ]);
           }
           if (event.type === "run.updated") {
             yield* Ref.update(observed, (current) => [...current, `run:${event.payload.status}`]);
@@ -4000,6 +4053,7 @@ function captureRootRunTermination(input: {
     yield* Deferred.await(ingestionDone);
     return {
       written: yield* Ref.get(writtenItems),
+      closedNodes: yield* Ref.get(closedNodes),
       observed: yield* Ref.get(observed),
       submittedEffects: yield* Ref.get(submittedEffects),
       committedEffects: yield* Ref.get(committedEffects),
