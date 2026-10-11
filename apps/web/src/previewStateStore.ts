@@ -6,14 +6,20 @@
  * is the one place that must enumerate every live preview tab.
  */
 import { useAtomValue } from "@effect/atom-react";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import {
+  parseScopedThreadKey,
+  scopedThreadKey,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import {
   type DesktopPreviewColorScheme,
   type DesktopPreviewFavicon,
+  type EnvironmentId,
   type PreviewEvent,
   type PreviewListResult,
   type PreviewSessionSnapshot,
   type ScopedThreadRef,
+  ThreadId,
 } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
@@ -360,6 +366,37 @@ export function reconcilePreviewServerSessions(
       serverRevision: result.revision,
     };
   });
+}
+
+/**
+ * Reconcile the authoritative app-wide list used by Electron's browser host.
+ * The host must keep every local server tab attached even when its owning
+ * thread is visible in another client, and must also discard tabs that closed
+ * while this renderer was disconnected.
+ */
+export function reconcilePreviewServerSessionIndex(
+  environmentId: EnvironmentId,
+  result: PreviewListResult,
+): void {
+  const sessionsByThreadId = new Map<string, PreviewSessionSnapshot[]>();
+  for (const snapshot of result.sessions) {
+    const sessions = sessionsByThreadId.get(snapshot.threadId) ?? [];
+    sessions.push(snapshot);
+    sessionsByThreadId.set(snapshot.threadId, sessions);
+  }
+
+  const threadIds = new Set(sessionsByThreadId.keys());
+  for (const threadKey of appAtomRegistry.get(activePreviewThreadKeysAtom).keys) {
+    const ref = parseScopedThreadKey(threadKey);
+    if (ref?.environmentId === environmentId) threadIds.add(ref.threadId);
+  }
+
+  for (const threadId of threadIds) {
+    reconcilePreviewServerSessions(scopeThreadRef(environmentId, ThreadId.make(threadId)), {
+      ...result,
+      sessions: sessionsByThreadId.get(threadId) ?? [],
+    });
+  }
 }
 
 function isPreviewStateEqual(

@@ -1,8 +1,14 @@
 "use client";
 
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
-import { AuthPreviewOperateScope, FILL_PREVIEW_VIEWPORT } from "@t3tools/contracts";
+import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  AuthPreviewOperateScope,
+  type EnvironmentId,
+  FILL_PREVIEW_VIEWPORT,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/reactivity";
 import { type ComponentProps, useEffect, useMemo, useRef, useState } from "react";
 
 import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
@@ -10,7 +16,11 @@ import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { isElectron } from "~/env";
 import { useClientSettingsHydrated } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
-import { useActivePreviewSessions } from "~/previewStateStore";
+import {
+  applyPreviewServerEvent,
+  reconcilePreviewServerSessionIndex,
+  useActivePreviewSessions,
+} from "~/previewStateStore";
 import { previewEnvironment } from "~/state/preview";
 import { useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -125,34 +135,74 @@ export function ElectronBrowserHost() {
 
   if (!isElectron) return null;
   return (
-    <div className="contents" data-electron-browser-host>
-      {sessions.map(({ threadRef, snapshot, runtimeTabId, pictureInPicture, zoomFactor }) => {
-        const url = snapshot.navStatus._tag === "Idle" ? null : snapshot.navStatus.url;
-        return (
-          <AuthorizedBrowserWebview
-            key={runtimeTabId}
-            threadRef={threadRef}
-            tabId={snapshot.tabId}
-            runtimeTabId={runtimeTabId}
-            initialUrl={url}
-            viewport={snapshot.viewport ?? FILL_PREVIEW_VIEWPORT}
-            pictureInPicture={pictureInPicture}
-            profileId={snapshot.profileId}
-            zoomFactor={zoomFactor}
-            serverDriven={snapshot.runtime === "server"}
-            {...(snapshot.runtime === "server"
-              ? {
-                  serverRendering: {
-                    colorScheme: snapshot.colorScheme ?? "system",
-                    zoomFactor: snapshot.zoomFactor ?? 1,
-                  },
-                }
-              : {})}
-          />
-        );
-      })}
-    </div>
+    <>
+      {primaryEnvironmentId ? (
+        <ElectronBrowserEventSync environmentId={primaryEnvironmentId} />
+      ) : null}
+      <div className="contents" data-electron-browser-host>
+        {sessions.map(({ threadRef, snapshot, runtimeTabId, pictureInPicture, zoomFactor }) => {
+          const url = snapshot.navStatus._tag === "Idle" ? null : snapshot.navStatus.url;
+          return (
+            <AuthorizedBrowserWebview
+              key={runtimeTabId}
+              threadRef={threadRef}
+              tabId={snapshot.tabId}
+              runtimeTabId={runtimeTabId}
+              initialUrl={url}
+              viewport={snapshot.viewport ?? FILL_PREVIEW_VIEWPORT}
+              pictureInPicture={pictureInPicture}
+              profileId={snapshot.profileId}
+              zoomFactor={zoomFactor}
+              serverDriven={snapshot.runtime === "server"}
+              {...(snapshot.runtime === "server"
+                ? {
+                    serverRendering: {
+                      colorScheme: snapshot.colorScheme ?? "system",
+                      zoomFactor: snapshot.zoomFactor ?? 1,
+                    },
+                  }
+                : {})}
+            />
+          );
+        })}
+      </div>
+    </>
   );
+}
+
+/**
+ * The desktop owns persistent browser profiles for the whole local server, not
+ * just the thread currently visible in its window. Listen once at app scope so
+ * a tab opened from a remote web client or agent can attach to that profile.
+ */
+function ElectronBrowserEventSync({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const listResult = useAtomValue(
+    previewEnvironment.list({
+      environmentId,
+      input: {},
+    }),
+  );
+  const eventResult = useAtomValue(
+    previewEnvironment.events({
+      environmentId,
+      input: {},
+    }),
+  );
+
+  useEffect(() => {
+    if (!AsyncResult.isSuccess(listResult)) return;
+    reconcilePreviewServerSessionIndex(environmentId, listResult.value);
+  }, [environmentId, listResult]);
+
+  useEffect(() => {
+    if (!AsyncResult.isSuccess(eventResult)) return;
+    applyPreviewServerEvent(
+      scopeThreadRef(environmentId, ThreadId.make(eventResult.value.threadId)),
+      eventResult.value,
+    );
+  }, [environmentId, eventResult]);
+
+  return null;
 }
 
 function AuthorizedBrowserWebview(props: ComponentProps<typeof HostedBrowserWebview>) {

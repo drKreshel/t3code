@@ -30,6 +30,47 @@ export const LSOF_LOCAL_HOST_TOKENS: ReadonlySet<string> = new Set([
 
 const LOOPBACK_PREFIX_PATTERN = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::|\/|$)/i;
 
+const WHATSAPP_WEB_HOST = "web.whatsapp.com";
+
+/**
+ * WhatsApp Web rejects Electron's product token even when its bundled
+ * Chromium is newer than the supported Chrome version. Keep this exact-host
+ * check shared so the renderer's first request and desktop navigations agree.
+ */
+export function isWhatsAppWebUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return (
+      (url.protocol === "https:" || url.protocol === "http:") && url.hostname === WHATSAPP_WEB_HOST
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Derives the plain Chrome UA WhatsApp expects from Electron's native UA.
+ * The native session UA remains untouched; callers apply this only to a
+ * WhatsApp WebContents and restore the native value before leaving the site.
+ */
+export function whatsAppChromeUserAgent(nativeUserAgent: string): string | null {
+  const chrome = /Chrome\/((\d+)[\d.]*)/.exec(nativeUserAgent);
+  const major = chrome?.[2];
+  if (!chrome || !major) return null;
+  return nativeUserAgent
+    .replace(/\s+T3Code[^\s/]*\/\S+/gi, "")
+    .replace(/\s+Electron\/\S+/gi, "")
+    .replace(chrome[0], `Chrome/${major}.0.0.0`)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/** User-Agent for one preview navigation without mutating its shared session. */
+export function previewUserAgentForUrl(nativeUserAgent: string, url: string): string {
+  if (!isWhatsAppWebUrl(url)) return nativeUserAgent;
+  return whatsAppChromeUserAgent(nativeUserAgent) ?? nativeUserAgent;
+}
+
 export function isLoopbackHost(host: string): boolean {
   if (LOOPBACK_HOSTS.has(host)) return true;
   if (host === "[::1]") return true;

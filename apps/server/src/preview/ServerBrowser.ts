@@ -745,10 +745,21 @@ const make = Effect.gen(function* () {
   const createTab = async (snapshot: PreviewSessionSnapshot): Promise<ServerTab> => {
     const adopted = adoptedPages.get(tabKey(snapshot.threadId, snapshot.tabId));
     adoptedPages.delete(tabKey(snapshot.threadId, snapshot.tabId));
-    const desktop =
-      adopted === undefined && (await desktopRenders(snapshot))
-        ? await connectDesktop(snapshot)
-        : null;
+    const desktopAttached = adopted === undefined && (await desktopRenders(snapshot));
+    if (
+      adopted === undefined &&
+      desktopChannel.available &&
+      !desktopAttached &&
+      snapshot.profileId !== undefined &&
+      snapshot.profileId !== INCOGNITO_BROWSER_PROFILE_ID
+    ) {
+      throw new ServerBrowserPage.ServerBrowserOperationError(
+        "PreviewAutomationExecutionError",
+        `The desktop browser did not attach profile "${snapshot.profileId}". T3 did not open a separate headless profile because it would not share the desktop profile's saved login. Reload the desktop app and retry.`,
+        { reason: "desktopProfileUnavailable", profileId: snapshot.profileId },
+      );
+    }
+    const desktop = desktopAttached ? await connectDesktop(snapshot) : null;
     // An agent tab without a profile (no client reported one) keeps throwaway storage.
     const isolatedContext =
       adopted === undefined &&

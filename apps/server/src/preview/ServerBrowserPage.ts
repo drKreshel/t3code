@@ -25,6 +25,9 @@ import { BrowserControlInterrupted } from "./SessionControl.ts";
 const MAX_EVALUATION_BYTES = 64_000;
 const MAX_VISIBLE_TEXT_LENGTH = 20_000;
 const MAX_SCREENSHOT_WIDTH = 1280;
+const SNAPSHOT_COMPONENT_TIMEOUT_MS = 5_000;
+const EMPTY_PNG_DATA =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const WAIT_POLL_MS = 100;
 export const DIAGNOSTIC_BUFFER_LIMIT = 200;
 
@@ -175,28 +178,64 @@ export const captureViewport = async (
   return data;
 };
 
-export const snapshot = async (input: {
-  readonly page: Page;
-  readonly cdp: CDPSession;
-  readonly renderScale: number;
-  readonly consoleEntries: ReadonlyArray<PreviewAutomationConsoleEntry>;
-  readonly networkEntries: ReadonlyArray<PreviewAutomationNetworkEntry>;
-  readonly actionTimeline: PreviewAutomationSnapshot["actionTimeline"];
-}): Promise<PreviewAutomationSnapshot> => {
+/** A slow supporting capture must not hide the page state the agent can still read. */
+const snapshotPart = <A>(operation: Promise<A>, timeoutMs: number): Promise<A | undefined> =>
+  new Promise((resolve) => {
+    let finished = false;
+    const timer = setTimeout(() => {
+      finished = true;
+      resolve(undefined);
+    }, timeoutMs);
+    void operation.then(
+      (value) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(undefined);
+      },
+    );
+  });
+
+export const snapshot = async (
+  input: {
+    readonly page: Page;
+    readonly cdp: CDPSession;
+    readonly renderScale: number;
+    readonly consoleEntries: ReadonlyArray<PreviewAutomationConsoleEntry>;
+    readonly networkEntries: ReadonlyArray<PreviewAutomationNetworkEntry>;
+    readonly actionTimeline: PreviewAutomationSnapshot["actionTimeline"];
+  },
+  componentTimeoutMs = SNAPSHOT_COMPONENT_TIMEOUT_MS,
+): Promise<PreviewAutomationSnapshot> => {
   const viewport = input.page.viewportSize() ?? { width: 1280, height: 800 };
   const scale = Math.min(1, MAX_SCREENSHOT_WIDTH / (viewport.width * input.renderScale));
   const state = refsFor(input.page);
   invalidateRefs(input.page);
   const generation = state.generation;
-  const [page, tree, data] = await Promise.all([
-    input.page.evaluate(SNAPSHOT_SCRIPT) as Promise<
-      Pick<
-        PreviewAutomationSnapshot,
-        "url" | "title" | "loading" | "visibleText" | "interactiveElements"
-      >
-    >,
-    input.page.ariaSnapshot({ mode: "ai", boxes: true, timeout: DEFAULT_TIMEOUT_MS }),
-    captureViewport(input.page, input.cdp, { format: "png", scale }),
+  const [capturedPage, capturedTree, capturedData] = await Promise.all([
+    snapshotPart(
+      input.page.evaluate(SNAPSHOT_SCRIPT) as Promise<
+        Pick<
+          PreviewAutomationSnapshot,
+          "url" | "title" | "loading" | "visibleText" | "interactiveElements"
+        >
+      >,
+      componentTimeoutMs,
+    ),
+    snapshotPart(
+      input.page.ariaSnapshot({ mode: "ai", boxes: true, timeout: componentTimeoutMs }),
+      componentTimeoutMs,
+    ),
+    snapshotPart(
+      captureViewport(input.page, input.cdp, { format: "png", scale }),
+      componentTimeoutMs,
+    ),
   ]);
   if (state.generation !== generation) {
     throw new ServerBrowserOperationError(
@@ -204,6 +243,14 @@ export const snapshot = async (input: {
       "The page changed while capturing its snapshot. Take another snapshot.",
     );
   }
+  const page = capturedPage ?? {
+    url: input.page.url(),
+    title: "",
+    loading: true,
+    visibleText: "",
+    interactiveElements: [],
+  };
+  const tree = capturedTree ?? "";
   const accessibilityTree = tree
     .slice(0, MAX_VISIBLE_TEXT_LENGTH)
     .replace(/\[ref=((?:f\d+)?e\d+)\]/g, (_match, nativeRef: string) => {
@@ -219,9 +266,11 @@ export const snapshot = async (input: {
     actionTimeline: [...input.actionTimeline],
     screenshot: {
       mimeType: "image/png",
-      data,
-      width: Math.round(viewport.width * input.renderScale * scale),
-      height: Math.round(viewport.height * input.renderScale * scale),
+      data: capturedData ?? EMPTY_PNG_DATA,
+      width:
+        capturedData === undefined ? 1 : Math.round(viewport.width * input.renderScale * scale),
+      height:
+        capturedData === undefined ? 1 : Math.round(viewport.height * input.renderScale * scale),
     },
   };
 };

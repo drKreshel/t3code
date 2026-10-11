@@ -2,11 +2,46 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   isLoopbackHost,
+  isWhatsAppWebUrl,
   newPreviewTabId,
   normalizePreviewUrl,
+  previewUserAgentForUrl,
   PreviewUrlNormalizationError,
   resolveAddressBarInput,
+  whatsAppChromeUserAgent,
 } from "./preview.ts";
+
+describe("WhatsApp Web browser identity", () => {
+  const nativeUserAgent =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) T3Code(Alpha)/0.0.33 Chrome/152.0.7977.130 Electron/44.4.5 Safari/537.36";
+  const chromeUserAgent =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+
+  it("matches only the WhatsApp web app host", () => {
+    expect(isWhatsAppWebUrl("https://web.whatsapp.com/")).toBe(true);
+    expect(isWhatsAppWebUrl("http://web.whatsapp.com/send?phone=123")).toBe(true);
+    expect(isWhatsAppWebUrl("https://whatsapp.com/")).toBe(false);
+    expect(isWhatsAppWebUrl("https://web.whatsapp.com.example.com/")).toBe(false);
+    expect(isWhatsAppWebUrl("not a url")).toBe(false);
+  });
+
+  it("presents Electron as the matching reduced Chrome version", () => {
+    expect(whatsAppChromeUserAgent(nativeUserAgent)).toBe(chromeUserAgent);
+    expect(
+      whatsAppChromeUserAgent(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) T3CodeDev/44.4.5 Chrome/152.0.7977.130 Electron/44.4.5 Safari/537.36",
+      ),
+    ).toBe(chromeUserAgent);
+    expect(whatsAppChromeUserAgent("Mozilla/5.0 Safari/537.36")).toBeNull();
+  });
+
+  it("restores the native identity outside WhatsApp", () => {
+    expect(previewUserAgentForUrl(nativeUserAgent, "https://web.whatsapp.com/")).toBe(
+      chromeUserAgent,
+    );
+    expect(previewUserAgentForUrl(nativeUserAgent, "https://example.com/")).toBe(nativeUserAgent);
+  });
+});
 
 describe("resolveAddressBarInput", () => {
   it("opens what users type as addresses", () => {

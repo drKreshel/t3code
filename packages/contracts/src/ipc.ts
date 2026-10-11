@@ -704,6 +704,8 @@ export interface DesktopPreviewRecordingInputEvent {
 export interface DesktopPreviewWebviewConfig {
   /** `persist:t3code-preview` (or whatever the desktop chose). */
   partition: string;
+  /** Plain Chrome identity used only when the guest starts on WhatsApp Web. */
+  whatsAppUserAgent: string | null;
   /**
    * Canonical `<webview webpreferences="...">` string. Encodes the security
    * posture (sandboxed but contextIsolation off so the picker preload can
@@ -721,6 +723,7 @@ export interface DesktopPreviewWebviewConfig {
 export const DesktopPreviewWebviewConfigSchema: Schema.Codec<DesktopPreviewWebviewConfig> =
   Schema.Struct({
     partition: Schema.String,
+    whatsAppUserAgent: Schema.NullOr(Schema.String),
     webPreferences: Schema.String,
     preloadUrl: Schema.NullOr(Schema.String),
   });

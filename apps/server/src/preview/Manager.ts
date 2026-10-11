@@ -105,11 +105,11 @@ const compositeKey = (threadId: string, tabId: string): string => `${threadId}\u
 
 const sessionsForThread = (
   state: ManagerState,
-  threadId: string,
+  threadId: string | undefined,
 ): ReadonlyArray<PreviewSessionState> => {
   const out: PreviewSessionState[] = [];
   for (const session of state.sessions.values()) {
-    if (session.threadId === threadId) out.push(session);
+    if (threadId === undefined || session.threadId === threadId) out.push(session);
   }
   return out;
 };

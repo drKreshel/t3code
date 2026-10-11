@@ -72,6 +72,7 @@ beforeEach(() => {
   mocks.registerWebview.mockReset().mockResolvedValue(undefined);
   mocks.getPreviewConfig.mockReset().mockResolvedValue({
     partition: "persist:t3-preview-work",
+    whatsAppUserAgent: "Mozilla/5.0 Chrome/152.0.0.0 Safari/537.36",
     webPreferences: "contextIsolation=yes",
     preloadUrl: null,
   });
@@ -124,7 +125,7 @@ describe("HostedBrowserWebview settings hydration", () => {
           threadRef={threadRef}
           tabId="server-tab"
           runtimeTabId={runtimeTabId}
-          initialUrl="https://example.com"
+          initialUrl="https://web.whatsapp.com/"
           viewport={FILL_PREVIEW_VIEWPORT}
           pictureInPicture={false}
           profileId="work"
@@ -180,7 +181,8 @@ describe("HostedBrowserWebview settings hydration", () => {
     expect(createGuest).toHaveBeenCalledWith(
       expect.objectContaining({
         partition: "persist:t3-preview-work",
-        src: "https://example.com",
+        src: "https://web.whatsapp.com/",
+        useragent: "Mozilla/5.0 Chrome/152.0.0.0 Safari/537.36",
       }),
     );
     expect(mocks.createTab).toHaveBeenCalledExactlyOnceWith(runtimeTabId, {

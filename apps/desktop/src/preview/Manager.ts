@@ -27,7 +27,11 @@ import type {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { matchesKeybindingShortcut } from "@t3tools/shared/keybindings";
-import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import {
+  isWhatsAppWebUrl,
+  normalizePreviewUrl,
+  previewUserAgentForUrl,
+} from "@t3tools/shared/preview";
 import {
   BrowserWindow,
   ClipboardItem,
@@ -123,6 +127,69 @@ const ZOOM_LEVELS: ReadonlyArray<number> = [
 
 const DEFAULT_ZOOM_FACTOR = 1.0;
 const ZOOM_EPSILON = 0.001;
+
+/**
+ * Changes only this WebContents. Its persistent partition and shared Session
+ * stay untouched, so WhatsApp keeps its login while other tabs keep Electron's
+ * native identity for integrity checks such as Cloudflare Turnstile.
+ */
+const setPreviewUserAgentForUrl = (wc: Electron.WebContents, url: string): void => {
+  const nativeUserAgent = wc.session.getUserAgent();
+  wc.setUserAgent(previewUserAgentForUrl(nativeUserAgent, url));
+};
+
+type PreviewBrowserIdentity = "native" | "whatsapp";
+
+const browserIdentityForUrl = (url: string): PreviewBrowserIdentity =>
+  isWhatsAppWebUrl(url) ? "whatsapp" : "native";
+
+const userAgentPlatform = (platform: NodeJS.Platform): string => {
+  if (platform === "darwin") return "macOS";
+  if (platform === "win32") return "Windows";
+  return "Linux";
+};
+
+const userAgentPlatformVersion = (nativeUserAgent: string, platform: NodeJS.Platform): string => {
+  if (platform === "darwin") {
+    return /Mac OS X ([\d_]+)/.exec(nativeUserAgent)?.[1]?.replaceAll("_", ".") ?? "";
+  }
+  if (platform === "win32") return /Windows NT ([\d.]+)/.exec(nativeUserAgent)?.[1] ?? "";
+  return "";
+};
+
+const whatsAppUserAgentMetadata = (
+  nativeUserAgent: string,
+  platform: NodeJS.Platform,
+  processArchitecture: NodeJS.Architecture,
+) => {
+  const match = /Chrome\/((\d+)[\d.]*)/.exec(nativeUserAgent);
+  const fullVersion = match?.[1];
+  const majorVersion = match?.[2];
+  if (!fullVersion || !majorVersion) return null;
+  const architecture =
+    processArchitecture === "arm64" ? "arm" : processArchitecture === "x64" ? "x86" : "";
+  const bitness = processArchitecture === "arm64" || processArchitecture === "x64" ? "64" : "32";
+  return {
+    brands: [
+      { brand: "Google Chrome", version: majorVersion },
+      { brand: "Chromium", version: majorVersion },
+      { brand: "Not?A_Brand", version: "24" },
+    ],
+    fullVersionList: [
+      { brand: "Google Chrome", version: fullVersion },
+      { brand: "Chromium", version: fullVersion },
+      { brand: "Not?A_Brand", version: "24.0.0.0" },
+    ],
+    fullVersion,
+    platform: userAgentPlatform(platform),
+    platformVersion: userAgentPlatformVersion(nativeUserAgent, platform),
+    architecture,
+    model: "",
+    mobile: false,
+    bitness,
+    wow64: false,
+  };
+};
 /**
  * A `[role]` container's innerText is its whole subtree, which turned one
  * snapshot's element list into 60 KB of repeated page text. Names are labels,
@@ -545,6 +612,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const fileSystem = yield* FileSystem.FileSystem;
   const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
   const hostPlatform = yield* HostProcess.Platform;
+  const hostArchitecture = yield* HostProcess.Architecture;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const parentScope = yield* Scope.Scope;
@@ -582,6 +650,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const pictureInPictureAspectRatiosRef = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
   const pictureInPictureMutationSemaphore = yield* Semaphore.make(1);
   const closingTabIdsRef = yield* Ref.make<ReadonlySet<string>>(new Set());
+  const browserIdentityByWebContents = new WeakMap<Electron.WebContents, PreviewBrowserIdentity>();
   // Tab recording uses `setDisplayMediaRequestHandler` because Electron's legacy
   // `getMediaSourceId` + `chromeMediaSource: "tab"` capture path was removed upstream
   // (electron#44618) and now always rejects with NotAllowedError.
@@ -1217,6 +1286,68 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
 
+  /**
+   * WhatsApp checks both the legacy UA string and Chromium's UA client hints.
+   * Keep the override on this guest only: the persistent Session remains the
+   * source of cookies and the native identity for every other site.
+   */
+  const applyBrowserIdentity = Effect.fn("PreviewManager.applyBrowserIdentity")(function* (
+    tabId: string,
+    wc: Electron.WebContents,
+    url: string,
+    force = false,
+  ) {
+    const requestedIdentity = browserIdentityForUrl(url);
+    const nativeUserAgent = yield* attempt(
+      { operation: "applyBrowserIdentity.readUserAgent", tabId, webContentsId: wc.id },
+      () => wc.session.getUserAgent(),
+    );
+    const userAgent = previewUserAgentForUrl(nativeUserAgent, url);
+    const metadata =
+      requestedIdentity === "whatsapp"
+        ? whatsAppUserAgentMetadata(nativeUserAgent, hostPlatform, hostArchitecture)
+        : null;
+    const identity = metadata === null ? "native" : requestedIdentity;
+    const previousIdentity = browserIdentityByWebContents.get(wc) ?? "native";
+
+    yield* attempt(
+      { operation: "applyBrowserIdentity.setUserAgent", tabId, webContentsId: wc.id },
+      () => wc.setUserAgent(userAgent),
+    );
+    if (identity === previousIdentity && (!force || identity === "native")) {
+      browserIdentityByWebContents.set(wc, identity);
+      return false;
+    }
+
+    const control = yield* ensureControlSession(wc);
+    yield* attemptPromise(
+      { operation: "applyBrowserIdentity.setUserAgentMetadata", tabId, webContentsId: wc.id },
+      () =>
+        control.debugger.sendCommand("Emulation.setUserAgentOverride", {
+          userAgent,
+          ...(metadata === null ? {} : { userAgentMetadata: metadata }),
+        }),
+    );
+    browserIdentityByWebContents.set(wc, identity);
+    return identity !== previousIdentity;
+  });
+
+  const reconcileBrowserIdentityAfterNavigation = Effect.fn(
+    "PreviewManager.reconcileBrowserIdentityAfterNavigation",
+  )(function* (tabId: string, wc: Electron.WebContents, force = false) {
+    if (wc.isDestroyed()) return;
+    const url = wc.getURL();
+    const changed = yield* applyBrowserIdentity(tabId, wc, url, force);
+    if (changed && isWhatsAppWebUrl(url) && !wc.isDestroyed()) {
+      // Initial webviews and cross-origin redirects can finish their first
+      // request before CDP is attached. Retry once with the complete identity.
+      yield* attempt(
+        { operation: "applyBrowserIdentity.reload", tabId, webContentsId: wc.id },
+        () => wc.reload(),
+      );
+    }
+  });
+
   const cancelPickElement = Effect.fn("PreviewManager.cancelPickElement")(function* (
     tabId: string,
   ) {
@@ -1319,7 +1450,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       if (Option.isSome(next)) yield* emitIfCurrent(tabId, next.value);
     });
     const sync = () => runFork(syncState(true));
-    const syncNavigation = () => runFork(syncState(false, true));
+    const syncNavigation = () => {
+      runFork(syncState(false, true));
+      runFork(reconcileBrowserIdentityAfterNavigation(tabId, wc).pipe(Effect.ignore));
+    };
     const syncInPageNavigation = () => runFork(syncState(false));
     const restoreRecordingCursor = () =>
       runFork(
@@ -1340,6 +1474,33 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
     ) => {
       if (event.isMainFrame && !event.isSameDocument) cancelFaviconCapture();
+    };
+    const navigationWillStart = (event: Electron.Event, url: string) => {
+      if (wc.isDestroyed()) return;
+      setPreviewUserAgentForUrl(wc, url);
+      const currentIdentity = browserIdentityByWebContents.get(wc) ?? "native";
+      const requestedIdentity = browserIdentityForUrl(url);
+      if (requestedIdentity !== currentIdentity) {
+        event.preventDefault();
+        runFork(
+          applyBrowserIdentity(tabId, wc, url).pipe(
+            Effect.flatMap(() =>
+              attemptPromise(
+                { operation: "navigationWillStart.loadURL", tabId, webContentsId: wc.id },
+                () => wc.loadURL(url),
+              ),
+            ),
+            Effect.ignore,
+          ),
+        );
+        return;
+      }
+      runFork(applyBrowserIdentity(tabId, wc, url).pipe(Effect.ignore));
+    };
+    const navigationWillRedirect = (_event: Electron.Event, url: string) => {
+      if (wc.isDestroyed()) return;
+      setPreviewUserAgentForUrl(wc, url);
+      runFork(applyBrowserIdentity(tabId, wc, url).pipe(Effect.ignore));
     };
     const audioStateChanged = (
       event: Electron.Event<Electron.WebContentsAudioStateChangedEventParams>,
@@ -1578,6 +1739,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       attempt({ operation: "detachListeners", tabId, webContentsId: wc.id }, () => {
         cancelFaviconCapture();
         wc.off("did-start-navigation", navigationStarted);
+        wc.off("will-navigate", navigationWillStart);
+        wc.off("will-redirect", navigationWillRedirect);
         wc.off("did-navigate", syncNavigation);
         wc.off("did-navigate-in-page", syncInPageNavigation);
         wc.off("page-title-updated", sync);
@@ -1601,6 +1764,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         // Other preview input, including CDP keys, belongs to the page.
         wc.setIgnoreMenuShortcuts(true);
         wc.on("did-start-navigation", navigationStarted);
+        wc.on("will-navigate", navigationWillStart);
+        wc.on("will-redirect", navigationWillRedirect);
         wc.on("did-navigate", syncNavigation);
         wc.on("did-navigate-in-page", syncInPageNavigation);
         wc.on("page-title-updated", sync);
@@ -1631,9 +1796,15 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             return { action: "deny" };
           }
           runFork(
-            attemptPromise({ operation: "openPreviewWindow", tabId, webContentsId: wc.id }, () =>
-              wc.loadURL(details.url),
-            ).pipe(Effect.ignore),
+            applyBrowserIdentity(tabId, wc, details.url).pipe(
+              Effect.flatMap(() =>
+                attemptPromise(
+                  { operation: "openPreviewWindow", tabId, webContentsId: wc.id },
+                  () => wc.loadURL(details.url),
+                ),
+              ),
+              Effect.ignore,
+            ),
           );
           return { action: "deny" };
         });
@@ -1938,6 +2109,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     // Best-effort here, unlike in setAudioMuted: a guest that dies mid-attach
     // must not fail the registration it was attaching for.
     yield* assertTabAudioMuted(tabId).pipe(Effect.ignore);
+    if (isWhatsAppWebUrl(wc.getURL())) {
+      yield* reconcileBrowserIdentityAfterNavigation(tabId, wc);
+    }
     runFork(restoreControlSession(tabId, wc));
     // emitIfCurrent, not emit: audio-state-changed can land between the commit
     // above and here, and republishing this snapshot would roll the UI back to
@@ -1959,9 +2133,15 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       wc.getURL() !== pendingUrl
     ) {
       runFork(
-        attemptPromise({ operation: "registerWebview.loadPendingUrl", tabId, webContentsId }, () =>
-          wc.loadURL(pendingUrl),
-        ).pipe(Effect.ignore),
+        applyBrowserIdentity(tabId, wc, pendingUrl).pipe(
+          Effect.flatMap(() =>
+            attemptPromise(
+              { operation: "registerWebview.loadPendingUrl", tabId, webContentsId },
+              () => wc.loadURL(pendingUrl),
+            ),
+          ),
+          Effect.ignore,
+        ),
       );
     }
   });
@@ -2090,6 +2270,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     }
     // URL-bar navigation hands the page back to the human. The agent's own
     // navigation shares this path; its next action marks the page again.
+    yield* applyBrowserIdentity(tabId, wc, url);
     if (wc.getURL() === url) {
       yield* attempt({ operation: "navigate.reload", tabId, webContentsId: wc.id }, () =>
         wc.reload(),
@@ -2425,6 +2606,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             ],
           }),
         );
+      }
+      if (isWhatsAppWebUrl(wc.getURL())) {
+        yield* reconcileBrowserIdentityAfterNavigation(tabId, wc, true);
       }
     }).pipe(Effect.ignore);
 
