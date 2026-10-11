@@ -1458,6 +1458,76 @@ it.live("agents read a human's tab with no arguments and act on it only while no
   ).pipe(Effect.provide(layer)),
 );
 
+it.live("agents discover a human tab opened before the automation host starts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const manager = yield* Manager.PreviewManager;
+      const opened = yield* manager.open({
+        threadId: scope.thread.threadId,
+        url: "http://localhost:5173/already-open",
+        runtime: "server",
+      });
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* ServerBrowser.ServerBrowser;
+      yield* Effect.yieldNow;
+
+      const status = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "status",
+        input: {},
+      });
+
+      expect(status).toMatchObject({
+        available: true,
+        tabId: opened.tabId,
+        url: "http://localhost:5173/already-open",
+        control: { owner: "unclaimed", ownedByCaller: false },
+      });
+      expect(status.tabs).toEqual([
+        expect.objectContaining({
+          tabId: opened.tabId,
+          owner: "unclaimed",
+          ownedByCaller: false,
+        }),
+      ]);
+      const snapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
+        scope,
+        operation: "snapshot",
+        input: {},
+      });
+      expect(snapshot).toMatchObject({
+        url: "http://localhost:5173/already-open",
+      });
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("preview_open reuses an agent tab created before the automation host starts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const manager = yield* Manager.PreviewManager;
+      const existing = yield* manager.open({
+        threadId: scope.thread.threadId,
+        runtime: "server",
+        automationOwner: `${scope.environmentId}\u0000${scope.thread.providerSessionId}`,
+      });
+      const broker = yield* Broker.PreviewAutomationBroker;
+      yield* ServerBrowser.ServerBrowser;
+      yield* Effect.yieldNow;
+
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: {},
+      });
+      const { sessions } = yield* manager.list({ threadId: scope.thread.threadId });
+
+      expect(opened.tabId).toBe(existing.tabId);
+      expect(sessions).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live("a session's own tab stays its default while other sessions' tabs are listed", () =>
   Effect.scoped(
     Effect.gen(function* () {
