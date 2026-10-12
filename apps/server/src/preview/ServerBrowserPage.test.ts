@@ -90,6 +90,23 @@ describe("server browser element refs", () => {
     expect(result.screenshot).toMatchObject({ mimeType: "image/png", width: 1, height: 1 });
   });
 
+  it("returns supporting captures when page evaluation loses its navigation context", async () => {
+    await page.setContent("<main>Sign in to continue</main>");
+    vi.spyOn(page, "evaluate").mockRejectedValueOnce(
+      new Error(
+        "page.evaluate: Execution context was destroyed, most likely because of a navigation.",
+      ),
+    );
+
+    const result = await takeSnapshot();
+
+    expect(result.url).toBe("about:blank");
+    expect(result.loading).toBe(true);
+    expect(result.visibleText).toBe("");
+    expect(result.accessibilityTree).toContain("Sign in to continue");
+    expect(result.screenshot.width).toBeGreaterThan(1);
+  });
+
   it("clicks the fifth repeated delete control without touching row one", async () => {
     await page.setContent(repeatedRows);
     const result = await takeSnapshot();
