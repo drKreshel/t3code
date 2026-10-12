@@ -79,6 +79,7 @@ it.effect("lists, deletes, changes icons, settles, and moves through the connect
       const service = yield* SidebarFolders.SidebarFolders;
       const server = yield* McpServer.McpServer;
       expect(server.tools.map(({ tool }) => tool.name).toSorted()).toEqual([
+        "create_sidebar_folder",
         "delete_sidebar_folder",
         "list_sidebar_folders",
         "move_thread_to_sidebar_folder",
@@ -106,31 +107,38 @@ it.effect("lists, deletes, changes icons, settles, and moves through the connect
             result:
               event.action.type === "list"
                 ? { type: "listed", folders: [] }
-                : event.action.type === "delete"
+                : event.action.type === "create"
                   ? {
-                      type: "deleted",
-                      deletedFolderIds: [event.action.folderId],
-                      releasedThreadCount: 0,
-                      queuedTicketFolderClears: 0,
-                      queuedTaskFolderClears: 0,
+                      type: "folder-created",
+                      folderId: "findings",
+                      path: event.action.path,
+                      createdFolderIds: ["findings"],
                     }
-                  : event.action.type === "set-icon"
+                  : event.action.type === "delete"
                     ? {
-                        type: "folder-icon-updated",
-                        folderId: event.action.folderId,
-                        icon: event.action.icon,
+                        type: "deleted",
+                        deletedFolderIds: [event.action.folderId],
+                        releasedThreadCount: 0,
+                        queuedTicketFolderClears: 0,
+                        queuedTaskFolderClears: 0,
                       }
-                    : event.action.type === "set-settled"
+                    : event.action.type === "set-icon"
                       ? {
-                          type: "folder-settled",
+                          type: "folder-icon-updated",
                           folderId: event.action.folderId,
-                          settled: event.action.settled,
+                          icon: event.action.icon,
                         }
-                      : {
-                          type: "thread-moved",
-                          thread: event.action.thread,
-                          folderId: event.action.folderId,
-                        },
+                      : event.action.type === "set-settled"
+                        ? {
+                            type: "folder-settled",
+                            folderId: event.action.folderId,
+                            settled: event.action.settled,
+                          }
+                        : {
+                            type: "thread-moved",
+                            thread: event.action.thread,
+                            folderId: event.action.folderId,
+                          },
           });
         }),
         Effect.forkChild,
@@ -139,6 +147,17 @@ it.effect("lists, deletes, changes icons, settles, and moves through the connect
       expect(yield* call("list_sidebar_folders", {})).toEqual({
         clients: [{ clientId: "desktop", label: "Desktop", folders: [] }],
         failures: [],
+      });
+      expect(
+        yield* call("create_sidebar_folder", {
+          clientId: "desktop",
+          path: "t3-code/other-projects-findings",
+        }),
+      ).toEqual({
+        type: "folder-created",
+        folderId: "findings",
+        path: "t3-code/other-projects-findings",
+        createdFolderIds: ["findings"],
       });
       expect(
         yield* call("delete_sidebar_folder", { clientId: "desktop", folderId: "empty" }),
@@ -214,6 +233,16 @@ it.effect("lists, deletes, changes icons, settles, and moves through the connect
 it.effect("refuses outside callers and read-only MCP clients before folder writes", () =>
   Effect.gen(function* () {
     const call = yield* tools;
+    expect(
+      yield* call(
+        "create_sidebar_folder",
+        { clientId: "desktop", path: "t3-code/findings" },
+        {
+          ...invocation,
+          client: { sessionId: "external", label: "External", access: "read-only" },
+        },
+      ).pipe(Effect.flip),
+    ).toMatchObject({ code: "capability_denied" });
     expect(
       yield* call(
         "set_sidebar_folder_icon",

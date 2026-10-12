@@ -23,6 +23,9 @@ const make = Effect.gen(function* () {
     list_sidebar_folders: McpToolAccess.readsAsCaller((input) =>
       withService((folders) => folders.list(input.clientId)),
     ),
+    create_sidebar_folder: McpToolAccess.actsAsCaller((input) =>
+      withService((folders) => folders.create(input.clientId, input.path)),
+    ),
     delete_sidebar_folder: McpToolAccess.actsAsCaller((input) =>
       withService((folders) => folders.delete(input.clientId, input.folderId)),
     ),

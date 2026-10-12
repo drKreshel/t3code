@@ -26,6 +26,13 @@ export class SidebarFolders extends Context.Service<
   {
     readonly list: (clientId?: string) => Effect.Effect<SidebarFolderListing, SidebarFoldersError>;
     readonly connect: (client: SidebarFolderClient) => Stream.Stream<SidebarFolderStreamEvent>;
+    readonly create: (
+      clientId: string,
+      path: string,
+    ) => Effect.Effect<
+      Extract<SidebarFolderResult, { type: "folder-created" }>,
+      SidebarFoldersError
+    >;
     readonly delete: (
       clientId: string,
       folderId: string,
@@ -150,6 +157,7 @@ const make = Effect.gen(function* () {
         (
           {
             list: "listed",
+            create: "folder-created",
             delete: "deleted",
             "set-icon": "folder-icon-updated",
             "set-settled": "folder-settled",
@@ -220,6 +228,14 @@ const make = Effect.gen(function* () {
   return SidebarFolders.of({
     list,
     connect,
+    create: (clientId, path) =>
+      invoke(clientId, { type: "create", path }).pipe(
+        Effect.flatMap((result) =>
+          result.type === "folder-created"
+            ? Effect.succeed(result)
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
+        ),
+      ),
     delete: (clientId, folderId) =>
       invoke(clientId, { type: "delete", folderId }).pipe(
         Effect.flatMap((result) =>

@@ -43,6 +43,21 @@ describe("sidebar folder error transport", () => {
     expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
   });
 
+  it("transports idempotent folder creation results", () => {
+    const reply = {
+      clientId: "web",
+      connectionId: "connection",
+      requestId: "request",
+      result: {
+        type: "folder-created" as const,
+        folderId: "findings",
+        path: "t3-code/other-projects-findings",
+        createdFolderIds: ["t3-code", "findings"],
+      },
+    };
+    expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
+  });
+
   it("transports folder settlement results", () => {
     const reply = {
       clientId: "web",
