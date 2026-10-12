@@ -15,6 +15,7 @@ import {
   setProjectExpanded,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
+  setThreadPinNoteCollapsed,
   type UiState,
 } from "./uiStateStore";
 
@@ -25,6 +26,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     sidebarProjectScopeKey: null,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
+    collapsedThreadPinNoteKeys: [],
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
     ...overrides,
@@ -138,6 +140,17 @@ describe("uiStateStore pure functions", () => {
     });
   });
 
+  it("stores collapsed pinned notes as exceptions to the expanded default", () => {
+    const collapsed = setThreadPinNoteCollapsed(makeUiState(), "environment:thread:note-1", true);
+
+    expect(collapsed.collapsedThreadPinNoteKeys).toEqual(["environment:thread:note-1"]);
+    expect(setThreadPinNoteCollapsed(collapsed, "environment:thread:note-1", true)).toBe(collapsed);
+    expect(
+      setThreadPinNoteCollapsed(collapsed, "environment:thread:note-1", false)
+        .collapsedThreadPinNoteKeys,
+    ).toEqual([]);
+  });
+
   it("stores the endpoint preference by stable key", () => {
     const next = setDefaultAdvertisedEndpointKey(makeUiState(), "desktop-core:lan:http");
 
@@ -190,6 +203,11 @@ describe("parsePersistedState", () => {
           "turn-2": true,
         },
       },
+      collapsedThreadPinNoteKeys: [
+        "environment:thread-1:note-1",
+        "",
+        "environment:thread-1:note-1",
+      ],
     });
 
     expect(parsed).toEqual({
@@ -209,6 +227,7 @@ describe("parsePersistedState", () => {
           "turn-2": true,
         },
       },
+      collapsedThreadPinNoteKeys: ["environment:thread-1:note-1"],
     });
   });
 
@@ -307,6 +326,7 @@ describe("uiStateStore persistence", () => {
         },
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      collapsedThreadPinNoteKeys: ["environment:thread-1:note-1"],
     });
 
     persistState(state);
@@ -331,6 +351,7 @@ describe("uiStateStore persistence", () => {
           "turn-2": true,
         },
       },
+      collapsedThreadPinNoteKeys: ["environment:thread-1:note-1"],
       pullRequestMergeMethod: "merge",
     });
     expect(parsePersistedState(persisted)).toEqual({

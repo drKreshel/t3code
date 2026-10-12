@@ -6,6 +6,7 @@ import { normalizeProjectPathForComparison } from "./lib/projectPaths";
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
 // Version 1 stored card visibility, not folder expansion.
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
+const MAX_COLLAPSED_THREAD_PIN_NOTES = 1_000;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "t3code:renderer-state:v8",
   "t3code:renderer-state:v7",
@@ -30,6 +31,7 @@ export interface PersistedUiState {
   sidebarProjectScopeKey?: string | null;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
+  collapsedThreadPinNoteKeys?: string[];
   pullRequestMergeMethod?: string;
 }
 
@@ -45,6 +47,7 @@ export interface UiProjectState {
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
+  collapsedThreadPinNoteKeys: string[];
 }
 
 export interface UiEndpointState {
@@ -64,6 +67,7 @@ const initialState: UiState = {
   sidebarProjectScopeKey: null,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
+  collapsedThreadPinNoteKeys: [],
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
 };
@@ -153,6 +157,9 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
         : {},
+    collapsedThreadPinNoteKeys: sanitizeStringArray(parsed.collapsedThreadPinNoteKeys).slice(
+      -MAX_COLLAPSED_THREAD_PIN_NOTES,
+    ),
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     sidebarProjectScopeKey: sanitizeOptionalKey(parsed.sidebarProjectScopeKey),
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
@@ -231,6 +238,7 @@ export function persistState(state: UiState): void {
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
+        collapsedThreadPinNoteKeys: state.collapsedThreadPinNoteKeys,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
       } satisfies PersistedUiState),
     );
@@ -315,6 +323,24 @@ export function setThreadChangedFilesExpanded(
         [turnId]: expanded,
       },
     },
+  };
+}
+
+export function setThreadPinNoteCollapsed(
+  state: UiState,
+  noteKey: string,
+  collapsed: boolean,
+): UiState {
+  const currentlyCollapsed = state.collapsedThreadPinNoteKeys.includes(noteKey);
+  if (currentlyCollapsed === collapsed) {
+    return state;
+  }
+
+  return {
+    ...state,
+    collapsedThreadPinNoteKeys: collapsed
+      ? [...state.collapsedThreadPinNoteKeys, noteKey].slice(-MAX_COLLAPSED_THREAD_PIN_NOTES)
+      : state.collapsedThreadPinNoteKeys.filter((key) => key !== noteKey),
   };
 }
 
@@ -427,6 +453,7 @@ interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
+  setThreadPinNoteCollapsed: (noteKey: string, collapsed: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
@@ -446,6 +473,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
+  setThreadPinNoteCollapsed: (noteKey, collapsed) =>
+    set((state) => setThreadPinNoteCollapsed(state, noteKey, collapsed)),
   setDefaultAdvertisedEndpointKey: (key) =>
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKey: (projectKey) =>
