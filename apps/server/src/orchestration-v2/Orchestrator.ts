@@ -122,6 +122,7 @@ import {
   makeSubagentChildThread,
   subagentResultForRun,
   delegatedTaskProgress,
+  followupTaskAwaitsChildren,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
 import {
@@ -283,7 +284,7 @@ export interface OrchestratorV2Shape {
   /**
    * Whether a delegated child's apparent result is not final yet: a restart
    * continuation is pending, or the child is working again.
-   * A taskId limits the check to that follow-up's runs.
+   * A taskId limits the check to that follow-up's runs and the children they own.
    */
   readonly delegatedTaskResultPending: (
     childThreadId: ThreadId,
@@ -4592,8 +4593,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       }
 
+      // A restart continuation, or a wake for the results a run's delegated
+      // tasks returned, carries on that run's task.
+      const continuedRunId =
+        command.restartContinuationOfRunId ?? command.delegatedCompletion?.parentRunId;
       const continuedTaskId = projection.runs.find(
-        (run) => run.id === command.restartContinuationOfRunId,
+        (run) => run.id === continuedRunId,
       )?.delegatedTaskId;
 
       if (projection.thread.settledOverride !== null) {
@@ -10299,8 +10304,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         if (
           task.origin !== "app_owned" ||
           task.childThreadId !== childThreadId ||
-          (task.id === childControls.thread.forkedFrom.nodeId &&
-            progress.state !== "result_available") ||
+          (task.id === childControls.thread.forkedFrom.nodeId
+            ? progress.state !== "result_available"
+            : followupTaskAwaitsChildren(childControls, task.id)) ||
           (task.result !== null &&
             parent.contextTransfers.some(
               (transfer) =>
@@ -11302,6 +11308,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const runs = child.runs.filter((run) => run.delegatedTaskId === taskId);
         const run = runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
         if (run === undefined || delegatedTaskTerminalStatus(run.status) === null) return true;
+        if (followupTaskAwaitsChildren(child, taskId)) return true;
         return yield* childAwaitsRestartContinuation(runs, run);
       }
       const progress = delegatedTaskProgress(child);

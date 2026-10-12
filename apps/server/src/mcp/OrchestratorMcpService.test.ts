@@ -274,6 +274,90 @@ describe("OrchestratorMcpService", () => {
     }),
   );
 
+  it.effect("reports a follow-up as waiting while the tasks its run delegated are live", () =>
+    Effect.gen(function* () {
+      const parentThreadId = ThreadId.make("thread:mcp-followup-parent");
+      const childThreadId = ThreadId.make("thread:mcp-followup-child");
+      const childRunId = RunId.make("run:mcp-followup-child");
+      const taskId = NodeId.make("node:mcp-followup-task");
+      let nestedStatus = "running";
+      const parentProjection = {
+        thread: { id: parentThreadId },
+        runs: [],
+        contextTransfers: [],
+        subagents: [
+          {
+            id: taskId,
+            threadId: parentThreadId,
+            origin: "app_owned",
+            childThreadId,
+            driver: "codex",
+            model: "gpt-5.6-terra",
+            status: "running",
+            result: null,
+            completionDelivery: { state: "pending" },
+          },
+        ],
+      } as unknown as OrchestrationV2ThreadProjection;
+      const childProjection = () =>
+        ({
+          thread: { id: childThreadId },
+          runs: [{ id: childRunId, ordinal: 2, status: "completed", delegatedTaskId: taskId }],
+          contextTransfers: [],
+          messages: [],
+          // Another run's task does not hold this follow-up.
+          subagents: [
+            { runId: childRunId, status: nestedStatus },
+            { runId: RunId.make("run:mcp-followup-earlier"), status: "running" },
+          ],
+          providerThreads: [],
+          turnItems: [],
+        }) as unknown as OrchestrationV2ThreadProjection;
+      const layerDependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: (threadId) =>
+            Effect.succeed(threadId === parentThreadId ? parentProjection : childProjection()),
+          delegatedTaskResultPending: () => Effect.succeed(false),
+          dispatch: () => Effect.succeed({} as never),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+          list: () => Effect.succeed([]),
+        }),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("environment:mcp-followup"),
+        requestNamespace: "provider-session:mcp-followup",
+        thread: {
+          threadId: parentThreadId,
+          providerSessionId: "provider-session:mcp-followup",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const waiting = yield* service.taskStatus(scope, taskId);
+        assert.equal(waiting.status, "running");
+        assert.equal(waiting.workState, "waiting_for_children");
+        assert.isNull(waiting.summary);
+        nestedStatus = "completed";
+        const settled = yield* service.taskStatus(scope, taskId);
+        assert.equal(settled.status, "completed");
+        assert.equal(settled.workState, "result_available");
+      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies))));
+    }),
+  );
+
   it.effect("does not dispose delivery when a nonterminal task has no active child run", () =>
     Effect.gen(function* () {
       const parentThreadId = ThreadId.make("thread:mcp-cancel-parent");
