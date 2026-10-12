@@ -26,6 +26,12 @@ describe("T3 orchestration provider instructions", () => {
     assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "bindToCurrentThread=false");
   });
 
+  it("documents moving any thread between project checkouts", () => {
+    assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "thread named by `threadId`");
+    assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "back to the project's main checkout");
+    assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "already-bound threads can move");
+  });
+
   it("injects prompt fallback only for an MCP-enabled first run", () => {
     const prompt = "Inspect the repository.";
     const injected = t3OrchestrationPromptForFirstRun({

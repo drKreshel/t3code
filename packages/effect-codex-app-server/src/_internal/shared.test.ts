@@ -54,6 +54,35 @@ it.effect("preserves schema encode diagnostics", () =>
   }),
 );
 
+it.effect("preserves additive fields from newer notification payloads", () =>
+  Effect.gen(function* () {
+    const payload = yield* Shared.decodeNotificationPayload(
+      "item/completed",
+      Schema.Struct({
+        item: Schema.Struct({
+          type: Schema.Literal("subAgentActivity"),
+          id: Schema.String,
+        }),
+      }),
+      {
+        item: {
+          type: "subAgentActivity",
+          id: "spawn-1",
+          model: "gpt-6-luna",
+          reasoningEffort: "high",
+        },
+      },
+    );
+
+    const item = payload.item as typeof payload.item & {
+      readonly model: string;
+      readonly reasoningEffort: string;
+    };
+    assert.equal(item.model, "gpt-6-luna");
+    assert.equal(item.reasoningEffort, "high");
+  }),
+);
+
 it.effect("does not invent a cause when a method has no payload schema", () =>
   Effect.gen(function* () {
     const secret = "unexpected-payload-secret";

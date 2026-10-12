@@ -144,6 +144,7 @@ const make = Effect.gen(function* () {
       return {
         key: ticketKeyOf(board, ticket),
         column: column?.name ?? "",
+        archived: ticket.archivedAt !== null,
         path: ticketPath(board, ticket),
       };
     });
@@ -184,6 +185,7 @@ const make = Effect.gen(function* () {
     return {
       key: labelOf(snapshot, ticket),
       title: ticket.title,
+      archived: ticket.archivedAt !== null,
       column: column?.name ?? "",
       priority: ticket.priority,
       criteriaChecked: ticket.criteria.filter((criterion) => criterion.checked).length,
@@ -263,6 +265,7 @@ const make = Effect.gen(function* () {
           board: board.name,
           title: ticket.title,
           description: ticket.description,
+          archived: ticket.archivedAt !== null,
           column: column?.name ?? "",
           priority: ticket.priority,
           project: yield* projectTitle(ticket.projectKey ?? board.defaultProjectKey),
@@ -368,6 +371,14 @@ const make = Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const board = yield* unwrap(findBoard(snapshot, input.key));
         return yield* summarizeBoard(snapshot, board);
+      }),
+    ),
+    delete_board: McpToolAccess.writes(({ board: ref }) =>
+      Effect.gen(function* () {
+        const snapshot = yield* boards.snapshot;
+        const board = yield* unwrap(findBoard(snapshot, ref));
+        yield* dispatch({ type: "board.delete", boardId: board.id });
+        return { deleted: board.key };
       }),
     ),
     update_board: McpToolAccess.writes((input) =>
@@ -562,6 +573,13 @@ const make = Effect.gen(function* () {
             type: "requirement.remove",
             ticketId: ticket.id,
             requiresTicketId: required.id,
+          });
+        }
+        if (input.archived !== undefined && input.archived !== (ticket.archivedAt !== null)) {
+          yield* dispatch({
+            type: "ticket.archive",
+            ticketId: ticket.id,
+            archived: input.archived,
           });
         }
         return yield* changed(ticket.id);

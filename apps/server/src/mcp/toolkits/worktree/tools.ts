@@ -5,6 +5,7 @@ import {
   VcsListRefsResult,
   WorktreeMcpHandoffInput,
   WorktreeMcpHandoffResult,
+  WorktreeMcpStatusInput,
   WorktreeMcpStatusResult,
   ThreadId,
 } from "@t3tools/contracts";
@@ -28,14 +29,14 @@ const WorktreeToolFailure = Schema.Union([WorktreeMcpFailure, OrchestratorMcpFai
 
 const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
   description:
-    "Needs an agent running inside a T3 thread. Move this agent thread into a git worktree. To launch a separate agent already bound to a new or existing worktree, use t3_thread_launch with workspaceStrategy instead. By default, creates the worktree branch (optionally from origin), re-points the thread at the worktree, and runs the project's setup script there. To move into a worktree that already exists (for example one a project script just created), pass attach:true with its absolute path; it must be one of the project's git worktrees (see t3_worktree_list), branch is optional and must match the checked-out branch, the setup script does not run unless runSetupScript is true, and T3 never removes that worktree or its branch, even if the handoff fails. Changing the workspace detaches the live provider session, so the current turn ends shortly after the handoff is recorded; call this as the last action of the turn. To keep working after the handoff, pass continuationPrompt with the remaining work: it is queued as the thread's next message and starts a new turn inside the worktree with the conversation preserved. Without it the thread stays idle until the next message. The worktree is not removed automatically when the thread is deleted. Fails if the thread is already attached to a worktree: a thread cannot move between worktrees or back to the project root.",
+    "Needs an agent running inside a T3 thread. Move a thread to another checkout; omit threadId for this thread or pass another thread's ID. By default, creates a new worktree branch (optionally from origin), re-points the target thread, and runs the project's setup script there. To use an existing checkout, pass attach:true with its absolute path; it must be the project's main checkout or one of its git worktrees (see t3_worktree_list). Passing the main checkout path moves the thread back to the project root. An already-bound thread can move between worktrees or back to root. When attaching, branch is optional and must match the checked-out branch, and the setup script runs only when runSetupScript is true. Moving a bound thread never removes its previous worktree; attaching never removes the target checkout or branch. Changing a workspace detaches the target thread's live provider session. When targeting this thread, call this as the last action of the turn. To resume the target automatically, pass continuationPrompt; it is queued as that thread's next message and starts a new turn in the target checkout. Without it the target stays idle until its next message. To launch a separate new thread already bound to a checkout, use t3_thread_launch with workspaceStrategy instead.",
   parameters: WorktreeMcpHandoffInput,
   success: WorktreeMcpHandoffResult,
   failure: WorktreeToolFailure,
   failureMode: "return",
   dependencies,
 })
-  .annotate(Tool.Title, "Hand off thread to a git worktree")
+  .annotate(Tool.Title, "Move thread to another checkout")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
@@ -43,11 +44,8 @@ const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
 
 const WorktreeStatusTool = Tool.make("t3_worktree_status", {
   description:
-    "Needs an agent running inside a T3 thread. Report this agent thread's worktree binding: whether it is attached to a git worktree, the worktree path and branch, the project's main workspace root, and the server default for t3_worktree_handoff's startFromOrigin. Call this before t3_worktree_handoff to check whether a handoff is possible or has already happened.",
-  // No `parameters`: Tool.make defaults to Tool.EmptyParams, which serializes
-  // to a top-level `type: "object"` JSON Schema. An explicit empty
-  // Schema.Struct({}) serializes to `anyOf: [object, array]`, which is not a
-  // valid MCP tool input schema and makes clients reject the whole server.
+    "Needs an agent running inside a T3 thread. Report a thread's worktree binding: omit threadId for this thread or pass another thread's ID. Returns whether the target is attached to a git worktree, its worktree path and branch, the project's main checkout path, and the server default for t3_worktree_handoff's startFromOrigin.",
+  parameters: WorktreeMcpStatusInput,
   success: WorktreeMcpStatusResult,
   failure: WorktreeToolFailure,
   failureMode: "return",
@@ -61,7 +59,7 @@ const WorktreeStatusTool = Tool.make("t3_worktree_status", {
 
 const WorktreeListTool = Tool.make("t3_worktree_list", {
   description:
-    "List branch refs and their associated checkout paths for a thread's workspace (omit threadId for this thread) using the app's ref inventory. Detached worktrees without a branch are not included. Use t3_worktree_status for the thread binding and t3_worktree_handoff to create a new worktree or attach this thread to an existing one.",
+    "List branch refs and their associated checkout paths for a thread's project (omit threadId for this thread) using the app's ref inventory. Detached worktrees without a branch are not included. Use t3_worktree_status for the thread binding and t3_worktree_handoff to create a worktree or move this or another thread to an existing checkout.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     query: VcsListRefsInput.fields.query,

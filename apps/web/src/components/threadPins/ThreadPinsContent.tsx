@@ -47,7 +47,8 @@ function useThreadMarkdownContext(threadRef: ScopedThreadRef) {
 /**
  * A chat's pins, shared by the thread details card and the ticket page, in
  * the order they were pinned. Notes read in full without clicking and scroll
- * on their own past 40% of the screen; files and URLs open on click.
+ * on their own past 40% of the screen, then chain into their surrounding
+ * panel at either boundary; files and URLs open on click.
  */
 export function ThreadPinsContent({
   threadRef,
@@ -202,7 +203,7 @@ function NoteRow({
         <div
           id={bodyId}
           data-thread-pin-note-body
-          className="mt-0.5 max-h-[40dvh] overflow-y-auto ps-14 pe-2.5"
+          className="mt-0.5 max-h-[40dvh] overflow-y-auto overscroll-y-auto ps-14 pe-2.5"
         >
           {/* Agents write notes line by line, so single newlines stay breaks. */}
           <ChatMarkdown

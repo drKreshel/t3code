@@ -379,10 +379,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "days-before-auto-settle",
-    title: "Days of inactivity before auto-settle",
+    title: "Inactivity before auto-settle",
     to: "/settings/general",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["thread timeout activity sidebar"],
+    searchTerms: ["thread timeout activity sidebar minutes hours days duration"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },

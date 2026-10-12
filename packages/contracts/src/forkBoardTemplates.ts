@@ -7,7 +7,7 @@
 import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
-import { ProjectIconOverride } from "./project.ts";
+import { OrganizingIconOverride } from "./forkOrganizingIcon.ts";
 import { EnvironmentAuthorizationError } from "./auth.ts";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { BoardKey, BoardsCommandError, ColumnSpec } from "./forkBoards.ts";
@@ -40,7 +40,7 @@ export const TemplatesCommand = Schema.Union([
     templateId: Id,
     name: TrimmedNonEmptyString,
     key: BoardKey,
-    icon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
+    icon: Schema.optional(Schema.NullOr(OrganizingIconOverride)),
     defaultProjectKey: Schema.optional(Schema.NullOr(Schema.String)),
   }),
   /** Saves a board's columns as a template. Replaces a saved template with the same name. */

@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./auto-settle-duration": {
+      "types": "./src/autoSettleDuration.ts",
+      "default": "./src/autoSettleDuration.ts"
+    },
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"

@@ -2,6 +2,8 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/rpc/Rpc";
 
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ScopedThreadRef } from "./environment.ts";
+import { OrganizingIconOverride } from "./forkOrganizingIcon.ts";
 
 export const FORK_SIDEBAR_FOLDERS_WS_METHODS = {
   connect: "fork.sidebarFolders.connect",
@@ -15,6 +17,9 @@ const SidebarFoldersErrorCode = Schema.Literals([
   "busy",
   "timeout",
   "not-found",
+  "nested-folder",
+  "thread-not-found",
+  "thread-settlement-failed",
   "invalid-response",
 ]);
 
@@ -25,6 +30,10 @@ const errorMessages = {
   busy: "The sidebar folder client is busy. Wait for current calls to finish.",
   timeout: "The sidebar folder client did not respond in time. List folders again before retrying.",
   "not-found": "The sidebar folder was not found in the selected client.",
+  "nested-folder": "Only top-level sidebar folders can be settled or un-settled.",
+  "thread-not-found": "The thread was not found in the selected client.",
+  "thread-settlement-failed":
+    "The folder was not settled because one or more of its chats could not be settled.",
   "invalid-response": "The sidebar folder client returned an invalid response.",
 };
 
@@ -48,6 +57,7 @@ export const SidebarFolderSummary = Schema.Struct({
   name: Schema.String,
   path: Schema.String,
   parentId: Schema.NullOr(Schema.String),
+  icon: Schema.NullOr(OrganizingIconOverride),
   threadCount: NonNegativeInt,
   subtreeThreadCount: NonNegativeInt,
   settled: Schema.Boolean,
@@ -75,6 +85,21 @@ export type SidebarFolderListing = typeof SidebarFolderListing.Type;
 export const SidebarFolderAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("list") }),
   Schema.Struct({ type: Schema.Literal("delete"), folderId: TrimmedNonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("set-icon"),
+    folderId: TrimmedNonEmptyString,
+    icon: Schema.NullOr(OrganizingIconOverride),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("set-settled"),
+    folderId: TrimmedNonEmptyString,
+    settled: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("move-thread"),
+    thread: ScopedThreadRef,
+    folderId: Schema.NullOr(TrimmedNonEmptyString),
+  }),
 ]);
 export type SidebarFolderAction = typeof SidebarFolderAction.Type;
 
@@ -86,9 +111,30 @@ export const SidebarFolderDeletionResult = Schema.Struct({
   queuedTaskFolderClears: NonNegativeInt,
 });
 
+export const SidebarFolderThreadMoveResult = Schema.Struct({
+  type: Schema.Literal("thread-moved"),
+  thread: ScopedThreadRef,
+  folderId: Schema.NullOr(TrimmedNonEmptyString),
+});
+
+export const SidebarFolderSettlementResult = Schema.Struct({
+  type: Schema.Literal("folder-settled"),
+  folderId: TrimmedNonEmptyString,
+  settled: Schema.Boolean,
+});
+
+export const SidebarFolderIconResult = Schema.Struct({
+  type: Schema.Literal("folder-icon-updated"),
+  folderId: TrimmedNonEmptyString,
+  icon: Schema.NullOr(OrganizingIconOverride),
+});
+
 export const SidebarFolderResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("listed"), folders: Schema.Array(SidebarFolderSummary) }),
   SidebarFolderDeletionResult,
+  SidebarFolderIconResult,
+  SidebarFolderSettlementResult,
+  SidebarFolderThreadMoveResult,
 ]);
 export type SidebarFolderResult = typeof SidebarFolderResult.Type;
 

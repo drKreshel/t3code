@@ -1,4 +1,4 @@
-import type { ProjectIconOverride } from "@t3tools/contracts";
+import type { OrganizingIconOverride } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -43,7 +43,7 @@ interface SidebarFolderStoreState extends SidebarFolderLayout, TicketFolderRouti
   /** Forgets a path change the server refused, so the sidebar follows the server again. */
   dropPendingFolderPath: (sourceId: string, path: string | null) => void;
   createFolder: (input: { name: string; parentId: string | null }) => string;
-  setFolderIcon: (folderId: string, icon: ProjectIconOverride | null) => void;
+  setFolderIcon: (folderId: string, icon: OrganizingIconOverride | null) => void;
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
   setFolderDefaultProject: (folderId: string, projectKey: string | null) => void;

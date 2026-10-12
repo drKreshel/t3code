@@ -5,7 +5,7 @@
  */
 import {
   BoardColumnColor,
-  ProjectIconOverride,
+  OrganizingIconOverride,
   BoardKey,
   BoardsCommandError,
   OrchestratorMcpFailure,
@@ -73,7 +73,7 @@ const FlagSummary = Schema.NullOr(
 export const BoardSummary = Schema.Struct({
   key: Schema.String,
   name: Schema.String,
-  icon: Schema.NullOr(ProjectIconOverride),
+  icon: Schema.NullOr(OrganizingIconOverride),
   defaultProject: Schema.NullOr(Schema.String),
   newChatMessage: Schema.NullOr(Schema.String),
   pinned: Schema.Boolean,
@@ -85,6 +85,7 @@ export type BoardSummary = typeof BoardSummary.Type;
 export const TicketSummary = Schema.Struct({
   key: Schema.String,
   title: Schema.String,
+  archived: Schema.Boolean,
   column: Schema.String,
   priority: TicketPriority,
   criteriaChecked: Schema.Int,
@@ -102,6 +103,7 @@ export const TicketDetailResult = Schema.Struct({
   board: Schema.String,
   title: Schema.String,
   description: Schema.String,
+  archived: Schema.Boolean,
   column: Schema.String,
   priority: TicketPriority,
   project: Schema.NullOr(Schema.String),
@@ -161,6 +163,7 @@ export type TicketDetailResult = typeof TicketDetailResult.Type;
 const TicketChanged = Schema.Struct({
   key: Schema.String,
   column: Schema.String,
+  archived: Schema.Boolean,
   path: Schema.String.annotate({
     description: "Where the ticket opens in T3 Code, like /boards/WEB/12.",
   }),
@@ -216,9 +219,9 @@ const GetTicketTool = Tool.make("get_ticket", {
   .annotate(Tool.OpenWorld, false);
 
 const BoardIcon = Schema.optional(
-  Schema.NullOr(ProjectIconOverride).annotate({
+  Schema.NullOr(OrganizingIconOverride).annotate({
     description:
-      "Custom icon: a Lucide name and color, emoji, or monogram text and color. Null restores the board icon.",
+      "Custom icon: a Lucide name and color, emoji, monogram text and color, or a bitmap image as a data URL no longer than 32 KiB. Null restores the board icon.",
   }),
 );
 
@@ -255,6 +258,22 @@ const CreateBoardTool = Tool.make("create_board", {
   .annotate(Tool.Title, "Create board")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const DeleteBoardTool = Tool.make("delete_board", {
+  description:
+    "Permanently delete an archived board and all of its tickets, criteria, requirements, comments, history, and ticket-to-chat links. Chats and sidebar folders are preserved. Refused while the board is active or any ticket still has a workspace; archive it with update_board and remove those workspaces first.",
+  parameters: Schema.Struct({
+    board: TrimmedNonEmptyString.annotate({ description: "Board key like WEB." }),
+  }),
+  success: Schema.Struct({ deleted: BoardKey }),
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Delete board")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
@@ -385,7 +404,7 @@ const CreateTicketTool = Tool.make("create_ticket", {
 
 const UpdateTicketTool = Tool.make("update_ticket", {
   description:
-    "Change a ticket's number, title, description, priority, or folder, add or remove required tickets, and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
+    "Change a ticket's number, title, description, priority, folder, or archived state; add or remove required tickets; and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     number: Schema.optional(
@@ -397,6 +416,9 @@ const UpdateTicketTool = Tool.make("update_ticket", {
     title: Schema.optional(TrimmedNonEmptyString),
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),
+    archived: Schema.optional(
+      Schema.Boolean.annotate({ description: "true archives the ticket; false restores it." }),
+    ),
     folder: Schema.optional(
       Schema.NullOr(TicketFolderPath).annotate({
         description:
@@ -549,6 +571,7 @@ export const BoardsToolkit = Toolkit.make(
   ListTicketsTool,
   GetTicketTool,
   CreateBoardTool,
+  DeleteBoardTool,
   UpdateBoardTool,
   CreateTicketTool,
   UpdateTicketTool,

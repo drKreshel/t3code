@@ -1,5 +1,5 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId, ProjectIconOverride } from "@t3tools/contracts";
+import type { EnvironmentId, OrganizingIconOverride, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { SquareKanbanIcon } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -32,7 +32,7 @@ interface TicketCandidate {
 }
 
 interface BoardCandidate {
-  readonly icon: ProjectIconOverride | null;
+  readonly icon: OrganizingIconOverride | null;
   readonly key: string;
   readonly name: string;
   readonly openTickets: number;

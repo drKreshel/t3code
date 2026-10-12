@@ -41,7 +41,7 @@ const ChatPins = Schema.Struct({
 const PinNoteTool = Tool.make("pin_note", {
   ...shared,
   description:
-    "Pin a short markdown note on this chat, or rewrite the note with the same title. The user reads pinned notes at a glance beside the chat and on its ticket, such as where things run ('dev server on :4000'), current status, or the decisions you need from them. Absolute file paths written as markdown links and $skill names show as chips. Rewrite a note when it goes stale and unpin it when nothing is left.",
+    "Pin a short markdown note on this chat, or rewrite the note with the same title. The user reads pinned notes at a glance beside the chat and on its ticket, such as where things run ('dev server on :4000'), current status, or the decisions you need from them. Link boards as [name](/boards/WEB), tickets as [WEB-12](/boards/WEB/12), and chats with their t3-thread:// link so the user can traverse to them. Absolute file paths written as markdown links and $skill names show as chips. Rewrite a note when it goes stale and unpin it when nothing is left.",
   parameters: Schema.Struct({
     title: TrimmedNonEmptyString.check(Schema.isMaxLength(THREAD_PIN_TITLE_MAX_LENGTH)).annotate({
       description:

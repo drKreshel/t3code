@@ -593,7 +593,10 @@ function ProjectDetail({
             projectName={representative.title}
             open
             onOpenChange={setIconPickerOpen}
-            onSelect={(icon) => void setProjectIcon({ faviconPath: null, projectIcon: icon })}
+            onSelect={(icon) => {
+              if (icon.kind !== "image")
+                void setProjectIcon({ faviconPath: null, projectIcon: icon });
+            }}
           />
         </Suspense>
       ) : null}

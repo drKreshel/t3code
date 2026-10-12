@@ -1,4 +1,4 @@
-import type { ProjectIconOverride } from "@t3tools/contracts";
+import type { OrganizingIconOverride } from "@t3tools/contracts";
 import { FolderIcon, FolderOpenIcon, SquareKanbanIcon } from "lucide-react";
 import type { IconName } from "lucide-react/dynamic";
 import { lazy, Suspense } from "react";
@@ -18,7 +18,7 @@ export function OrganizingIcon({
   expanded = false,
   className,
 }: {
-  readonly icon?: ProjectIconOverride | null | undefined;
+  readonly icon?: OrganizingIconOverride | null | undefined;
   readonly kind: "board" | "folder";
   readonly expanded?: boolean;
   readonly className?: string;
@@ -29,7 +29,9 @@ export function OrganizingIcon({
   }
   return (
     <span aria-hidden className={cn("relative inline-flex size-4 shrink-0 text-base", className)}>
-      {icon.kind === "monogram" ? (
+      {icon.kind === "image" ? (
+        <img src={icon.dataUrl} alt="" className="size-full rounded-[25%] object-contain" />
+      ) : icon.kind === "monogram" ? (
         <ProjectMonogram text={icon.text} color={icon.color} className="size-full" />
       ) : icon.kind === "emoji" ? (
         <span className="flex size-full items-center justify-center leading-none">

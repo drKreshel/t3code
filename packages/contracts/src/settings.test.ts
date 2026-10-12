@@ -724,10 +724,23 @@ describe("ServerSettings thread settlement", () => {
     ).toMatchObject({ sidebarAutoSettleAfterDays: null, sidebarAutoSettleOnMerge: false });
   });
 
-  it.each([-1, 0, 91])("rejects an auto-settle threshold outside 1..90: %s", (value) => {
-    expect(() => decodeServerSettings({ sidebarAutoSettleAfterDays: value })).toThrow();
-    expect(() => decodeServerSettingsPatch({ sidebarAutoSettleAfterDays: value })).toThrow();
+  it("accepts sub-day auto-settle durations", () => {
+    const fourHours = 4 / 24;
+    expect(decodeServerSettings({ sidebarAutoSettleAfterDays: fourHours })).toMatchObject({
+      sidebarAutoSettleAfterDays: fourHours,
+    });
+    expect(decodeServerSettingsPatch({ sidebarAutoSettleAfterDays: fourHours })).toEqual({
+      sidebarAutoSettleAfterDays: fourHours,
+    });
   });
+
+  it.each([-1, 0, 1 / (24 * 60) - 0.000001, 91])(
+    "rejects an auto-settle threshold outside one minute..90 days: %s",
+    (value) => {
+      expect(() => decodeServerSettings({ sidebarAutoSettleAfterDays: value })).toThrow();
+      expect(() => decodeServerSettingsPatch({ sidebarAutoSettleAfterDays: value })).toThrow();
+    },
+  );
 });
 
 describe("ClientSettings pull request merge methods", () => {

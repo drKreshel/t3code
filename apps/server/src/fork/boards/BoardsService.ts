@@ -7,7 +7,7 @@
  */
 import {
   type Board,
-  ProjectIconOverride,
+  OrganizingIconOverride,
   BoardsCommandError,
   type BoardsCommand,
   type BoardsCommandErrorCode,
@@ -68,7 +68,7 @@ export const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
   { name: "Done", color: "green" },
 ];
 
-const IconJson = Schema.fromJsonString(ProjectIconOverride);
+const IconJson = Schema.fromJsonString(OrganizingIconOverride);
 const decodeIcon = Schema.decodeUnknownSync(IconJson);
 const encodeIcon = Schema.encodeSync(IconJson);
 
@@ -440,6 +440,41 @@ const make = Effect.gen(function* () {
             WHERE id = ${board.id}
           `;
           return { id: null, touched: [] };
+        }
+        case "board.delete": {
+          const board = yield* findBoard(command.boardId);
+          if (board.archived_at === null) {
+            return yield* fail("blocked", "Archive the board before permanently deleting it.");
+          }
+          const tickets = yield* sql<{ readonly id: string }>`
+            SELECT id FROM fork_tickets WHERE board_id = ${board.id}
+          `;
+          const activeWorkspaces = yield* sql<{ readonly ticket_id: string }>`
+            SELECT ticket_id FROM fork_ticket_workspaces
+            WHERE removed_at IS NULL
+              AND ticket_id IN (SELECT id FROM fork_tickets WHERE board_id = ${board.id})
+          `;
+          if (activeWorkspaces.length > 0) {
+            return yield* fail(
+              "blocked",
+              "Remove every ticket workspace before permanently deleting this board.",
+            );
+          }
+          // Workspace rows and overrides deliberately have no foreign keys: their
+          // files are managed separately, and only already-removed rows reach here.
+          yield* sql`
+            DELETE FROM fork_workspace_rules
+            WHERE (scope = 'board' AND scope_id = ${board.id})
+              OR (scope = 'ticket' AND scope_id IN (
+                SELECT id FROM fork_tickets WHERE board_id = ${board.id}
+              ))
+          `;
+          yield* sql`
+            DELETE FROM fork_ticket_workspaces
+            WHERE ticket_id IN (SELECT id FROM fork_tickets WHERE board_id = ${board.id})
+          `;
+          yield* sql`DELETE FROM fork_boards WHERE id = ${board.id}`;
+          return { id: null, touched: tickets.map((ticket) => ticket.id) };
         }
         case "board.reorder": {
           const board = yield* findBoard(command.boardId);

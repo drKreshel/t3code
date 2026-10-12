@@ -1,4 +1,4 @@
-import type { ProjectIconOverride } from "@t3tools/contracts";
+import type { OrganizingIconOverride } from "@t3tools/contracts";
 import { sidebarMarkerId, type SidebarListItem, type SidebarSection } from "./Sidebar.logic";
 
 /** A user folder in the sidebar. Sibling order is the order in `folders`. */
@@ -6,7 +6,7 @@ export interface SidebarFolder {
   readonly id: string;
   readonly name: string;
   readonly parentId: string | null;
-  readonly icon?: ProjectIconOverride | null;
+  readonly icon?: OrganizingIconOverride | null;
   /** Logical project key new chats start in. Unset inherits the parent's. */
   readonly defaultProjectKey?: string | null | undefined;
 }
@@ -113,7 +113,7 @@ export function renameSidebarFolder(
 export function setSidebarFolderIcon(
   layout: SidebarFolderLayout,
   folderId: string,
-  icon: ProjectIconOverride | null,
+  icon: OrganizingIconOverride | null,
 ): SidebarFolderLayout {
   return {
     ...layout,

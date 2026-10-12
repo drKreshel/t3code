@@ -36,18 +36,20 @@ const handlers = {
         .pipe(Effect.mapError(unavailable));
     }),
   ),
-  t3_worktree_handoff: McpToolAccess.actsAsCaller((input) =>
-    Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      const service = yield* WorktreeMcpService.WorktreeMcpService;
-      return yield* service.handoff(scope, input);
-    }),
+  t3_worktree_handoff: McpToolAccess.writesThreads(
+    (input) => [input.threadId],
+    (input) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* WorktreeMcpService.WorktreeMcpService;
+        return yield* service.handoff(scope, input);
+      }),
   ),
-  t3_worktree_status: McpToolAccess.readsAsCaller(() =>
+  t3_worktree_status: McpToolAccess.readsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* WorktreeMcpService.WorktreeMcpService;
-      return yield* service.status(scope);
+      return yield* service.status(scope, input);
     }),
   ),
 } satisfies McpToolAccess.Handlers<typeof WorktreeToolkit.tools>;

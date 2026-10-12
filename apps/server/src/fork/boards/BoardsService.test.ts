@@ -1,14 +1,18 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import type { BoardsCommand, BoardsSnapshot, ProjectIconOverride } from "@t3tools/contracts";
+import type { BoardsCommand, BoardsSnapshot, OrganizingIconOverride } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
+import { ForkDatabaseMemory } from "../ForkDatabase.ts";
 import { BoardsService, layerMemory } from "./BoardsService.ts";
 
-const TestLayer = layerMemory.pipe(Layer.provide(NodeServices.layer));
+const TestLayer = Layer.mergeAll(layerMemory, ForkDatabaseMemory).pipe(
+  Layer.provide(NodeServices.layer),
+);
 
 const dispatch = (command: BoardsCommand, actor = "user") =>
   Effect.gen(function* () {
@@ -82,6 +86,52 @@ it.layer(TestLayer)("BoardsService", (it) => {
     }),
   );
 
+  it.effect("deletes only archived boards whose ticket workspaces were removed", () =>
+    Effect.gen(function* () {
+      const boardId = yield* createdId({ type: "board.create", name: "Temporary", key: "TEMP" });
+      const ticketId = yield* createdId({ type: "ticket.create", boardId, title: "Keep safe" });
+
+      const activeError = yield* dispatch({ type: "board.delete", boardId }).pipe(Effect.flip);
+      assert.equal(activeError.code, "blocked");
+
+      yield* dispatch({ type: "board.archive", boardId, archived: true });
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`
+        INSERT INTO fork_ticket_workspaces
+          (ticket_id, project_key, path, repos_json, created_at, removed_at)
+        VALUES (${ticketId}, 'env:project', '/tmp/ticket', '[]', '2026-10-10T00:00:00Z', NULL)
+      `;
+      const workspaceError = yield* dispatch({ type: "board.delete", boardId }).pipe(Effect.flip);
+      assert.equal(workspaceError.code, "blocked");
+
+      yield* sql`
+        UPDATE fork_ticket_workspaces SET removed_at = '2026-10-10T01:00:00Z'
+        WHERE ticket_id = ${ticketId}
+      `;
+      yield* sql`
+        INSERT INTO fork_workspace_rules (scope, scope_id, rules_json, updated_at)
+        VALUES ('board', ${boardId}, '{}', '2026-10-10T00:00:00Z'),
+          ('ticket', ${ticketId}, '{}', '2026-10-10T00:00:00Z')
+      `;
+      yield* dispatch({ type: "board.delete", boardId });
+
+      const state = yield* snapshot;
+      assert.notOk(state.boards.some((board) => board.id === boardId));
+      assert.notOk(state.tickets.some((ticket) => ticket.id === ticketId));
+      assert.deepEqual(
+        yield* sql`SELECT ticket_id FROM fork_ticket_workspaces WHERE ticket_id = ${ticketId}`,
+        [],
+      );
+      assert.deepEqual(
+        yield* sql`SELECT scope FROM fork_workspace_rules WHERE scope_id IN (${boardId}, ${ticketId})`,
+        [],
+      );
+
+      const reused = yield* createdId({ type: "board.create", name: "Replacement", key: "TEMP" });
+      assert.notEqual(reused, boardId);
+    }),
+  );
+
   it.effect("keeps a board's new chat message through other edits and clears it when blank", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Docs", key: "DOCS" });
@@ -110,10 +160,11 @@ it.layer(TestLayer)("BoardsService", (it) => {
         Effect.map((state) => state.boards.find((board) => board.id === boardId)!),
       );
       assert.deepEqual((yield* read).icon, initial);
-      const icons: ProjectIconOverride[] = [
+      const icons: OrganizingIconOverride[] = [
         { kind: "lucide", name: "rocket", color: "blue" },
         { kind: "monogram", text: "IC", color: "violet" },
         { kind: "emoji", emoji: "👩🏽‍💻" },
+        { kind: "image", dataUrl: "data:image/png;base64,aWNvbg==" },
       ];
       for (const icon of icons) {
         yield* dispatch({ type: "board.update", boardId, icon });

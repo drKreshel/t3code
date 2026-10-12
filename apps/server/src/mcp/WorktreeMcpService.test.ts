@@ -62,10 +62,13 @@ interface ThreadFixture {
   readonly deletedAt?: string | null;
 }
 
-const makeProjection = (overrides: ThreadFixture = {}): OrchestrationV2ThreadProjection =>
+const makeProjection = (
+  overrides: ThreadFixture = {},
+  id: ThreadId = threadId,
+): OrchestrationV2ThreadProjection =>
   ({
     thread: {
-      id: threadId,
+      id,
       projectId,
       title: "Worktree test thread",
       branch: null,
@@ -88,6 +91,7 @@ const project: Project = {
 } as Project;
 
 interface HarnessOptions {
+  readonly targetThreadId?: ThreadId;
   readonly thread?: ThreadFixture | null;
   readonly threadReadError?: "projection" | "dispatch";
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
@@ -119,6 +123,7 @@ interface HarnessOptions {
 
 const makeHarness = (options: HarnessOptions = {}) => {
   const thread = options.thread === undefined ? {} : options.thread;
+  const targetThreadId = options.targetThreadId ?? threadId;
   const scope = makeScope(options.capabilities ?? new Set(["preview", "worktree"]));
   const dispatch = vi.fn((_: unknown) =>
     (options.dispatchGate ?? Effect.void).pipe(
@@ -163,7 +168,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
       thread !== null
     ) {
       return Effect.succeed(
-        makeProjection({ ...thread, worktreePath: "/worktrees/project/raced" }),
+        makeProjection({ ...thread, worktreePath: "/worktrees/project/raced" }, targetThreadId),
       );
     }
     if (
@@ -171,10 +176,12 @@ const makeHarness = (options: HarnessOptions = {}) => {
       getThreadRecords.mock.calls.length > 1 &&
       thread !== null
     ) {
-      return Effect.succeed(makeProjection({ ...thread, archivedAt: "2026-01-02T00:00:00.000Z" }));
+      return Effect.succeed(
+        makeProjection({ ...thread, archivedAt: "2026-01-02T00:00:00.000Z" }, targetThreadId),
+      );
     }
-    return id === threadId && thread !== null
-      ? Effect.succeed(makeProjection(thread))
+    return id === targetThreadId && thread !== null
+      ? Effect.succeed(makeProjection(thread, targetThreadId))
       : Effect.fail(new OrchestratorProjectionError({ threadId: id }));
   });
   const sendToThread = vi.fn((_: unknown) => {
@@ -359,6 +366,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
   return {
     layer,
     scope,
+    targetThreadId,
     dispatch,
     sendToThread,
     fetchRemote,
@@ -401,10 +409,13 @@ const runHandoff = (
     return yield* service.handoff(harness.scope, input);
   }).pipe(Effect.provide(harness.layer));
 
-const runStatus = (harness: ReturnType<typeof makeHarness>) =>
+const runStatus = (
+  harness: ReturnType<typeof makeHarness>,
+  input: Parameters<WorktreeMcpService.WorktreeMcpService["Service"]["status"]>[1] = {},
+) =>
   Effect.gen(function* () {
     const service = yield* WorktreeMcpService.WorktreeMcpService;
-    return yield* service.status(harness.scope);
+    return yield* service.status(harness.scope, input);
   }).pipe(Effect.provide(harness.layer));
 
 describe("t3_worktree_handoff", () => {
@@ -569,17 +580,21 @@ describe("t3_worktree_handoff", () => {
     });
   });
 
-  it.effect("fails when the thread is already attached to a worktree", () => {
+  it.effect("moves a thread from an existing worktree into a new one", () => {
     const harness = makeHarness({
       thread: { branch: "feature/existing", worktreePath: "/worktrees/project/existing" },
     });
     return Effect.gen(function* () {
-      const exit = yield* Effect.exit(runHandoff(harness, { branch: "feature/second" }));
-      expectTypedFailure(exit, {
-        _tag: "WorktreeMcpFailure",
-        code: "already_in_worktree",
-      });
-      expect(harness.createWorktree).not.toHaveBeenCalled();
+      const result = yield* runHandoff(harness, { branch: "feature/second" });
+      expect(result.worktreePath).toBe("/worktrees/project/feature/second");
+      expect(harness.createWorktree).toHaveBeenCalledTimes(1);
+      expect(harness.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId,
+          worktreePath: "/worktrees/project/feature/second",
+          expectedWorktreePath: "/worktrees/project/existing",
+        }),
+      );
     });
   });
 
@@ -750,7 +765,7 @@ describe("t3_worktree_handoff", () => {
     const harness = makeHarness({ threadAttachedOnRecheck: true });
     return Effect.gen(function* () {
       const exit = yield* Effect.exit(runHandoff(harness, { branch: "feature/raced" }));
-      expectTypedFailure(exit, { _tag: "WorktreeMcpFailure", code: "already_in_worktree" });
+      expectTypedFailure(exit, { _tag: "WorktreeMcpFailure", code: "workspace_changed" });
       expect(harness.createWorktree).toHaveBeenCalledTimes(1);
       // The freshly created worktree must not be left orphaned.
       expect(harness.removeWorktree).toHaveBeenCalledWith({
@@ -888,21 +903,15 @@ describe("t3_worktree_handoff", () => {
   });
 
   it.effect("releases the per-thread guard after a failed handoff", () => {
-    const harness = makeHarness({
-      thread: { worktreePath: "/worktrees/project/existing" },
-    });
+    const harness = makeHarness();
     return Effect.gen(function* () {
       const service = yield* resolveService(harness);
 
-      const first = yield* Effect.exit(
-        service.handoff(harness.scope, { branch: "feature/guard-1" }),
-      );
-      expectTypedFailure(first, { _tag: "WorktreeMcpFailure", code: "already_in_worktree" });
+      const first = yield* Effect.exit(service.handoff(harness.scope, {}));
+      expectTypedFailure(first, { _tag: "WorktreeMcpFailure", code: "invalid_request" });
       // A leaked guard would surface as handoff_in_progress here.
-      const second = yield* Effect.exit(
-        service.handoff(harness.scope, { branch: "feature/guard-2" }),
-      );
-      expectTypedFailure(second, { _tag: "WorktreeMcpFailure", code: "already_in_worktree" });
+      const second = yield* Effect.exit(service.handoff(harness.scope, {}));
+      expectTypedFailure(second, { _tag: "WorktreeMcpFailure", code: "invalid_request" });
     });
   });
 
@@ -1070,12 +1079,33 @@ describe("t3_worktree_handoff with attach", () => {
     });
   });
 
-  it.effect("rejects the project's main checkout", () => {
-    const harness = makeHarness();
+  it.effect("moves another thread from a worktree back to the project checkout", () => {
+    const otherThreadId = ThreadId.make("thread-worktree-other");
+    const harness = makeHarness({
+      targetThreadId: otherThreadId,
+      thread: { branch: "feature/old", worktreePath: "/worktrees/project/old" },
+    });
     return Effect.gen(function* () {
-      const exit = yield* Effect.exit(runHandoff(harness, { attach: true, path: workspaceRoot }));
-      expectTypedFailure(exit, { _tag: "WorktreeMcpFailure", code: "invalid_request" });
-      expect(harness.dispatch).not.toHaveBeenCalled();
+      const result = yield* runHandoff(harness, {
+        threadId: otherThreadId,
+        attach: true,
+        path: workspaceRoot,
+      });
+      expect(result).toMatchObject({
+        threadId: otherThreadId,
+        worktreePath: null,
+        branch: "dev",
+        baseRef: null,
+      });
+      expect(harness.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: otherThreadId,
+          branch: "dev",
+          worktreePath: null,
+          expectedWorktreePath: "/worktrees/project/old",
+        }),
+      );
+      expect(harness.createWorktree).not.toHaveBeenCalled();
     });
   });
 
@@ -1116,14 +1146,18 @@ describe("t3_worktree_handoff with attach", () => {
     });
   });
 
-  it.effect("keeps the already-attached guard", () => {
+  it.effect("moves an already-attached thread into another existing worktree", () => {
     const harness = makeHarness({ thread: { worktreePath: "/worktrees/project/current" } });
     return Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        runHandoff(harness, { attach: true, path: existingWorktree }),
+      const result = yield* runHandoff(harness, { attach: true, path: existingWorktree });
+      expect(result.worktreePath).toBe(existingWorktree);
+      expect(harness.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId,
+          worktreePath: existingWorktree,
+          expectedWorktreePath: "/worktrees/project/current",
+        }),
       );
-      expectTypedFailure(exit, { _tag: "WorktreeMcpFailure", code: "already_in_worktree" });
-      expect(harness.dispatch).not.toHaveBeenCalled();
     });
   });
 
@@ -1133,7 +1167,7 @@ describe("t3_worktree_handoff with attach", () => {
         [{ dispatchFails: true }, "operation_failed"],
         [{ dispatchDies: true }, "operation_failed"],
         [{ threadReadFailsOnRecheck: true }, "operation_failed"],
-        [{ threadAttachedOnRecheck: true }, "already_in_worktree"],
+        [{ threadAttachedOnRecheck: true }, "workspace_changed"],
         [{ threadArchivedOnRecheck: true }, "invalid_request"],
       ] as const) {
         const harness = makeHarness(options);
@@ -1155,6 +1189,7 @@ describe("t3_worktree_status", () => {
     return Effect.gen(function* () {
       const result = yield* runStatus(harness);
       expect(result).toEqual({
+        threadId,
         attached: false,
         worktreePath: null,
         branch: null,
@@ -1178,6 +1213,22 @@ describe("t3_worktree_status", () => {
         worktreePath: "/worktrees/project/existing",
         branch: "feature/existing",
         defaultStartFromOrigin: false,
+      });
+    });
+  });
+
+  it.effect("reports another thread's binding", () => {
+    const otherThreadId = ThreadId.make("thread-worktree-status-other");
+    const harness = makeHarness({
+      targetThreadId: otherThreadId,
+      thread: { worktreePath: existingWorktree, branch: "feature/existing" },
+    });
+    return Effect.gen(function* () {
+      const result = yield* runStatus(harness, { threadId: otherThreadId });
+      expect(result).toMatchObject({
+        threadId: otherThreadId,
+        attached: true,
+        worktreePath: existingWorktree,
       });
     });
   });

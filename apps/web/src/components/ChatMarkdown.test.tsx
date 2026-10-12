@@ -23,6 +23,15 @@ vi.mock("./chat/MermaidDiagram", () => ({
   // Real Mermaid needs layout APIs jsdom lacks; a rendered diagram is an SVG.
   MermaidDiagram: () => <svg aria-label="Diagram" />,
 }));
+vi.mock("./chat/MarkdownBoardRouteLink", () => ({
+  MarkdownBoardRouteLink: ({
+    target,
+    label,
+  }: {
+    readonly target: { readonly kind: string };
+    readonly label: string;
+  }) => <a data-board-route-kind={target.kind}>{label}</a>,
+}));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("../hooks/useSettings", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks/useSettings")>();
@@ -86,6 +95,30 @@ import ChatMarkdown, {
   hasMarkdownFilePrimaryAction,
   shouldUseMarkdownFileBrowserPrimaryAction,
 } from "./ChatMarkdown";
+
+describe("ChatMarkdown board routes", () => {
+  it("renders board and ticket paths as app links before file-path handling", () => {
+    const document = new DOMParser().parseFromString(
+      renderToStaticMarkup(
+        <ChatMarkdown
+          cwd="/tmp/project"
+          text="[SALON board](/boards/SALON) and [SALON-36](/boards/SALON/36)"
+        />,
+      ),
+      "text/html",
+    );
+
+    expect(
+      [...document.querySelectorAll("[data-board-route-kind]")].map((link) => [
+        link.getAttribute("data-board-route-kind"),
+        link.textContent,
+      ]),
+    ).toEqual([
+      ["board", "SALON board"],
+      ["ticket", "SALON-36"],
+    ]);
+  });
+});
 
 function codeButton(renderer: ReactTestRenderer, label: string) {
   const button = renderer.root

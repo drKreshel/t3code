@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
+import { EnvironmentId, ThreadId } from "./baseSchemas.ts";
 import { SidebarFolderReply, SidebarFoldersError } from "./forkSidebarFolders.ts";
 
 const encodeReply = Schema.encodeSync(Schema.toCodecJson(SidebarFolderReply));
@@ -23,5 +24,50 @@ describe("sidebar folder error transport", () => {
       },
     });
     expect(decodeReply(wire).error?.message).toBe(reply.error.message);
+  });
+
+  it("transports thread filing results", () => {
+    const reply = {
+      clientId: "web",
+      connectionId: "connection",
+      requestId: "request",
+      result: {
+        type: "thread-moved" as const,
+        thread: {
+          environmentId: EnvironmentId.make("environment"),
+          threadId: ThreadId.make("thread"),
+        },
+        folderId: "folder",
+      },
+    };
+    expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
+  });
+
+  it("transports folder settlement results", () => {
+    const reply = {
+      clientId: "web",
+      connectionId: "connection",
+      requestId: "request",
+      result: {
+        type: "folder-settled" as const,
+        folderId: "folder",
+        settled: true,
+      },
+    };
+    expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
+  });
+
+  it("transports folder image icon changes", () => {
+    const reply = {
+      clientId: "web",
+      connectionId: "connection",
+      requestId: "request",
+      result: {
+        type: "folder-icon-updated" as const,
+        folderId: "folder",
+        icon: { kind: "image" as const, dataUrl: "data:image/png;base64,aWNvbg==" },
+      },
+    };
+    expect(decodeReply(encodeReply(reply)).result).toEqual(reply.result);
   });
 });

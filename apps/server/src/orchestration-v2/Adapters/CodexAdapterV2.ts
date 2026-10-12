@@ -1268,7 +1268,11 @@ type CodexSubAgentActivityItem = Extract<
   | CodexSchema.V2ItemStartedNotification__ThreadItem
   | CodexSchema.V2ItemCompletedNotification__ThreadItem,
   { readonly type: "subAgentActivity" }
->;
+> & {
+  /** Added by newer Codex builds before the pinned protocol schema caught up. */
+  readonly model?: string | null;
+  readonly reasoningEffort?: string | null;
+};
 
 export interface CodexAppServerClientFactoryShape {
   readonly open: (input: {
@@ -3044,6 +3048,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             if (input.item.kind === "started") {
               const context = input.context;
               if (context === undefined) return;
+              const model = input.item.model?.trim() || null;
               const registeredSubagents = yield* Ref.get(subagentThreads);
               const ordinal =
                 Array.from(registeredSubagents.values()).filter(
@@ -3056,7 +3061,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 nativeToolCallId: input.item.id,
                 prompt: "",
                 title: input.item.agentPath,
-                model: null,
+                model,
+                reasoningEffort: input.item.reasoningEffort,
                 ordinal,
                 emitInitialPrompt: false,
               });

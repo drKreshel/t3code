@@ -1,21 +1,27 @@
 import * as Schema from "effect/Schema";
 
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
  * Input for the `t3_worktree_handoff` MCP tool.
  *
- * Creates a git worktree for the calling agent thread, or with `attach` binds
- * one of the project's existing worktrees, and re-points the thread at it.
- * Changing the thread's workspace detaches the live provider
- * session, so the current turn ends shortly after the handoff is recorded;
- * the conversation continues inside the worktree on the thread's next run.
+ * Creates a git worktree for a thread, or with `attach` binds one of the
+ * project's existing checkouts, and re-points the thread at it. Omitting
+ * `threadId` targets the calling thread. Changing a workspace detaches that
+ * thread's live provider session; a continuation can resume it in the target
+ * checkout.
  */
 export const WorktreeMcpHandoffInput = Schema.Struct({
+  threadId: Schema.optional(
+    ThreadId.annotate({
+      description:
+        "Thread to move. Defaults to the calling thread. The target may already be attached to another worktree.",
+    }),
+  ),
   attach: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Attach the existing worktree at path instead of creating one. The worktree must be one of the project's git worktrees with a branch checked out; it is never removed by T3, even if the handoff fails. baseRef and startFromOrigin do not apply.",
+        "Attach the existing checkout at path instead of creating a worktree. The path must be the project's main checkout or one of its git worktrees, with a branch checked out. Passing the main checkout moves the thread back to the project root. T3 never removes the attached checkout or the thread's previous worktree. baseRef and startFromOrigin do not apply.",
     }),
   ),
   branch: Schema.optional(
@@ -42,19 +48,19 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
       Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/),
     ).annotate({
       description:
-        "Absolute filesystem path of the worktree. Relative paths are rejected. When creating, defaults to the server-managed worktrees directory; required when attaching.",
+        "Absolute filesystem path of the target checkout. Relative paths are rejected. When creating, defaults to the server-managed worktrees directory; required when attaching.",
     }),
   ),
   runSetupScript: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Run the project's configured setup script in the worktree after handoff. Defaults to true when creating a worktree and false when attaching one.",
+        "Run the project's configured setup script in the target checkout after handoff. Defaults to true when creating a worktree and false when attaching an existing checkout.",
     }),
   ),
   continuationPrompt: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(120_000)).annotate({
       description:
-        "Message queued as the thread's next turn after the handoff. The handoff detaches the current provider session, so pass the remaining work here to automatically resume inside the worktree; omit it to stop after the handoff and wait for the next message.",
+        "Message queued as the target thread's next turn after the handoff. The handoff detaches that thread's current provider session, so pass the remaining work here to automatically resume in the target checkout; omit it to leave the thread idle until its next message.",
     }),
   ),
 });
@@ -95,9 +101,11 @@ export const WorktreeMcpContinuationStatus = Schema.Union([
 export type WorktreeMcpContinuationStatus = typeof WorktreeMcpContinuationStatus.Type;
 
 export const WorktreeMcpHandoffResult = Schema.Struct({
-  worktreePath: TrimmedNonEmptyString,
+  threadId: ThreadId,
+  /** Null means the thread now uses the project's main checkout. */
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   branch: TrimmedNonEmptyString,
-  /** Null when an existing worktree was attached. */
+  /** Null when an existing checkout was attached. */
   baseRef: Schema.NullOr(TrimmedNonEmptyString),
   startedFromOrigin: Schema.Boolean,
   setupScript: WorktreeMcpSetupScriptStatus,
@@ -106,9 +114,19 @@ export const WorktreeMcpHandoffResult = Schema.Struct({
 });
 export type WorktreeMcpHandoffResult = typeof WorktreeMcpHandoffResult.Type;
 
+export const WorktreeMcpStatusInput = Schema.Struct({
+  threadId: Schema.optional(
+    ThreadId.annotate({
+      description: "Thread to inspect. Defaults to the calling thread.",
+    }),
+  ),
+});
+export type WorktreeMcpStatusInput = typeof WorktreeMcpStatusInput.Type;
+
 export const WorktreeMcpStatusResult = Schema.Struct({
+  threadId: ThreadId,
   attached: Schema.Boolean.annotate({
-    description: "True when this thread is already attached to a git worktree.",
+    description: "True when the target thread is attached to a git worktree.",
   }),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   branch: Schema.NullOr(TrimmedNonEmptyString),
@@ -129,6 +147,7 @@ export class WorktreeMcpFailure extends Schema.TaggedError<WorktreeMcpFailure>()
       "thread_not_found",
       "project_not_found",
       "already_in_worktree",
+      "workspace_changed",
       "handoff_in_progress",
       "invalid_request",
       "operation_failed",

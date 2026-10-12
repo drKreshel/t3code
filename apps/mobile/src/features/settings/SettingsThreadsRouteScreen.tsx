@@ -227,12 +227,14 @@ function AutoSettleSettingsRows() {
         {afterDays !== null ? (
           <View className="flex-row items-center gap-4 px-4 py-4 android:min-h-14 android:py-3">
             <View className="w-[22px] android:w-6" />
-            <Text className="flex-1 text-foreground text-lg android:text-base">Inactive days</Text>
-            <AutoSettleDaysField
-              value={afterDays}
-              disabled={disabled}
-              onValueChange={(value) => writeToAll({ sidebarAutoSettleAfterDays: value })}
-            />
+            <View className="flex-1 gap-3">
+              <Text className="text-foreground text-lg android:text-base">Settle after</Text>
+              <AutoSettleDaysField
+                value={afterDays}
+                disabled={disabled}
+                onValueChange={(value) => writeToAll({ sidebarAutoSettleAfterDays: value })}
+              />
+            </View>
           </View>
         ) : null}
       </SettingsSection>

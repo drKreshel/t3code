@@ -6,6 +6,8 @@ import {
   type SidebarFolderResult,
   type SidebarFolderListing,
   type SidebarFolderStreamEvent,
+  type OrganizingIconOverride,
+  type ScopedThreadRef,
   SidebarFoldersError,
 } from "@t3tools/contracts";
 import type * as Cause from "effect/Cause";
@@ -28,6 +30,27 @@ export class SidebarFolders extends Context.Service<
       clientId: string,
       folderId: string,
     ) => Effect.Effect<Extract<SidebarFolderResult, { type: "deleted" }>, SidebarFoldersError>;
+    readonly setSettled: (
+      clientId: string,
+      folderId: string,
+      settled: boolean,
+    ) => Effect.Effect<
+      Extract<SidebarFolderResult, { type: "folder-settled" }>,
+      SidebarFoldersError
+    >;
+    readonly setIcon: (
+      clientId: string,
+      folderId: string,
+      icon: OrganizingIconOverride | null,
+    ) => Effect.Effect<
+      Extract<SidebarFolderResult, { type: "folder-icon-updated" }>,
+      SidebarFoldersError
+    >;
+    readonly moveThread: (
+      clientId: string,
+      thread: ScopedThreadRef,
+      folderId: string | null,
+    ) => Effect.Effect<Extract<SidebarFolderResult, { type: "thread-moved" }>, SidebarFoldersError>;
     readonly respond: (reply: SidebarFolderReply) => Effect.Effect<void>;
     readonly claim: (request: SidebarFolderRequestRef) => Effect.Effect<boolean>;
   }
@@ -123,7 +146,16 @@ const make = Effect.gen(function* () {
     if (reply.error) yield* Deferred.fail(request.deferred, reply.error);
     else if (
       reply.result &&
-      reply.result.type === (request.action.type === "list" ? "listed" : "deleted")
+      reply.result.type ===
+        (
+          {
+            list: "listed",
+            delete: "deleted",
+            "set-icon": "folder-icon-updated",
+            "set-settled": "folder-settled",
+            "move-thread": "thread-moved",
+          } as const
+        )[request.action.type]
     )
       yield* Deferred.succeed(request.deferred, reply.result);
     else yield* Deferred.fail(request.deferred, SidebarFoldersError.fromCode("invalid-response"));
@@ -192,6 +224,30 @@ const make = Effect.gen(function* () {
       invoke(clientId, { type: "delete", folderId }).pipe(
         Effect.flatMap((result) =>
           result.type === "deleted"
+            ? Effect.succeed(result)
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
+        ),
+      ),
+    setSettled: (clientId, folderId, settled) =>
+      invoke(clientId, { type: "set-settled", folderId, settled }).pipe(
+        Effect.flatMap((result) =>
+          result.type === "folder-settled"
+            ? Effect.succeed(result)
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
+        ),
+      ),
+    setIcon: (clientId, folderId, icon) =>
+      invoke(clientId, { type: "set-icon", folderId, icon }).pipe(
+        Effect.flatMap((result) =>
+          result.type === "folder-icon-updated"
+            ? Effect.succeed(result)
+            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
+        ),
+      ),
+    moveThread: (clientId, thread, folderId) =>
+      invoke(clientId, { type: "move-thread", thread, folderId }).pipe(
+        Effect.flatMap((result) =>
+          result.type === "thread-moved"
             ? Effect.succeed(result)
             : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
         ),

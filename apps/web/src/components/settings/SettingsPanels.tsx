@@ -18,6 +18,13 @@ import {
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
+  AUTO_SETTLE_DURATION_UNITS,
+  autoSettleDurationAmount,
+  autoSettleDurationToDays,
+  preferredAutoSettleDurationUnit,
+  type AutoSettleDurationUnit,
+} from "@t3tools/client-runtime/auto-settle-duration";
+import {
   isAtomCommandInterrupted,
   settlePromise,
   squashAtomCommandFailure,
@@ -2039,45 +2046,72 @@ function FontFamilySettingsRow({
 
 const AUTO_SETTLE_DEFAULT_DAYS = DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ?? 3;
 
-function AutoSettleDaysInput({
+const AUTO_SETTLE_DURATION_UNIT_LABELS = {
+  minutes: "Minutes",
+  hours: "Hours",
+  days: "Days",
+} satisfies Record<AutoSettleDurationUnit, string>;
+
+function AutoSettleDurationInput({
   value,
   onCommit,
 }: {
   value: number;
   onCommit: (days: number) => void;
 }) {
+  const [unit, setUnit] = useState<AutoSettleDurationUnit>(() =>
+    preferredAutoSettleDurationUnit(value),
+  );
   // Local draft so the field can be emptied mid-edit; the setting only moves
   // on valid input and snaps back to the persisted value on blur.
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
+  const [draft, setDraft] = useState<string | null>(null);
+  const displayValue = draft ?? autoSettleDurationAmount(value, unit);
+
+  const commit = (amount: string, nextUnit: AutoSettleDurationUnit) => {
+    const days = autoSettleDurationToDays(Number(amount), nextUnit);
+    if (days !== null) onCommit(days);
+  };
 
   return (
-    <Input
-      size="sm"
-      type="number"
-      min={MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
-      max={MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
-      className="w-full sm:w-24"
-      value={draft}
-      onChange={(event) => {
-        setDraft(event.target.value);
-        // Number(), not parseInt: "3.5" must be rejected (not truncated to a
-        // committed 3 while the field shows 3.5) — commit only when the
-        // persisted value matches the displayed one.
-        const parsed = Number(event.target.value);
-        if (
-          Number.isInteger(parsed) &&
-          parsed >= MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS &&
-          parsed <= MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS
-        ) {
-          onCommit(parsed);
-        }
-      }}
-      onBlur={() => setDraft(String(value))}
-      aria-label="Days of inactivity before auto-settle"
-    />
+    <div className="flex w-full items-center gap-2 sm:w-auto">
+      <Input
+        size="sm"
+        type="number"
+        min={autoSettleDurationAmount(MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS, unit)}
+        max={autoSettleDurationAmount(MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS, unit)}
+        step="any"
+        className="min-w-0 flex-1 sm:w-24 sm:flex-none"
+        value={displayValue}
+        onChange={(event) => {
+          const amount = event.target.value;
+          setDraft(amount);
+          commit(amount, unit);
+        }}
+        onBlur={() => setDraft(null)}
+        aria-label="Inactivity before auto-settle"
+      />
+      <Select
+        value={unit}
+        onValueChange={(next) => {
+          if (!AUTO_SETTLE_DURATION_UNITS.includes(next as AutoSettleDurationUnit)) return;
+          const nextUnit = next as AutoSettleDurationUnit;
+          setUnit(nextUnit);
+          commit(displayValue, nextUnit);
+          setDraft(null);
+        }}
+      >
+        <SelectTrigger size="sm" className="w-28 shrink-0" aria-label="Auto-settle time unit">
+          <SelectValue>{AUTO_SETTLE_DURATION_UNIT_LABELS[unit]}</SelectValue>
+        </SelectTrigger>
+        <SelectPopup align="end" alignItemWithTrigger={false}>
+          {AUTO_SETTLE_DURATION_UNITS.map((durationUnit) => (
+            <SelectItem hideIndicator key={durationUnit} value={durationUnit}>
+              {AUTO_SETTLE_DURATION_UNIT_LABELS[durationUnit]}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+    </div>
   );
 }
 
@@ -2471,7 +2505,7 @@ export function GeneralSettingsPanel() {
                 title={searchableSetting("days-before-auto-settle").title}
                 description="Any new activity un-settles a thread automatically."
                 control={
-                  <AutoSettleDaysInput
+                  <AutoSettleDurationInput
                     value={settings.sidebarAutoSettleAfterDays}
                     onCommit={(days) => updateSettings({ sidebarAutoSettleAfterDays: days })}
                   />

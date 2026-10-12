@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { type SidebarFolderStreamEvent } from "@t3tools/contracts";
+import { EnvironmentId, type SidebarFolderStreamEvent, ThreadId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -30,7 +30,7 @@ const listen = Effect.fnUntraced(function* (
 });
 
 it.effect(
-  "lists each client's independent layout and routes deletion only to the selected client",
+  "lists each client's independent layout and routes mutations only to the selected client",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -53,6 +53,7 @@ it.effect(
                           name: clientId,
                           path: clientId,
                           parentId: null,
+                          icon: null,
                           threadCount: 0,
                           subtreeThreadCount: 0,
                           settled: false,
@@ -61,13 +62,31 @@ it.effect(
                         },
                       ],
                     }
-                  : {
-                      type: "deleted",
-                      deletedFolderIds: [request.action.folderId],
-                      releasedThreadCount: 0,
-                      queuedTicketFolderClears: 0,
-                      queuedTaskFolderClears: 0,
-                    },
+                  : request.action.type === "delete"
+                    ? {
+                        type: "deleted",
+                        deletedFolderIds: [request.action.folderId],
+                        releasedThreadCount: 0,
+                        queuedTicketFolderClears: 0,
+                        queuedTaskFolderClears: 0,
+                      }
+                    : request.action.type === "set-icon"
+                      ? {
+                          type: "folder-icon-updated",
+                          folderId: request.action.folderId,
+                          icon: request.action.icon,
+                        }
+                      : request.action.type === "set-settled"
+                        ? {
+                            type: "folder-settled",
+                            folderId: request.action.folderId,
+                            settled: request.action.settled,
+                          }
+                        : {
+                            type: "thread-moved",
+                            thread: request.action.thread,
+                            folderId: request.action.folderId,
+                          },
             });
           });
         }
@@ -77,8 +96,33 @@ it.effect(
           ["web", "web"],
         ]);
         yield* service.delete("web", "empty");
+        const thread = {
+          environmentId: EnvironmentId.make("environment"),
+          threadId: ThreadId.make("thread"),
+        };
+        expect(yield* service.moveThread("web", thread, "folder")).toEqual({
+          type: "thread-moved",
+          thread,
+          folderId: "folder",
+        });
+        expect(yield* service.setSettled("web", "folder", true)).toEqual({
+          type: "folder-settled",
+          folderId: "folder",
+          settled: true,
+        });
+        const icon = { kind: "emoji", emoji: "🎉" } as const;
+        expect(yield* service.setIcon("web", "folder", icon)).toEqual({
+          type: "folder-icon-updated",
+          folderId: "folder",
+          icon,
+        });
         expect(actions.slice(0, 2).toSorted()).toEqual(["desktop:list", "web:list"]);
-        expect(actions.slice(2)).toEqual(["web:delete"]);
+        expect(actions.slice(2)).toEqual([
+          "web:delete",
+          "web:move-thread",
+          "web:set-settled",
+          "web:set-icon",
+        ]);
       }),
     ).pipe(Effect.provide(TestLayer)),
 );
@@ -233,6 +277,8 @@ it.effect(
         const errors = [
           yield* service.list("old-client").pipe(Effect.flip),
           yield* service.delete("old-client", "folder").pipe(Effect.flip),
+          yield* service.setSettled("old-client", "folder", true).pipe(Effect.flip),
+          yield* service.setIcon("old-client", "folder", null).pipe(Effect.flip),
         ];
         for (const error of errors) {
           expect(error.code).toBe("client-disconnected");

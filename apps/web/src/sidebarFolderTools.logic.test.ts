@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "@effect/vitest";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import {
   createSidebarFolder,
@@ -90,6 +92,33 @@ describe("sidebar folder agent actions", () => {
     expect(store.getState().folders).toEqual([]);
   });
 
+  it("changes and clears a folder image through the existing store", () => {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Images", parentId: null });
+    const icon = { kind: "image", dataUrl: "data:image/png;base64,aWNvbg==" } as const;
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-icon", folderId, icon },
+        isExistingThread,
+      ),
+    ).toEqual({ result: { type: "folder-icon-updated", folderId, icon } });
+    expect(store.getState().folders.find((folder) => folder.id === folderId)?.icon).toEqual(icon);
+    expect(listSidebarFolderSummaries(store.getState(), isExistingThread)[0]?.icon).toEqual(icon);
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-icon", folderId, icon: null },
+        isExistingThread,
+      ),
+    ).toEqual({
+      result: { type: "folder-icon-updated", folderId, icon: null },
+    });
+    expect(store.getState().folders.find((folder) => folder.id === folderId)?.icon).toBeNull();
+  });
+
   it("removes descendants, preserves chats, and queues ticket and task routing cleanup through the existing store", () => {
     const store = useSidebarFolderStore;
     store.getState().syncTicketFolders([
@@ -135,6 +164,107 @@ describe("sidebar folder agent actions", () => {
     ).toBe("not-found");
     expect(store.getState()).toBe(before);
   });
+
+  it("moves an existing thread into a folder and back to the main list", () => {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Scheduled tasks", parentId: null });
+    const thread = scopeThreadRef(
+      EnvironmentId.make("environment"),
+      ThreadId.make("thread:shared"),
+    );
+    const threadKey = scopedThreadKey(thread);
+    const exists = (key: string) => key === threadKey;
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "move-thread", thread, folderId },
+        exists,
+      ),
+    ).toEqual({ result: { type: "thread-moved", thread, folderId } });
+    expect(store.getState().threadKeysByFolderId[folderId]).toEqual([threadKey]);
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "move-thread", thread, folderId: null },
+        exists,
+      ),
+    ).toEqual({ result: { type: "thread-moved", thread, folderId: null } });
+    expect(store.getState().threadKeysByFolderId[folderId]).toEqual([]);
+  });
+
+  it("refuses to file a missing thread or use a missing folder", () => {
+    const store = useSidebarFolderStore;
+    const thread = scopeThreadRef(EnvironmentId.make("environment"), ThreadId.make("thread"));
+    const missingThread = executeSidebarFolderAction(
+      store.getState(),
+      { type: "move-thread", thread, folderId: null },
+      () => false,
+    );
+    expect(missingThread.error?.code).toBe("thread-not-found");
+    const missingFolder = executeSidebarFolderAction(
+      store.getState(),
+      { type: "move-thread", thread, folderId: "missing" },
+      () => true,
+    );
+    expect(missingFolder.error?.code).toBe("not-found");
+  });
+
+  it.effect("settles a top-level folder and all chats in its subtree", () =>
+    Effect.gen(function* () {
+      const store = useSidebarFolderStore;
+      const parentId = store.getState().createFolder({ name: "Project", parentId: null });
+      const childId = store.getState().createFolder({ name: "Feature", parentId });
+      store.setState({
+        threadKeysByFolderId: {
+          [parentId]: ["local:parent"],
+          [childId]: ["local:child"],
+        },
+      });
+      let requested: readonly string[] = [];
+      const result = yield* executeClaimedSidebarFolderAction(
+        Effect.succeed(true),
+        store.getState,
+        { type: "set-settled", folderId: parentId, settled: true },
+        isExistingThread,
+        (threadKeys) =>
+          Effect.sync(() => {
+            requested = threadKeys;
+            return true;
+          }),
+      );
+      expect(result).toEqual({
+        result: { type: "folder-settled", folderId: parentId, settled: true },
+      });
+      expect(store.getState().settledFolderIds).toEqual([parentId]);
+      expect(requested).toEqual(["local:parent", "local:child"]);
+    }),
+  );
+
+  it("un-settles a top-level folder without un-settling its chats and rejects nested folders", () => {
+    const store = useSidebarFolderStore;
+    const parentId = store.getState().createFolder({ name: "Project", parentId: null });
+    const childId = store.getState().createFolder({ name: "Feature", parentId });
+    store.getState().setFolderSettled(parentId, true);
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-settled", folderId: parentId, settled: false },
+        isExistingThread,
+      ),
+    ).toEqual({
+      result: { type: "folder-settled", folderId: parentId, settled: false },
+    });
+    expect(store.getState().settledFolderIds).toEqual([]);
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-settled", folderId: childId, settled: true },
+        isExistingThread,
+      ).error?.code,
+    ).toBe("nested-folder");
+  });
 });
 
 it("counts only existing, unarchived chats when listing and releasing a folder", () => {
@@ -169,6 +299,23 @@ it.effect("does not apply a delete after its queued request expires", () =>
     );
     expect(result).toBeNull();
     expect(store.getState()).toBe(before);
+  }),
+);
+
+it.effect("leaves the folder active when one of its chats does not settle", () =>
+  Effect.gen(function* () {
+    const store = useSidebarFolderStore;
+    const folderId = store.getState().createFolder({ name: "Project", parentId: null });
+    store.setState({ threadKeysByFolderId: { [folderId]: ["local:chat"] } });
+    const result = yield* executeClaimedSidebarFolderAction(
+      Effect.succeed(true),
+      store.getState,
+      { type: "set-settled", folderId, settled: true },
+      isExistingThread,
+      () => Effect.succeed(false),
+    );
+    expect(result?.error?.code).toBe("thread-settlement-failed");
+    expect(store.getState().settledFolderIds).toEqual([]);
   }),
 );
 

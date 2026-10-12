@@ -83,7 +83,9 @@ export const SidebarThreadPreviewCount = Schema.Int.check(
 );
 export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
 const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
-export const MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 1;
+// Kept in days on the wire for backwards compatibility. Clients present this
+// as a duration, and the one-minute floor matches the server settlement sweep.
+export const MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 1 / (24 * 60);
 export const MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS = 90;
 export const SidebarAutoSettleAfterDays = Schema.Number.check(
   Schema.isBetween({
