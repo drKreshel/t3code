@@ -39,6 +39,7 @@ import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$proje
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as BoardsBoardKeyIndexRouteImport } from './routes/boards.$boardKey.index'
 import { Route as BoardsBoardKeyTicketNumberRouteImport } from './routes/boards.$boardKey.$ticketNumber'
+import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
@@ -193,6 +194,11 @@ const BoardsBoardKeyTicketNumberRoute =
     path: '/boards/$boardKey/$ticketNumber',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ChatNewRoute = ChatNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -214,6 +220,7 @@ export interface FileRoutesByFullPath {
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
+  '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/scheduled/$taskId': typeof ScheduledTaskIdRoute
@@ -246,6 +253,7 @@ export interface FileRoutesByTo {
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
+  '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/scheduled/$taskId': typeof ScheduledTaskIdRoute
@@ -281,6 +289,7 @@ export interface FileRoutesById {
   '/skills': typeof SkillsRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
+  '/_chat/new': typeof ChatNewRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/scheduled/$taskId': typeof ScheduledTaskIdRoute
@@ -317,6 +326,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/usage'
     | '/welcome'
+    | '/new'
     | '/pull-requests'
     | '/projects/$projectKey'
     | '/scheduled/$taskId'
@@ -349,6 +359,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/usage'
     | '/welcome'
+    | '/new'
     | '/pull-requests'
     | '/projects/$projectKey'
     | '/scheduled/$taskId'
@@ -383,6 +394,7 @@ export interface FileRouteTypes {
     | '/skills'
     | '/usage'
     | '/welcome'
+    | '/_chat/new'
     | '/_chat/pull-requests'
     | '/projects/$projectKey'
     | '/scheduled/$taskId'
@@ -638,6 +650,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BoardsBoardKeyTicketNumberRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_chat/new': {
+      id: '/_chat/new'
+      path: '/new'
+      fullPath: '/new'
+      preLoaderRoute: typeof ChatNewRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
       path: '/draft/$draftId'
@@ -656,6 +675,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ChatRouteChildren {
+  ChatNewRoute: typeof ChatNewRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
@@ -663,6 +683,7 @@ interface ChatRouteChildren {
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
+  ChatNewRoute: ChatNewRoute,
   ChatPullRequestsRoute: ChatPullRequestsRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,

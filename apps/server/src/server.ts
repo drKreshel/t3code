@@ -69,6 +69,7 @@ import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
+import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
@@ -600,6 +601,8 @@ const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer
         ProviderUsageLimitsIngestion.layer,
         layerProviderInstallationRefresh,
         ReplayMarkers.layer,
+        // Remove stale per-project provider overrides using upstream cleanup.
+        Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
       ),
     ),
   )
