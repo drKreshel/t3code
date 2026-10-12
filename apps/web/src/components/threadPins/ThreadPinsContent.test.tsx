@@ -17,6 +17,7 @@ vi.mock("../ChatMarkdown", () => ({
 }));
 
 import { ThreadPinsContent } from "./ThreadPinsContent";
+import { useUiStateStore } from "../../uiStateStore";
 
 const threadRef = {
   environmentId: EnvironmentId.make("environment"),
@@ -41,10 +42,11 @@ let renderer: ReactTestRenderer | null = null;
 afterEach(() => {
   act(() => renderer?.unmount());
   renderer = null;
+  useUiStateStore.setState({ collapsedThreadPinNoteKeys: [] });
   vi.unstubAllGlobals();
 });
 
-it("collapses and restores an individual pinned note", () => {
+it("remembers a collapsed pinned note when the chat view remounts", () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   act(() => {
     renderer = create(
@@ -64,6 +66,22 @@ it("collapses and restores an individual pinned note", () => {
   ).toHaveLength(1);
 
   act(() => renderer!.root.findByProps({ "aria-label": "Collapse Delivery map" }).props.onClick());
+  expect(noteBodies()).toHaveLength(0);
+  expect(
+    renderer!.root.findByProps({ "aria-label": "Expand Delivery map" }).props["aria-expanded"],
+  ).toBe(false);
+
+  act(() => {
+    renderer?.unmount();
+    renderer = create(
+      <ThreadPinsContent
+        threadRef={threadRef}
+        pins={pins}
+        onOpenFile={vi.fn()}
+        onOpenUrl={vi.fn()}
+      />,
+    );
+  });
   expect(noteBodies()).toHaveLength(0);
   expect(
     renderer!.root.findByProps({ "aria-label": "Expand Delivery map" }).props["aria-expanded"],

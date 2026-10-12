@@ -1,5 +1,5 @@
 import type { ScopedThreadRef, ThreadPin, ThreadPins } from "@t3tools/contracts";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { projectScriptCwd } from "@t3tools/shared/projectScripts";
 import { ChevronRightIcon, GlobeIcon, PencilIcon, StickyNoteIcon, XIcon } from "lucide-react";
@@ -10,6 +10,7 @@ import { cn } from "../../lib/utils";
 import { useProject, useServerConfigs, useThreadShell } from "../../state/entities";
 import { isUrlPinTarget, useThreadPinsDispatch } from "../../state/threadPins";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { useUiStateStore } from "../../uiStateStore";
 import ChatMarkdown from "../ChatMarkdown";
 import { PierreEntryIcon } from "../chat/PierreEntryIcon";
 import { THREAD_DETAILS_PANEL_ROW_CONTENT_CLASS } from "../chat/threadDetailsPanelStyles";
@@ -46,9 +47,9 @@ function useThreadMarkdownContext(threadRef: ScopedThreadRef) {
 
 /**
  * A chat's pins, shared by the thread details card and the ticket page, in
- * the order they were pinned. Notes read in full without clicking and scroll
- * on their own past 40% of the screen, then chain into their surrounding
- * panel at either boundary; files and URLs open on click.
+ * the order they were pinned. Notes expand inline and scroll on their own past
+ * 40% of the screen, then chain into their surrounding panel at either
+ * boundary; files and URLs open on click.
  */
 export function ThreadPinsContent({
   threadRef,
@@ -117,7 +118,9 @@ function NoteRow({
   readonly onUnpin: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  const noteKey = `${scopedThreadKey(threadRef)}:${pin.id}`;
+  const expanded = useUiStateStore((state) => !state.collapsedThreadPinNoteKeys.includes(noteKey));
+  const setCollapsed = useUiStateStore((state) => state.setThreadPinNoteCollapsed);
   const bodyId = useId();
   const save = (value: string) => {
     setDraft(null);
@@ -131,7 +134,7 @@ function NoteRow({
           aria-controls={bodyId}
           aria-expanded={expanded}
           aria-label={`${expanded ? "Collapse" : "Expand"} ${pin.title}`}
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setCollapsed(noteKey, expanded)}
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <ChevronRightIcon
@@ -155,7 +158,7 @@ function NoteRow({
             variant="ghost"
             aria-label={`Edit ${pin.title}`}
             onClick={() => {
-              setExpanded(true);
+              setCollapsed(noteKey, false);
               setDraft(text);
             }}
           >
@@ -165,7 +168,10 @@ function NoteRow({
             size="icon-xs"
             variant="ghost"
             aria-label={`Unpin ${pin.title}`}
-            onClick={onUnpin}
+            onClick={() => {
+              setCollapsed(noteKey, false);
+              onUnpin();
+            }}
           >
             <XIcon />
           </Button>
