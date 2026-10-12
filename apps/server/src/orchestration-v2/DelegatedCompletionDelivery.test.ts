@@ -801,8 +801,11 @@ const seedRestartCancelledChild = (input: {
   readonly name: string;
   readonly completionWake: "always" | "settled_only";
   readonly continuationPending: boolean;
-  /** "completed" seeds a settled turn whose background work the restart cancelled. */
-  readonly runStatus?: "cancelled" | "completed";
+  /**
+   * "completed" seeds a settled turn whose background work the restart cancelled,
+   * "running" a child that is still working.
+   */
+  readonly runStatus?: "cancelled" | "completed" | "running";
   readonly now: DateTime.Utc;
 }) =>
   Effect.gen(function* () {
@@ -1213,6 +1216,152 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
             );
           }
         }),
+    );
+
+    it.effect("holds a follow-up until the tasks its run delegated have reported back", () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const now = yield* DateTime.now;
+        const parentThreadId = ThreadId.make("thread:followup-nested");
+        const projectId = ProjectId.make("project:followup-nested");
+        const parentRunId = RunId.make("run:followup-nested");
+        const rootNodeId = NodeId.make("node:followup-nested");
+        yield* seedParentWithTerminalTask({
+          threadId: parentThreadId,
+          projectId,
+          runId: parentRunId,
+          rootNodeId,
+          taskId: NodeId.make("node:followup-nested-seed"),
+          deliveryState: "acknowledged",
+          now,
+        });
+        const child = yield* seedRestartCancelledChild({
+          parentThreadId,
+          projectId,
+          parentRunId,
+          rootNodeId,
+          name: "followup-nested-child",
+          completionWake: "always",
+          continuationPending: false,
+          runStatus: "completed",
+          now,
+        });
+        yield* orchestrator.recoverDelegatedTasks;
+        const messageId = MessageId.make("message:followup-nested");
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "agent",
+          creationSource: "mcp",
+          commandId: CommandId.make("command:followup-nested-send"),
+          threadId: child.childThreadId,
+          senderThreadId: parentThreadId,
+          messageId,
+          text: "Run another review round.",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+        });
+        const childRuns = orchestrator
+          .getThreadProjection(child.childThreadId)
+          .pipe(Effect.map((projection) => projection.runs));
+        const run = (yield* childRuns).find((row) => row.userMessageId === messageId)!;
+        const followup = orchestrator
+          .getThreadProjection(parentThreadId)
+          .pipe(
+            Effect.map((projection) =>
+              projection.subagents.find((task) => task.id === run.delegatedTaskId)!,
+            ),
+          );
+        // Reconciliation skips the live terminal listener, so recovery settles each step.
+        const endTurn = (name: string, ended: OrchestrationV2Run, report: string) =>
+          eventSink.write({
+            commandId: reconcileCommandId(name),
+            events: [
+              {
+                id: EventId.make(`event:${name}:report`),
+                type: "message.updated",
+                threadId: ended.threadId,
+                runId: ended.id,
+                occurredAt: now,
+                payload: {
+                  id: MessageId.make(`message:${name}:report`),
+                  threadId: ended.threadId,
+                  runId: ended.id,
+                  nodeId: ended.rootNodeId,
+                  role: "assistant",
+                  text: report,
+                  attachments: [],
+                  streaming: false,
+                  createdBy: "agent",
+                  creationSource: "provider",
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              },
+              {
+                id: EventId.make(`event:${name}:ended`),
+                type: "run.updated",
+                threadId: ended.threadId,
+                runId: ended.id,
+                occurredAt: now,
+                payload: { ...ended, status: "completed", startedAt: now, completedAt: now },
+              },
+            ],
+          });
+
+        const reviewer = yield* seedRestartCancelledChild({
+          parentThreadId: child.childThreadId,
+          projectId,
+          parentRunId: run.id,
+          rootNodeId: run.rootNodeId!,
+          name: "followup-nested-reviewer",
+          completionWake: "always",
+          continuationPending: false,
+          runStatus: "running",
+          now,
+        });
+        yield* endTurn("followup-nested-turn", run, "The review round is running.");
+        yield* orchestrator.recoverDelegatedTasks;
+        assert.equal((yield* followup).status, "running");
+        assert.isNull((yield* followup).result);
+
+        const reviewerRun = (yield* orchestrator.getThreadProjection(reviewer.childThreadId))
+          .runs[0]!;
+        yield* endTurn("followup-nested-reviewer-turn", reviewerRun, "No findings.");
+        yield* orchestrator.recoverDelegatedTasks;
+        // The reviewer's result still owes the child a wake.
+        assert.isNull((yield* followup).result);
+
+        const delivery = (yield* childRuns).find((row) => row.id === run.id)!.delegatedCompletion!
+          .delivery!;
+        assert.deepEqual(delivery.taskIds, [reviewer.taskId]);
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "agent",
+          creationSource: "server",
+          commandId: CommandId.make("command:followup-nested-wake"),
+          threadId: child.childThreadId,
+          messageId: delivery.messageId,
+          text: "A delegated task finished.",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          delegatedCompletion: {
+            parentRunId: run.id,
+            generation: delivery.generation,
+            taskIds: delivery.taskIds,
+          },
+        });
+        const wake = (yield* childRuns).find((row) => row.userMessageId === delivery.messageId)!;
+        assert.equal(wake.delegatedTaskId, run.delegatedTaskId);
+        yield* endTurn("followup-nested-wake-turn", wake, "The review round passed.");
+        // Recovery reads results before it settles the wake's delivery.
+        yield* orchestrator.recoverDelegatedTasks;
+        yield* orchestrator.recoverDelegatedTasks;
+        const finished = yield* followup;
+        assert.equal(finished.status, "completed");
+        assert.equal(finished.result, "The review round passed.");
+        assert.equal(finished.completionDelivery?.state, "claimed");
+      }),
     );
   },
 );
