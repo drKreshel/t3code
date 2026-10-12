@@ -43,6 +43,21 @@ Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sq
 - Once a feature branch is merged into `main`, remove its worktree and delete the branch (`git worktree remove <path>`, then `git branch -d <branch>`, which refuses unmerged work). Skip a worktree with uncommitted changes and say so.
 - [`FORK.md`](../../../FORK.md) lists each fork feature, the upstream files it touches, and where its data lives. Update it in the same commit when a fork feature lands, moves, or is dropped.
 
+## Continuous improvement
+
+Treat each merge and stable deployment as a bounded process audit:
+
+- Preserve the timestamps already emitted by setup, verification, build, restart, backup, install, and reopen steps. Attribute time to concrete phases, compare like-for-like runs, and separate cold worktree setup or first-time dependency installation from repeatable deployment cost.
+- When T3 worktree setup returns a terminal ID, retain it and wait for that setup to finish before running dependency installation or other setup commands. Do not start a duplicate install merely because setup is still running.
+- `stable-app.sh restart` logs before sleeping for `RESTART_DELAY`. Subtract that configured reply grace before attributing time to Electron shutdown; do not call the entire pre-backup interval quit time.
+- Finish the requested update and restore the stable app before doing nonessential performance investigation. Reuse existing logs and artifacts; do not rerun an expensive build solely to benchmark it unless the user asks.
+- Fix a demonstrated inefficiency during the current task only when the change is small, reversible, in scope, and can be checked with targeted verification. Prefer removing redundant work and replacing fixed waits with real readiness signals. Never trade away required tests, backup coverage, data integrity, rollback safety, or reliable final-reply delivery for speed.
+- Report only material bottlenecks or regressions, with the measured phase and the smallest credible improvement. Do not turn ordinary shipping into an open-ended optimization project.
+
+## Self update
+
+When evidence from a real run shows that this skill is stale or missing a reusable instruction, summarize the smallest proposed skill change and ask the user for explicit confirmation before editing it. After approval, update this tracked skill, validate it with the skill-creator workflow, and avoid rebuilding or restarting the app when only skill text changed.
+
 ## Update from upstream, all in one go
 
 When asked to update, pull upstream, or ship: finish every step below unattended. Kreshel expects to come back to an updated, reopened app, so fix forward instead of giving up.
