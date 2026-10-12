@@ -1755,7 +1755,10 @@ export function buildThreadFeed(
   };
   const foldedAnswerMessageIds = new Set(
     visibleTurnItems.flatMap(({ item }) =>
-      item.type === "user_input_request" && item.questionAnswer
+      // Needs-you replies are user messages, even when the question keeps answer history.
+      item.type === "user_input_request" &&
+      !item.requestId.startsWith("human:") &&
+      item.questionAnswer
         ? [`async-answer:${item.questionAnswer.requestId}`]
         : [],
     ),

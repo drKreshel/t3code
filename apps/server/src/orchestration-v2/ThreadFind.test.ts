@@ -29,6 +29,7 @@ import * as ProjectStore from "./ProjectStore.ts";
 import * as EventStore from "./EventStore.ts";
 import { encodeThreadHistoryCursor, selectHistoryPageFromCursor } from "./threadHistoryPaging.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
+import { findProjectedThreadItems } from "./ThreadFind.ts";
 
 const layerTest = Layer.mergeAll(EventStore.layer, ProjectionStore.layer, ProjectStore.layer).pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
@@ -626,6 +627,49 @@ describe("V2 thread find", () => {
       const updated = run(threadId, runId, 1, "rolled_back");
       yield* commit([{ ...updated, type: "run.updated" }]);
       assert.equal((yield* projection.searchThread({ threadId, query: "needle" })).totalMatches, 0);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("finds Needs-you replies in both persisted and memory history", () =>
+    Effect.gen(function* () {
+      const projection = yield* setup;
+      const requestId = RuntimeRequestId.make("human:choose-account");
+      const answer = item(
+        `async-answer:${requestId}`,
+        2,
+        "Use the staging account.",
+        "user_message",
+      );
+      const question: OrchestrationV2TurnItem = {
+        ...item("needs-you", 1, ""),
+        runId: null,
+        type: "user_input_request",
+        requestId,
+        questions: [],
+        questionAnswer: {
+          requestId,
+          answers: { decision: "Use the staging account." },
+          attachmentsByQuestionId: {},
+        },
+      };
+      yield* putItems([question, answer]);
+      const input = { threadId, query: "staging" };
+      const persisted = yield* projection.searchThread(input);
+      const memory = findProjectedThreadItems(
+        [question, answer].map((item, position) => ({
+          position,
+          visibility: "local" as const,
+          sourceThreadId: threadId,
+          sourceItemId: item.id,
+          item,
+        })),
+        input,
+        persisted.snapshotSequence,
+      );
+      for (const result of [persisted, memory]) {
+        assert.equal(result.totalMatches, 1);
+        assert.equal(result.match?.entryId, `async-answer:${requestId}`);
+      }
     }).pipe(Effect.provide(layerTest)),
   );
 

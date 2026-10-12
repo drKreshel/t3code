@@ -219,28 +219,38 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
 }
 
 describe("buildThreadFeed", () => {
-  it("keeps async answers in question history instead of user bubbles", () => {
-    const requestId = RuntimeRequestId.make("question");
-    const question: OrchestrationV2TurnItem = {
-      ...base("question", "2026-06-20T00:00:01.000Z", 0),
-      type: "user_input_request",
-      requestId,
-      questions: [],
-      questionAnswer: { requestId, answers: { color: "Blue" }, attachmentsByQuestionId: {} },
-    };
-    const reply: OrchestrationV2TurnItem = {
-      ...userMessage(),
-      id: TurnItemId.make("answer"),
-      messageId: MessageId.make(`async-answer:${requestId}`),
-    };
-    const feed = buildThreadFeed([projected(question, 0), projected(reply, 1)]);
-    expect(feed).toHaveLength(1);
-    expect(feed[0]).toMatchObject({
-      type: "activity-group",
-      activities: [{ workEntry: { questionAnswer: question.questionAnswer } }],
-    });
-    expect(buildThreadFeed([projected(reply, 0)])[0]?.type).toBe("message");
-  });
+  it.each(["question", "human:question"])(
+    "preserves question history and shows Needs-you replies for %s",
+    (requestKey) => {
+      const requestId = RuntimeRequestId.make(requestKey);
+      const question: OrchestrationV2TurnItem = {
+        ...base("question", "2026-06-20T00:00:01.000Z", 0),
+        type: "user_input_request",
+        requestId,
+        questions: [],
+        questionAnswer: { requestId, answers: { color: "Blue" }, attachmentsByQuestionId: {} },
+      };
+      const reply: OrchestrationV2TurnItem = {
+        ...userMessage(),
+        id: TurnItemId.make("answer"),
+        messageId: MessageId.make(`async-answer:${requestId}`),
+        text: "Which color?\nBlue\nKeep the existing logo.",
+      };
+      const feed = buildThreadFeed([projected(question, 0), projected(reply, 1)]);
+      expect(feed).toHaveLength(requestKey.startsWith("human:") ? 2 : 1);
+      if (requestKey.startsWith("human:")) {
+        expect(feed[1]).toMatchObject({
+          type: "message",
+          message: { id: reply.messageId, role: "user", text: reply.text },
+        });
+      }
+      expect(feed[0]).toMatchObject({
+        type: "activity-group",
+        activities: [{ workEntry: { questionAnswer: question.questionAnswer } }],
+      });
+      expect(buildThreadFeed([projected(reply, 0)])[0]?.type).toBe("message");
+    },
+  );
 
   it("does not create a work group for a message and checkpoint", () => {
     const checkpoint: OrchestrationV2TurnItem = {

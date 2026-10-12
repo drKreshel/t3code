@@ -85,7 +85,9 @@ function parseText(key: TextKey): readonly string[] {
 function searchableRows(items: readonly OrchestrationV2ProjectedTurnItem[]) {
   const foldedAnswers = new Set(
     items.flatMap(({ item }) =>
-      item.type === "user_input_request" && item.questionAnswer
+      item.type === "user_input_request" &&
+      !item.requestId.startsWith("human:") &&
+      item.questionAnswer
         ? [`async-answer:${item.questionAnswer.requestId}`]
         : [],
     ),
@@ -368,12 +370,17 @@ export const makeThreadFind = Effect.fn("makeThreadFind")(function* (
               (cause) => new ProjectionStoreReadError({ threadId: input.threadId, cause }),
             ),
           );
-        // Answers rendered inside question cards must not appear as separate matches.
+        // Needs-you replies stay searchable as the user messages clients display.
+        // Other answers rendered inside question cards are folded out of the timeline.
         const foldedAnswers = new Set<string>();
         for (const payload of payloads) {
           if (payload.type !== "user_input_request") continue;
           const { item } = yield* decode(payload);
-          if (item.type === "user_input_request" && item.questionAnswer)
+          if (
+            item.type === "user_input_request" &&
+            !item.requestId.startsWith("human:") &&
+            item.questionAnswer
+          )
             foldedAnswers.add(`async-answer:${item.questionAnswer.requestId}`);
         }
         const rows = payloads.filter(
