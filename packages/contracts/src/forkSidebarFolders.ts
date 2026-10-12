@@ -17,6 +17,7 @@ const SidebarFoldersErrorCode = Schema.Literals([
   "busy",
   "timeout",
   "not-found",
+  "invalid-path",
   "nested-folder",
   "thread-not-found",
   "thread-settlement-failed",
@@ -30,6 +31,7 @@ const errorMessages = {
   busy: "The sidebar folder client is busy. Wait for current calls to finish.",
   timeout: "The sidebar folder client did not respond in time. List folders again before retrying.",
   "not-found": "The sidebar folder was not found in the selected client.",
+  "invalid-path": "The sidebar folder path must contain slash-separated, non-empty names.",
   "nested-folder": "Only top-level sidebar folders can be settled or un-settled.",
   "thread-not-found": "The thread was not found in the selected client.",
   "thread-settlement-failed":
@@ -84,6 +86,7 @@ export type SidebarFolderListing = typeof SidebarFolderListing.Type;
 
 export const SidebarFolderAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("list") }),
+  Schema.Struct({ type: Schema.Literal("create"), path: TrimmedNonEmptyString }),
   Schema.Struct({ type: Schema.Literal("delete"), folderId: TrimmedNonEmptyString }),
   Schema.Struct({
     type: Schema.Literal("set-icon"),
@@ -102,6 +105,13 @@ export const SidebarFolderAction = Schema.Union([
   }),
 ]);
 export type SidebarFolderAction = typeof SidebarFolderAction.Type;
+
+export const SidebarFolderCreationResult = Schema.Struct({
+  type: Schema.Literal("folder-created"),
+  folderId: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  createdFolderIds: Schema.Array(TrimmedNonEmptyString),
+});
 
 export const SidebarFolderDeletionResult = Schema.Struct({
   type: Schema.Literal("deleted"),
@@ -131,6 +141,7 @@ export const SidebarFolderIconResult = Schema.Struct({
 
 export const SidebarFolderResult = Schema.Union([
   Schema.Struct({ type: Schema.Literal("listed"), folders: Schema.Array(SidebarFolderSummary) }),
+  SidebarFolderCreationResult,
   SidebarFolderDeletionResult,
   SidebarFolderIconResult,
   SidebarFolderSettlementResult,

@@ -1,6 +1,7 @@
 import {
   OrchestratorMcpFailure,
   OrganizingIconOverride,
+  SidebarFolderCreationResult,
   SidebarFolderDeletionResult,
   SidebarFolderIconResult,
   SidebarFolderListing,
@@ -28,11 +29,23 @@ const shared = {
 const ListSidebarFolders = Tool.make("list_sidebar_folders", {
   ...shared,
   description:
-    "List sidebar folders in connected writable web and desktop clients, including icons, empty folders, nesting, chat counts, settled state, and ticket or scheduled task routing. Sidebar folders are client-local. Client IDs last only until that client reloads or restarts; list again before changing a layout and use the returned clientId and folder id with settle_sidebar_folder, set_sidebar_folder_icon, delete_sidebar_folder, or move_thread_to_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind. Unresponsive clients are reported in failures; healthy layouts remain available.",
+    "List sidebar folders in connected writable web and desktop clients, including icons, empty folders, nesting, chat counts, settled state, and ticket or scheduled task routing. Sidebar folders are client-local. Client IDs last only until that client reloads or restarts; list again before changing a layout. Use the returned clientId with create_sidebar_folder, and use its folder ids with settle_sidebar_folder, set_sidebar_folder_icon, delete_sidebar_folder, or move_thread_to_sidebar_folder. Clearing a ticket's folder field leaves the sidebar folder behind. Unresponsive clients are reported in failures; healthy layouts remain available.",
   parameters: Schema.Struct({ clientId: Schema.optionalKey(TrimmedNonEmptyString) }),
   success: SidebarFolderListing,
 })
   .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const CreateSidebarFolder = Tool.make("create_sidebar_folder", {
+  ...shared,
+  description:
+    "Ensure a slash-separated sidebar folder path exists in the selected connected web or desktop client. Use clientId from list_sidebar_folders. Missing parent folders are created; an existing path is returned unchanged, so retrying is safe. The layout is client-local, so repeat for another listed client when desired.",
+  parameters: Schema.Struct({ clientId: TrimmedNonEmptyString, path: TrimmedNonEmptyString }),
+  success: SidebarFolderCreationResult,
+})
+  .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
@@ -99,6 +112,7 @@ const MoveThreadToSidebarFolder = Tool.make("move_thread_to_sidebar_folder", {
 
 export const SidebarFoldersToolkit = Toolkit.make(
   ListSidebarFolders,
+  CreateSidebarFolder,
   DeleteSidebarFolder,
   SettleSidebarFolder,
   SetSidebarFolderIcon,

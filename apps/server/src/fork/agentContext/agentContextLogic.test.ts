@@ -49,6 +49,7 @@ describe("t3Tools", () => {
     expect(byName.size).toBe(tools.length);
     expect(byName.get("t3_terminal_start")?.enabled).toBe(true);
     expect(byName.get("list_sidebar_folders")).toMatchObject({ enabled: true, readonly: true });
+    expect(byName.get("create_sidebar_folder")).toMatchObject({ enabled: true, readonly: false });
     expect(byName.get("delete_sidebar_folder")).toMatchObject({ enabled: true, readonly: false });
     expect(byName.get("set_sidebar_folder_icon")).toMatchObject({
       enabled: true,

@@ -29,6 +29,57 @@ beforeEach(() => {
 });
 
 describe("sidebar folder agent actions", () => {
+  it("creates a nested path once and returns the existing leaf on retry", () => {
+    const store = useSidebarFolderStore;
+
+    const first = executeSidebarFolderAction(
+      store.getState(),
+      { type: "create", path: "t3-code / other-projects-findings" },
+      isExistingThread,
+    );
+    expect(first.result).toMatchObject({
+      type: "folder-created",
+      path: "t3-code/other-projects-findings",
+      createdFolderIds: expect.any(Array),
+    });
+    expect(store.getState().folders.map(({ name }) => name)).toEqual([
+      "t3-code",
+      "other-projects-findings",
+    ]);
+    const folderId = first.result?.type === "folder-created" ? first.result.folderId : "";
+    expect(first.result?.type === "folder-created" && first.result.createdFolderIds).toHaveLength(
+      2,
+    );
+
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "create", path: "t3-code/other-projects-findings" },
+        isExistingThread,
+      ),
+    ).toEqual({
+      result: {
+        type: "folder-created",
+        folderId,
+        path: "t3-code/other-projects-findings",
+        createdFolderIds: [],
+      },
+    });
+    expect(store.getState().folders).toHaveLength(2);
+  });
+
+  it("rejects a path with an empty segment without creating folders", () => {
+    const store = useSidebarFolderStore;
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "create", path: "t3-code//findings" },
+        isExistingThread,
+      ).error?.code,
+    ).toBe("invalid-path");
+    expect(store.getState().folders).toEqual([]);
+  });
+
   it("lists empty and nested folders even when collapsed or settled", () => {
     const layout = createSidebarFolder(
       createSidebarFolder(

@@ -62,31 +62,38 @@ it.effect(
                         },
                       ],
                     }
-                  : request.action.type === "delete"
+                  : request.action.type === "create"
                     ? {
-                        type: "deleted",
-                        deletedFolderIds: [request.action.folderId],
-                        releasedThreadCount: 0,
-                        queuedTicketFolderClears: 0,
-                        queuedTaskFolderClears: 0,
+                        type: "folder-created",
+                        folderId: "findings",
+                        path: request.action.path,
+                        createdFolderIds: ["findings"],
                       }
-                    : request.action.type === "set-icon"
+                    : request.action.type === "delete"
                       ? {
-                          type: "folder-icon-updated",
-                          folderId: request.action.folderId,
-                          icon: request.action.icon,
+                          type: "deleted",
+                          deletedFolderIds: [request.action.folderId],
+                          releasedThreadCount: 0,
+                          queuedTicketFolderClears: 0,
+                          queuedTaskFolderClears: 0,
                         }
-                      : request.action.type === "set-settled"
+                      : request.action.type === "set-icon"
                         ? {
-                            type: "folder-settled",
+                            type: "folder-icon-updated",
                             folderId: request.action.folderId,
-                            settled: request.action.settled,
+                            icon: request.action.icon,
                           }
-                        : {
-                            type: "thread-moved",
-                            thread: request.action.thread,
-                            folderId: request.action.folderId,
-                          },
+                        : request.action.type === "set-settled"
+                          ? {
+                              type: "folder-settled",
+                              folderId: request.action.folderId,
+                              settled: request.action.settled,
+                            }
+                          : {
+                              type: "thread-moved",
+                              thread: request.action.thread,
+                              folderId: request.action.folderId,
+                            },
             });
           });
         }
@@ -95,6 +102,12 @@ it.effect(
           ["desktop", "desktop"],
           ["web", "web"],
         ]);
+        expect(yield* service.create("web", "t3-code/other-projects-findings")).toEqual({
+          type: "folder-created",
+          folderId: "findings",
+          path: "t3-code/other-projects-findings",
+          createdFolderIds: ["findings"],
+        });
         yield* service.delete("web", "empty");
         const thread = {
           environmentId: EnvironmentId.make("environment"),
@@ -118,6 +131,7 @@ it.effect(
         });
         expect(actions.slice(0, 2).toSorted()).toEqual(["desktop:list", "web:list"]);
         expect(actions.slice(2)).toEqual([
+          "web:create",
           "web:delete",
           "web:move-thread",
           "web:set-settled",

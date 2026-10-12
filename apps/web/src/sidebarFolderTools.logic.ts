@@ -22,6 +22,10 @@ import {
 
 type FolderStore = SidebarFolderLayout &
   TicketFolderRoutingState & {
+    readonly createFolder: (input: {
+      readonly name: string;
+      readonly parentId: string | null;
+    }) => string;
     readonly deleteFolder: (folderId: string) => void;
     readonly setFolderIcon: (folderId: string, icon: OrganizingIconOverride | null) => void;
     readonly setFolderSettled: (folderId: string, settled: boolean) => void;
@@ -64,6 +68,35 @@ export function executeSidebarFolderAction(
     return {
       result: { type: "listed", folders: listSidebarFolderSummaries(store, isExistingThread) },
     };
+  if (action.type === "create") {
+    const names = action.path.split("/").map((name) => name.trim());
+    if (names.some((name) => name.length === 0))
+      return { error: SidebarFoldersError.fromCode("invalid-path") };
+    const folders = [...store.folders];
+    const createdFolderIds: string[] = [];
+    let parentId: string | null = null;
+    for (const name of names) {
+      const existing = folders.find(
+        (folder) => folder.parentId === parentId && folder.name === name,
+      );
+      if (existing !== undefined) {
+        parentId = existing.id;
+        continue;
+      }
+      const id = store.createFolder({ name, parentId });
+      folders.push({ id, name, parentId });
+      createdFolderIds.push(id);
+      parentId = id;
+    }
+    return {
+      result: {
+        type: "folder-created",
+        folderId: parentId!,
+        path: names.join("/"),
+        createdFolderIds,
+      },
+    };
+  }
   if (action.type === "move-thread") {
     const threadKey = scopedThreadKey(action.thread);
     if (!isExistingThread(threadKey))
