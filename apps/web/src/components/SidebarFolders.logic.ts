@@ -17,6 +17,9 @@ export interface SidebarFolderLayout {
   readonly folders: readonly SidebarFolder[];
   /** Ordered thread keys per folder. A thread lives in at most one folder. */
   readonly threadKeysByFolderId: Readonly<Record<string, readonly string[]>>;
+  /** Explicit user destinations. Null keeps a chat in the main list instead
+      of letting ticket, task, or fork routing file it again. */
+  readonly threadFolderOverrides?: Readonly<Record<string, string | null>>;
   readonly collapsedFolderIds: readonly string[];
   /** Absent in older saved layouts; settled shelves start collapsed. */
   readonly expandedSettledFolderIds?: readonly string[] | undefined;
@@ -27,6 +30,7 @@ export interface SidebarFolderLayout {
 export const EMPTY_SIDEBAR_FOLDER_LAYOUT: SidebarFolderLayout = {
   folders: [],
   threadKeysByFolderId: {},
+  threadFolderOverrides: {},
   collapsedFolderIds: [],
   expandedSettledFolderIds: [],
   settledFolderIds: [],
@@ -38,6 +42,14 @@ export function folderIdByThreadKey(layout: SidebarFolderLayout): Map<string, st
     for (const threadKey of threadKeys) mapping.set(threadKey, folderId);
   }
   return mapping;
+}
+
+/** Whether the user has explicitly chosen this chat's folder destination. */
+export function hasSidebarThreadFolderOverride(
+  layout: SidebarFolderLayout,
+  threadKey: string,
+): boolean {
+  return Object.hasOwn(layout.threadFolderOverrides ?? {}, threadKey);
 }
 
 /** The folder and every folder nested beneath it. */
@@ -170,6 +182,12 @@ export function deleteSidebarFolder(
     folders: layout.folders.filter((folder) => !removed.has(folder.id)),
     threadKeysByFolderId: Object.fromEntries(
       Object.entries(layout.threadKeysByFolderId).filter(([id]) => !removed.has(id)),
+    ),
+    threadFolderOverrides: Object.fromEntries(
+      Object.entries(layout.threadFolderOverrides ?? {}).map(([threadKey, targetFolderId]) => [
+        threadKey,
+        targetFolderId !== null && removed.has(targetFolderId) ? null : targetFolderId,
+      ]),
     ),
     collapsedFolderIds: layout.collapsedFolderIds.filter((id) => !removed.has(id)),
     expandedSettledFolderIds: (layout.expandedSettledFolderIds ?? []).filter(
@@ -309,6 +327,25 @@ export function moveThreadToSidebarFolder(
   };
 }
 
+/** Moves a chat at the user's request and remembers that choice so automatic
+    ticket, task, and fork routing cannot later undo it. */
+export function moveThreadToSidebarFolderManually(
+  layout: SidebarFolderLayout,
+  threadKey: string,
+  target: SidebarThreadFolderTarget | null,
+): SidebarFolderLayout {
+  if (target !== null && !layout.folders.some((folder) => folder.id === target.folderId)) {
+    return layout;
+  }
+  return {
+    ...moveThreadToSidebarFolder(layout, threadKey, target),
+    threadFolderOverrides: {
+      ...layout.threadFolderOverrides,
+      [threadKey]: target?.folderId ?? null,
+    },
+  };
+}
+
 /**
  * Files each new fork right after its source thread when the source sits in a
  * folder. Forks that are already filed (by a ticket route, say) stay put.
@@ -319,6 +356,7 @@ export function fileForksWithSources(
 ): SidebarFolderLayout {
   let next = layout;
   for (const fork of forks) {
+    if (hasSidebarThreadFolderOverride(next, fork.threadKey)) continue;
     const folderByThread = folderIdByThreadKey(next);
     const folderId = folderByThread.get(fork.sourceThreadKey);
     if (folderId === undefined || folderByThread.has(fork.threadKey)) continue;

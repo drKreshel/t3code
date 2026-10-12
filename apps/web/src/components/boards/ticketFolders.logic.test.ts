@@ -8,6 +8,7 @@ import {
   flattenSidebarFolders,
   moveSidebarFolder,
   moveThreadToSidebarFolder,
+  moveThreadToSidebarFolderManually,
   renameSidebarFolder,
 } from "../SidebarFolders.logic";
 import { folderRouteSourcesIn, syncTicketFolders } from "./ticketFolders.logic";
@@ -99,6 +100,18 @@ describe("ticket folder routing", () => {
         from: ["SalonesDeFiestas/salones-infantiles"],
       },
     });
+  });
+
+  it("keeps a manually unfiled chat out when its route disappears and returns", () => {
+    const newId = ids();
+    const initial = syncTicketFolders(EMPTY_SIDEBAR_FOLDER_LAYOUT, [ticket()], newId);
+    const unfiled = moveThreadToSidebarFolderManually(initial, "env:manual", null);
+    const saved = JSON.parse(JSON.stringify(unfiled)) as typeof unfiled;
+    const routeMissing = syncTicketFolders(saved, [], newId);
+    const routeRestored = syncTicketFolders(routeMissing, [ticket()], newId);
+
+    expect(routeRestored.threadFolderOverrides).toEqual({ "env:manual": null });
+    expect(Object.values(routeRestored.threadKeysByFolderId).flat()).not.toContain("env:manual");
   });
 
   it("keeps a moved folder while its path is in flight and settles on the echo", () => {
