@@ -57,7 +57,10 @@ export const layer: Layer.Layer<TurnItemPositionStoreV2, never, SqlClient.SqlCli
               `;
         const runOrdinal = suppliedRunOrdinal ?? runRows[0]?.ordinal ?? null;
         const lowerBound = runOrdinal === null ? 0 : runOrdinal * 1_000_000;
-        const upperBound = runOrdinal === null ? 999_999 : lowerBound + 999_999;
+        // Fork: an item outside any run (a `request_human` blocker) is new now, so it
+        // goes after everything in the thread. Below the first run it would sit at
+        // the top of the chat, outside the recent window clients load.
+        const upperBound = runId === null ? Number.MAX_SAFE_INTEGER : lowerBound + 999_999;
         yield* sql`
           INSERT INTO orchestration_v2_turn_item_positions (thread_id, turn_item_id, ordinal)
           SELECT

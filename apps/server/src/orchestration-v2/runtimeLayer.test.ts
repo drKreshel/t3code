@@ -75,6 +75,10 @@ import { shellStreamItemFromThreadShell } from "./ShellStream.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import {
+  THREAD_HISTORY_PAGE_POLICY,
+  THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+} from "./threadHistoryPaging.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 const layerPlatformTest = Layer.merge(
@@ -1083,6 +1087,79 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
       });
       assert.isNull((yield* orchestrator.getThreadShell(threadId))?.pendingRuntimeRequest);
       assert.equal((yield* orchestrator.getThreadProjection(threadId)).messages.length, 1);
+    }),
+  );
+
+  it.effect("keeps a blocker raised in a long chat in the snapshot clients load", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("blocked-long-chat");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("blocked-long:create"),
+        threadId,
+        projectId: ProjectId.make("blocked-long-project"),
+        title: "Blocked long chat",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+        createdBy: "user",
+        creationSource: "web",
+      });
+      // More finished user turns than one snapshot window holds.
+      for (let turn = 0; turn < THREAD_HISTORY_PAGE_POLICY.maxUserTurns + 3; turn += 1) {
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`blocked-long:turn-${turn}`),
+          threadId,
+          messageId: MessageId.make(`blocked-long:turn-${turn}`),
+          text: `turn ${turn}`,
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+          dispatchMode: { type: "queue_after_active" },
+        });
+        const run = (yield* orchestrator.getThreadProjection(threadId)).runs.at(-1)!;
+        const now = yield* DateTime.now;
+        yield* eventSink.commitCommand({
+          commandId: CommandId.make(`blocked-long:turn-${turn}:ended`),
+          threadId,
+          commandType: "provider-runtime.reconcile",
+          acceptedAt: now,
+          effects: [],
+          events: [
+            {
+              id: EventId.make(`blocked-long:turn-${turn}:ended`),
+              type: "run.updated",
+              threadId,
+              runId: run.id,
+              occurredAt: now,
+              payload: { ...run, status: "completed", completedAt: now },
+            },
+          ],
+        });
+      }
+      yield* orchestrator.dispatch({
+        type: "thread.request-human",
+        commandId: CommandId.make("blocked-long:request"),
+        threadId,
+        reason: "Which account should I use?",
+      });
+      const { projection } = yield* orchestrator.getThreadSnapshotWindow(threadId, {
+        rowLimit: THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+        userTurnLimit: THREAD_HISTORY_PAGE_POLICY.maxUserTurns,
+      });
+      const pending = projection.runtimeRequests.find((request) => request.status === "pending");
+      assert.isDefined(pending);
+      // Clients build the composer's answer and dismiss controls from this item.
+      assert.isTrue(
+        projection.turnItems.some(
+          (item) => item.type === "user_input_request" && item.requestId === pending?.id,
+        ),
+      );
     }),
   );
 
