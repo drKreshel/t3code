@@ -18,7 +18,6 @@ function ComposerProbe() {
       isMobileViewport: false,
       isScrollCollapsed: state.isComposerScrollCollapsed,
       hasExpandedChrome: false,
-      hasMultilinePrompt: false,
       timelineOverflows: true,
     });
   });

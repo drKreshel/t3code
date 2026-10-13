@@ -2805,7 +2805,7 @@ export function GeneralSettingsPanel() {
 
         <SettingsRow
           {...searchableSetting("composer-collapse")}
-          description="Rest the composer of an existing thread into a single line when you scroll the conversation. Focus the composer or start typing to expand it again."
+          description="Rest the composer of an existing thread into a single line when you scroll the conversation, including long drafts. Focus the composer or start typing to expand it again."
           resetAction={
             settings.composerCollapseOnScroll !==
             DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll ? (

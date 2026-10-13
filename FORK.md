@@ -29,6 +29,7 @@ Fork code lives in new files: `apps/server/src/fork/**`, `packages/provider-core
 
 Small fixes to upstream behavior. When upstream fixes the same thing, take upstream's version and drop ours.
 
+- Long drafts collapse when scrolling the conversation on web and desktop, then expand when editing resumes: `chat/ChatComposer.tsx`, `composerFooterLayout.ts`, `settings/SettingsPanels.tsx`.
 - External folders preview as directory trees: `files/FilePreviewPanel.tsx`, `filePreviewMode.ts`, `FileBrowserPanel.tsx`, `projectFilesQueryState.ts`, `fileTreeDragMention.ts`.
 - A picked `$skill` or `@file` survives in question answers: `ChatView.tsx`, `ChatComposer.tsx`, `ComposerPrimaryActions.tsx`.
 - Codex native subagents keep the model and reasoning effort reported by newer `SubAgentActivity` notifications: `effect-codex-app-server/_internal/shared.ts`, `orchestration-v2/Adapters/CodexAdapterV2.ts`.
