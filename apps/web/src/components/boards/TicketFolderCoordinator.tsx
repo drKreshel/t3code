@@ -1,10 +1,11 @@
-import { ScheduledTaskId } from "@t3tools/contracts";
+import { ScheduledTaskId, ThreadId } from "@t3tools/contracts";
 import { useEffect, useRef } from "react";
 
 import { useSidebarFolderStore } from "../../sidebarFolderStore";
 import { useBoards, useBoardsDispatch } from "../../state/boards";
-import { useSetTaskFolder, useTaskFolders } from "../../state/taskFolders";
+import { useSetChatFolder, useSetTaskFolder, useTaskFolders } from "../../state/taskFolders";
 import {
+  CHAT_FOLDER_SOURCE_PREFIX,
   type FolderRouteSource,
   type PendingFolderPath,
   TASK_FOLDER_SOURCE_PREFIX,
@@ -12,15 +13,17 @@ import {
 
 /**
  * Files manual sessions, drafts, and automation sessions through their ticket
- * links, and scheduled task runs into their task's folder. Waits for both, since
- * a source left out of a sync loses its route. Sends the folder paths that
- * sidebar moves, renames, and deletes changed back to their ticket or task.
+ * links, scheduled task runs into their task's folder, and chats an agent filed
+ * into their own folder. Waits for both streams, since a source left out of a
+ * sync loses its route. Sends the folder paths that sidebar moves, renames, and
+ * deletes changed back to their ticket, task, or chat.
  */
 export function TicketFolderCoordinator() {
   const boards = useBoards();
   const taskFolders = useTaskFolders();
   const dispatch = useBoardsDispatch();
   const setTaskFolder = useSetTaskFolder();
+  const setChatFolder = useSetChatFolder();
   const sent = useRef(new Map<string, string | null>());
   const ready = boards.status === "ready" && taskFolders.status !== "loading";
 
@@ -35,9 +38,18 @@ export function TicketFolderCoordinator() {
             threadKeys: route.threadKeys,
           }))
         : [];
+    const chatSources: FolderRouteSource[] =
+      taskFolders.status === "ready"
+        ? taskFolders.chats.map((route) => ({
+            id: `${CHAT_FOLDER_SOURCE_PREFIX}${route.threadId}`,
+            folder: route.folder,
+            archivedAt: null,
+            threadKeys: [route.threadKey],
+          }))
+        : [];
     useSidebarFolderStore
       .getState()
-      .syncTicketFolders([...boards.snapshot.tickets, ...taskSources]);
+      .syncTicketFolders([...boards.snapshot.tickets, ...taskSources, ...chatSources]);
   }, [boards, taskFolders]);
 
   useEffect(() => {
@@ -54,9 +66,14 @@ export function TicketFolderCoordinator() {
               taskId: ScheduledTaskId.make(sourceId.slice(TASK_FOLDER_SOURCE_PREFIX.length)),
               folder: path,
             })
-          : dispatch({ type: "ticket.update", ticketId: sourceId, folder: path }).then(
-              (result) => result !== undefined,
-            );
+          : sourceId.startsWith(CHAT_FOLDER_SOURCE_PREFIX)
+            ? setChatFolder({
+                threadId: ThreadId.make(sourceId.slice(CHAT_FOLDER_SOURCE_PREFIX.length)),
+                folder: path,
+              })
+            : dispatch({ type: "ticket.update", ticketId: sourceId, folder: path }).then(
+                (result) => result !== undefined,
+              );
         void write.then((ok) => {
           if (!ok) useSidebarFolderStore.getState().dropPendingFolderPath(sourceId, path);
         });
@@ -68,6 +85,6 @@ export function TicketFolderCoordinator() {
         send(state.pendingFolderPaths ?? {});
       }
     });
-  }, [ready, dispatch, setTaskFolder]);
+  }, [ready, dispatch, setTaskFolder, setChatFolder]);
   return null;
 }

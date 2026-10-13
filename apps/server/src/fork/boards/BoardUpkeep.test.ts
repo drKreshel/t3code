@@ -5,6 +5,7 @@ import {
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadShell,
+  type SetChatFolderInput,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -15,6 +16,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
+import { TaskFolders } from "../taskFolders/TaskFolders.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "./BoardsService.ts";
 import { BOARD_ACTOR, BoardUpkeep, layerManual } from "./BoardUpkeep.ts";
 
@@ -24,7 +26,11 @@ const ENVIRONMENT_ID = EnvironmentId.make("env-1");
 const makeHarness = (threads: ReadonlyArray<string> = []) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
+    const chatFolders = yield* Ref.make<ReadonlyArray<SetChatFolderInput>>([]);
     const fakes = Layer.mergeAll(
+      Layer.mock(TaskFolders)({
+        setChat: (input) => Ref.update(chatFolders, (list) => [...list, input]),
+      }),
       Layer.mock(OrchestratorV2)({
         dispatch: (command) =>
           Ref.update(commands, (list) => [...list, command]).pipe(
@@ -65,7 +71,7 @@ const makeHarness = (threads: ReadonlyArray<string> = []) =>
         "user",
       );
     const event = (value: unknown) => upkeep.handleDomainEvent(value as OrchestrationV2DomainEvent);
-    return { upkeep, boards, commands, column, ticket, linkChat, event };
+    return { upkeep, boards, commands, chatFolders, column, ticket, linkChat, event };
   });
 
 const TestLayer = boardsLayerMemory.pipe(Layer.provideMerge(NodeServices.layer));
@@ -146,13 +152,14 @@ describe("BoardUpkeep", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("unlinks a deleted chat from its ticket", () =>
+  it.effect("unlinks a deleted chat from its ticket and drops its folder", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
       const ticketId = yield* harness.ticket("Audit follow-up");
       yield* harness.linkChat(ticketId, "gone");
       yield* harness.event({ type: "thread.deleted", threadId: ThreadId.make("gone") });
       expect((yield* harness.boards.snapshot).tickets[0]?.threadKeys).toEqual([]);
+      expect(yield* Ref.get(harness.chatFolders)).toEqual([{ threadId: "gone", folder: null }]);
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -180,43 +187,38 @@ describe("BoardUpkeep", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect(
-    "links chats a ticket chat delegates, starts, or briefs, but never another ticket's",
-    () =>
-      Effect.gen(function* () {
-        const harness = yield* makeHarness();
-        const ticketId = yield* harness.ticket("Feature");
-        const otherTicketId = yield* harness.ticket("Other feature");
-        yield* harness.linkChat(ticketId, "parent");
-        yield* harness.linkChat(otherTicketId, "other-ticket-chat");
-        const turnItem = (threadId: string, payload: Record<string, unknown>) =>
-          harness.event({ type: "turn-item.updated", threadId, payload });
-        // Subagents and delegated tasks carry their parent in the lineage.
-        yield* harness.event({
+  it.effect("links a fork to its source chat's ticket, and nothing else a ticket chat starts", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const ticketId = yield* harness.ticket("Feature");
+      const otherTicketId = yield* harness.ticket("Other feature");
+      yield* harness.linkChat(ticketId, "parent");
+      yield* harness.linkChat(otherTicketId, "other-ticket-chat");
+      const created = (threadId: string, relationshipToParent: string, parentThreadId: string) =>
+        harness.event({
           type: "thread.created",
-          threadId: "review-child",
-          payload: { lineage: { parentThreadId: "parent" } },
+          threadId,
+          payload: { lineage: { parentThreadId, relationshipToParent } },
         });
-        yield* harness.event({
-          type: "thread.created",
-          threadId: "stray-child",
-          payload: { lineage: { parentThreadId: "unlinked-parent" } },
-        });
-        // create_threads records the new chat in the parent's timeline.
-        yield* turnItem("parent", { type: "thread_created", targetThreadId: "created-chat" });
-        // t3_thread_launch and t3_thread_send deliver a message from the parent.
-        yield* turnItem("launched-chat", { type: "user_message", senderThreadId: "parent" });
-        yield* turnItem("other-ticket-chat", { type: "user_message", senderThreadId: "parent" });
-        yield* turnItem("own-chat", { type: "user_message" });
-        const [linked, other] = (yield* harness.boards.snapshot).tickets.toSorted(
-          (a, b) => a.number - b.number,
-        );
-        expect(linked?.threadKeys.toSorted()).toEqual(
-          ["created-chat", "launched-chat", "parent", "review-child"].map(
-            (id) => `${ENVIRONMENT_ID}:${id}`,
-          ),
-        );
-        expect(other?.threadKeys).toEqual([`${ENVIRONMENT_ID}:other-ticket-chat`]);
-      }).pipe(Effect.provide(TestLayer)),
+      const turnItem = (threadId: string, payload: Record<string, unknown>) =>
+        harness.event({ type: "turn-item.updated", threadId, payload });
+      yield* created("fork-of-parent", "fork", "parent");
+      yield* created("fork-of-other", "fork", "other-ticket-chat");
+      yield* created("stray-fork", "fork", "unlinked-parent");
+      // Subagents and delegated tasks join a ticket only when delegate_task names one.
+      yield* created("review-child", "subagent", "parent");
+      // create_threads, t3_thread_launch, and t3_thread_send do not link either.
+      yield* turnItem("parent", { type: "thread_created", targetThreadId: "created-chat" });
+      yield* turnItem("launched-chat", { type: "user_message", senderThreadId: "parent" });
+      const [linked, other] = (yield* harness.boards.snapshot).tickets.toSorted(
+        (a, b) => a.number - b.number,
+      );
+      expect(linked?.threadKeys.toSorted()).toEqual(
+        ["fork-of-parent", "parent"].map((id) => `${ENVIRONMENT_ID}:${id}`),
+      );
+      expect(other?.threadKeys.toSorted()).toEqual(
+        ["fork-of-other", "other-ticket-chat"].map((id) => `${ENVIRONMENT_ID}:${id}`),
+      );
+    }).pipe(Effect.provide(TestLayer)),
   );
 });

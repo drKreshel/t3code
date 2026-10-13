@@ -65,6 +65,7 @@ export const SidebarFolderSummary = Schema.Struct({
   settled: Schema.Boolean,
   routedTickets: NonNegativeInt,
   routedTasks: NonNegativeInt,
+  routedChats: NonNegativeInt,
 });
 export type SidebarFolderSummary = typeof SidebarFolderSummary.Type;
 
@@ -119,6 +120,7 @@ export const SidebarFolderDeletionResult = Schema.Struct({
   releasedThreadCount: NonNegativeInt,
   queuedTicketFolderClears: NonNegativeInt,
   queuedTaskFolderClears: NonNegativeInt,
+  queuedChatFolderClears: NonNegativeInt,
 });
 
 export const SidebarFolderThreadMoveResult = Schema.Struct({

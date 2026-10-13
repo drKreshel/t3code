@@ -7,6 +7,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
+import { prepareNewChatPlacement } from "../../../fork/mcp/newChatPlacement.ts";
 
 const handlers = {
   orchestrator_capabilities: McpToolAccess.reads(() =>
@@ -16,11 +17,13 @@ const handlers = {
       return yield* service.capabilities(scope);
     }),
   ),
-  delegate_task: McpToolAccess.actsAsCaller((input) =>
+  delegate_task: McpToolAccess.actsAsCaller(({ ticket, folder, ...input }) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.delegateTask(scope, input);
+      // Fork: the ticket and sidebar folder the child chat joins.
+      const place = yield* prepareNewChatPlacement({ ticket, folder });
+      return yield* service.delegateTask(scope, input, place);
     }),
   ),
   task_status: McpToolAccess.actsAsCaller(({ taskId }) =>

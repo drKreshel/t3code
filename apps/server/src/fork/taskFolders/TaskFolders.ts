@@ -1,12 +1,16 @@
 /**
- * The sidebar folder each scheduled task files its runs' chats into. Stored in
- * `fork.sqlite`; the stream pairs each folder with the chats the task's recent
- * runs used, and clients file those chats the way they file ticket chats.
+ * Sidebar folders kept on the server: the folder each scheduled task files its
+ * runs' chats into, and the folder an agent filed one chat into. Stored in
+ * `fork.sqlite`; the stream pairs each task folder with the chats the task's
+ * recent runs used, and clients file those chats the way they file ticket chats.
  */
 import {
+  type ChatFolderRoute,
+  type SetChatFolderInput,
   type SetTaskFolderInput,
   TaskFoldersError,
   type TaskFoldersSnapshot,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -24,6 +28,8 @@ export class TaskFolders extends Context.Service<
   {
     readonly stream: Stream.Stream<TaskFoldersSnapshot, TaskFoldersError>;
     readonly set: (input: SetTaskFolderInput) => Effect.Effect<void, TaskFoldersError>;
+    /** Files one chat in every client; null stops filing it. */
+    readonly setChat: (input: SetChatFolderInput) => Effect.Effect<void, TaskFoldersError>;
   }
 >()("t3/fork/taskFolders/TaskFolders") {}
 
@@ -41,14 +47,14 @@ const make = Effect.gen(function* () {
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
   const changes = yield* PubSub.unbounded<void>();
 
-  const snapshot: Effect.Effect<TaskFoldersSnapshot, TaskFoldersError> = Effect.gen(function* () {
+  const taskRoutes = Effect.gen(function* () {
     const rows = yield* sql<{ readonly task_id: string; readonly folder: string }>`
       SELECT task_id, folder FROM fork_task_folders ORDER BY task_id
     `;
-    if (rows.length === 0) return { routes: [] };
+    if (rows.length === 0) return [];
     const { tasks } = yield* scheduledTasks.list();
     const { runs } = yield* scheduledTasks.listRuns({});
-    const routes = rows.flatMap((row) => {
+    return rows.flatMap((row) => {
       const task = tasks.find((candidate) => candidate.id === row.task_id);
       if (!task) return [];
       // Oldest first, so a new run's chat lands at the end of the folder.
@@ -62,7 +68,22 @@ const make = Effect.gen(function* () {
       ];
       return [{ taskId: task.id, folder: row.folder, threadKeys }];
     });
-    return { routes };
+  });
+
+  const chatRoutes = sql<{ readonly thread_id: ThreadId; readonly folder: string }>`
+    SELECT thread_id, folder FROM fork_chat_folders ORDER BY rowid
+  `.pipe(
+    Effect.map((rows) =>
+      rows.map((row): ChatFolderRoute => ({
+        threadId: row.thread_id,
+        threadKey: `${environmentId}:${row.thread_id}`,
+        folder: row.folder,
+      })),
+    ),
+  );
+
+  const snapshot: Effect.Effect<TaskFoldersSnapshot, TaskFoldersError> = Effect.gen(function* () {
+    return { routes: yield* taskRoutes, chats: yield* chatRoutes };
   }).pipe(Effect.mapError(asError));
 
   /** Recomputed when a folder changes and whenever the task list does, which includes each run. */
@@ -90,7 +111,20 @@ const make = Effect.gen(function* () {
       yield* PubSub.publish(changes, undefined);
     }).pipe(Effect.mapError(asError));
 
-  return TaskFolders.of({ stream, set });
+  const setChat = (input: SetChatFolderInput) =>
+    Effect.gen(function* () {
+      if (input.folder === null) {
+        yield* sql`DELETE FROM fork_chat_folders WHERE thread_id = ${input.threadId}`;
+      } else {
+        yield* sql`
+          INSERT INTO fork_chat_folders (thread_id, folder) VALUES (${input.threadId}, ${input.folder})
+          ON CONFLICT (thread_id) DO UPDATE SET folder = excluded.folder
+        `;
+      }
+      yield* PubSub.publish(changes, undefined);
+    }).pipe(Effect.mapError(asError));
+
+  return TaskFolders.of({ stream, set, setChat });
 });
 
 export const layer = Layer.effect(TaskFolders, make).pipe(Layer.provide(ForkDatabase.layer));

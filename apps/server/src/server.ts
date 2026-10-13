@@ -560,9 +560,9 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 
 const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer
   .pipe(
-    Layer.provideMerge(
-      Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer, ForkTaskFolders.layer),
-    ),
+    Layer.provideMerge(Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer)),
+    // Below upkeep, which drops a deleted chat's folder.
+    Layer.provideMerge(ForkTaskFolders.layer),
     Layer.provideMerge(ForkTicketWorkspaces.layer),
     Layer.provideMerge(ForkBoards.layer),
     Layer.provideMerge(ForkSkills.layer),

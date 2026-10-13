@@ -59,6 +59,7 @@ it.effect(
                           settled: false,
                           routedTickets: 0,
                           routedTasks: 0,
+                          routedChats: 0,
                         },
                       ],
                     }
@@ -76,6 +77,7 @@ it.effect(
                           releasedThreadCount: 0,
                           queuedTicketFolderClears: 0,
                           queuedTaskFolderClears: 0,
+                          queuedChatFolderClears: 0,
                         }
                       : request.action.type === "set-icon"
                         ? {

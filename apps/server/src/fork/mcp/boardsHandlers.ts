@@ -660,6 +660,37 @@ const make = Effect.gen(function* () {
         return { scheduledTaskId, folder };
       }),
     ),
+    file_chat: McpToolAccess.writesThreads(
+      (input) => [input.threadId],
+      ({ threadId: target, folder }) =>
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          const threadId = target ?? scope.thread?.threadId;
+          if (threadId === undefined) {
+            return yield* invalid(
+              "threadId is required when this tool is called outside a T3 thread.",
+            );
+          }
+          if (Option.isNone(taskFolders)) {
+            return yield* new BoardsCommandError({
+              code: "storage",
+              message: "Chat folders are not available on this server.",
+            });
+          }
+          const thread = yield* threads
+            .getThreadShell(threadId)
+            .pipe(Effect.mapError(storage("Could not read the chat.")));
+          if (thread === null) return yield* notFound(`There is no chat ${threadId}.`);
+          yield* taskFolders.value
+            .setChat({ threadId, folder })
+            .pipe(
+              Effect.mapError(
+                (error) => new BoardsCommandError({ code: "storage", message: error.message }),
+              ),
+            );
+          return { threadId, folder };
+        }),
+    ),
     remove_ticket_workspace: McpToolAccess.writes(({ ticket: ref, force }) =>
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;

@@ -22,7 +22,10 @@ export interface PendingFolderPath {
   readonly from: readonly (string | null)[];
 }
 
-/** Anything that files chats into a folder: a ticket, or a scheduled task (`task:<id>`). */
+/**
+ * Anything that files chats into a folder: a ticket, a scheduled task
+ * (`task:<id>`), or one chat's own folder (`chat:<threadId>`).
+ */
 export type FolderRouteSource = Pick<Ticket, "id" | "folder" | "archivedAt" | "threadKeys">;
 
 export interface TicketFolderRoutingState {
@@ -31,6 +34,7 @@ export interface TicketFolderRoutingState {
 }
 
 export const TASK_FOLDER_SOURCE_PREFIX = "task:";
+export const CHAT_FOLDER_SOURCE_PREFIX = "chat:";
 
 function normalizeFolderPath(folder: string | null | undefined): string | null {
   if (!folder) return null;
@@ -55,8 +59,9 @@ export function sidebarFolderPath(layout: SidebarFolderLayout, folderId: string)
  * Keeps the sidebar and each ticket's or task's folder path in step. The path
  * on the server is the source of truth: a changed path refiles the source's
  * chats, and moving, renaming, or deleting its folder here becomes a pending
- * path change for the coordinator to send. Pass every source at once: a source
- * left out loses its route.
+ * path change for the coordinator to send. A chat's own folder outranks its
+ * ticket's or task's. Pass every source at once: a source left out loses its
+ * route.
  */
 export function syncTicketFolders(
   state: SidebarFolderLayout & TicketFolderRoutingState,
@@ -69,8 +74,16 @@ export function syncTicketFolders(
   const routes: Record<string, TicketFolderRoute> = {};
   const pending: Record<string, PendingFolderPath> = {};
   let changed = false;
+  const ownFolderThreadKeys = new Set(
+    sources.flatMap((source) =>
+      source.id.startsWith(CHAT_FOLDER_SOURCE_PREFIX) && normalizeFolderPath(source.folder) !== null
+        ? source.threadKeys
+        : [],
+    ),
+  );
 
   for (const source of sources) {
+    const ownFolder = source.id.startsWith(CHAT_FOLDER_SOURCE_PREFIX);
     const server = normalizeFolderPath(source.folder);
     let waiting: PendingFolderPath | undefined = previousPending[source.id];
     // Landed, or overtaken by someone else's change: the server wins again.
@@ -122,6 +135,7 @@ export function syncTicketFolders(
     for (const threadKey of source.threadKeys) {
       if (alreadyFiled.has(threadKey) || hasSidebarThreadFolderOverride(layout, threadKey))
         continue;
+      if (!ownFolder && ownFolderThreadKeys.has(threadKey)) continue;
       layout = moveThreadToSidebarFolder(layout, threadKey, { folderId, position: "end" });
     }
     if (
@@ -144,17 +158,19 @@ export function syncTicketFolders(
     : { ...layout, ticketFolderRoutes: routes, pendingFolderPaths: pending };
 }
 
-/** Tickets and scheduled tasks whose folder is this folder or one inside it. */
+/** Tickets, scheduled tasks, and chats whose folder is this folder or one inside it. */
 export function folderRouteSourcesIn(
   state: TicketFolderRoutingState,
   folderIds: ReadonlySet<string>,
-): { readonly tickets: number; readonly tasks: number } {
+): { readonly tickets: number; readonly tasks: number; readonly chats: number } {
   let tickets = 0;
   let tasks = 0;
+  let chats = 0;
   for (const [sourceId, route] of Object.entries(state.ticketFolderRoutes ?? {})) {
     if (!folderIds.has(route.folderId)) continue;
     if (sourceId.startsWith(TASK_FOLDER_SOURCE_PREFIX)) tasks += 1;
+    else if (sourceId.startsWith(CHAT_FOLDER_SOURCE_PREFIX)) chats += 1;
     else tickets += 1;
   }
-  return { tickets, tasks };
+  return { tickets, tasks, chats };
 }

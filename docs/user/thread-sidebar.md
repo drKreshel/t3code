@@ -175,6 +175,10 @@ under a project folder. Missing folders are created automatically, and new manua
 and automation sessions join the same folder. You can ask an agent or a skill to
 set the folder when creating or updating a ticket.
 
+A chat an agent starts or delegates joins a ticket only when the agent names
+it, and a fork of a ticket chat stays on its ticket. The agent can also give the
+chat a folder of its own, which wins over the ticket's folder.
+
 Changing the ticket's folder moves its linked sessions to the new location.
 Clearing it stops automatic filing and keeps existing sessions where they are.
 You can also move individual sessions afterward. Moving or renaming the folder

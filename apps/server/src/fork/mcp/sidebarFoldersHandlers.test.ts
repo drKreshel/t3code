@@ -121,6 +121,7 @@ it.effect("lists, deletes, changes icons, settles, and moves through the connect
                         releasedThreadCount: 0,
                         queuedTicketFolderClears: 0,
                         queuedTaskFolderClears: 0,
+                        queuedChatFolderClears: 0,
                       }
                     : event.action.type === "set-icon"
                       ? {
