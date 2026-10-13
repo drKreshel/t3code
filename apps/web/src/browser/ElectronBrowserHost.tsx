@@ -28,6 +28,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { readPreviewAnnotationTheme } from "./annotationTheme";
 import { useBrowserDefaults } from "./browserDefaults";
 import { useBrowserPointerStore } from "./browserPointerStore";
+import { acquireBrowserSurfaceActivity } from "./browserSurfaceStore";
 import { HostedBrowserWebview } from "./HostedBrowserWebview";
 import { openUrlInPreview } from "./openFileInPreview";
 import { rendersServerTabNatively } from "./previewRuntime";
@@ -132,6 +133,31 @@ export function ElectronBrowserHost() {
       });
     });
   }, [openPreview]);
+
+  // The desktop's server captures its tabs through their webviews, which draw
+  // nothing while hidden offscreen. Keep a captured tab on screen until it ends.
+  useEffect(() => {
+    const preview = window.desktopBridge?.preview;
+    if (!preview?.onRenderRequest) return;
+    const releases = new Map<string, () => void>();
+    const unsubscribe = preview.onRenderRequest(({ threadId, tabId, active }) => {
+      const key = `${threadId}\u0000${tabId}`;
+      releases.get(key)?.();
+      releases.delete(key);
+      if (!active) return;
+      const session = [...sessionByRuntimeTabId.current.values()].find(
+        (candidate) =>
+          candidate.threadRef.environmentId === primaryEnvironmentId &&
+          candidate.threadRef.threadId === threadId &&
+          candidate.snapshot.tabId === tabId,
+      );
+      if (session) releases.set(key, acquireBrowserSurfaceActivity(session.runtimeTabId));
+    });
+    return () => {
+      unsubscribe();
+      for (const release of releases.values()) release();
+    };
+  }, [primaryEnvironmentId]);
 
   if (!isElectron) return null;
   return (

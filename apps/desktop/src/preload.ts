@@ -2,6 +2,7 @@ import type {
   DesktopBridge,
   DesktopPreviewOpenLinkEvent,
   DesktopPreviewPointerEvent,
+  DesktopPreviewRenderRequest,
   DesktopPreviewRecordingInputEvent,
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
@@ -86,6 +87,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getClientPlatform: () => clientPlatform,
+  getZoomFactor: () => webFrame.getZoomFactor(),
   setNotificationBadge: (badge) =>
     ipcRenderer.invoke(IpcChannels.SET_NOTIFICATION_BADGE_CHANNEL, badge),
   onNotificationBadgeClear: (listener) => {
@@ -428,6 +430,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.on(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
       return () =>
         ipcRenderer.removeListener(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
+    },
+    onRenderRequest: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+        if (typeof request !== "object" || request === null) return;
+        listener(request as DesktopPreviewRenderRequest);
+      };
+      ipcRenderer.on(IpcChannels.PREVIEW_RENDER_REQUEST_CHANNEL, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(IpcChannels.PREVIEW_RENDER_REQUEST_CHANNEL, wrappedListener);
     },
     onOpenLink: (listener) => {
       const wrappedListener = (_event: Electron.IpcRendererEvent, linkEvent: unknown) => {

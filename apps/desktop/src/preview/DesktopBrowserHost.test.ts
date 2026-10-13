@@ -148,4 +148,24 @@ describe("DesktopBrowserHost", () => {
       expect(host.humanStartedDownload(debuggee.tab.webContents)).toBe(false);
     }),
   );
+
+  it.effect("keeps a captured tab on screen until the server stops or the tab detaches", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      host.attach(key, makeDebuggee().tab);
+      const reader = yield* host.renders.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
+      yield* Effect.yieldNow;
+      const render = (active: boolean) =>
+        host.handleCommandLine(encodeJson({ type: "render", ...key, active }));
+      yield* render(true);
+      // A second capture of an on-screen tab changes nothing.
+      yield* render(true);
+      // A tab that goes away while held is no longer kept on screen.
+      host.detach(key);
+      expect(yield* Fiber.join(reader)).toEqual([
+        { ...key, active: true },
+        { ...key, active: false },
+      ]);
+    }),
+  );
 });

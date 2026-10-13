@@ -663,6 +663,16 @@ export interface DesktopPreviewPointerEvent {
   createdAt: string;
 }
 
+/**
+ * The desktop's own server is capturing one of its tabs (`active`) or stopped.
+ * Keyed by the server tab, not the runtime tab id.
+ */
+export interface DesktopPreviewRenderRequest {
+  threadId: string;
+  tabId: string;
+  active: boolean;
+}
+
 /** A `target="_blank"` link the previewed page asked to open beside itself. */
 export interface DesktopPreviewOpenLinkEvent {
   tabId: string;
@@ -1124,6 +1134,12 @@ export interface DesktopBridge {
   getPathForFile?: (file: File) => string;
   /** The desktop client's OS platform, read from Electron's preload process. */
   getClientPlatform?: () => string;
+  /**
+   * The app window's own zoom (1 = 100%). A `<webview>` lays its guest out in
+   * device pixels, so sizing one in app CSS pixels scales the guest's viewport
+   * by this factor.
+   */
+  getZoomFactor?: () => number;
   setNotificationBadge?: (badge: { count: number; image: string | null }) => Promise<void>;
   onNotificationBadgeClear?: (listener: () => void) => () => void;
   onTrackpadScrollEnd?: (listener: () => void) => () => void;
@@ -1355,6 +1371,7 @@ export interface DesktopPreviewBridge {
   };
   onStateChange: (listener: (tabId: string, state: DesktopPreviewTabState) => void) => () => void;
   onPointerEvent: (listener: (event: DesktopPreviewPointerEvent) => void) => () => void;
+  onRenderRequest?: (listener: (request: DesktopPreviewRenderRequest) => void) => () => void;
   onOpenLink: (listener: (event: DesktopPreviewOpenLinkEvent) => void) => () => void;
 }
 

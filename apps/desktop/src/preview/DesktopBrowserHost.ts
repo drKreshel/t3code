@@ -45,6 +45,10 @@ export interface DesktopBrowserTabDebugger {
   readonly debugger: Electron.Debugger;
 }
 
+export interface DesktopBrowserTabRender extends DesktopBrowserTabKey {
+  readonly active: boolean;
+}
+
 const keyOf = ({ threadId, tabId }: DesktopBrowserTabKey) => `${threadId}\u0000${tabId}`;
 
 interface AttachedTab {
@@ -57,6 +61,8 @@ interface AttachedTab {
   pendingDownloadGuid: string | null;
   /** When the server last sent this page input, which only an agent does. */
   agentInputAt: number;
+  /** The server is capturing this tab, so the window keeps it on screen. */
+  rendering: boolean;
   readonly onMessage: (
     event: Electron.Event,
     method: string,
@@ -93,6 +99,8 @@ export class DesktopBrowserHost extends Context.Service<
       readonly x: number;
       readonly y: number;
     }>;
+    /** Server tabs that must stay on screen while the server captures them, and when that ends. */
+    readonly renders: Stream.Stream<DesktopBrowserTabRender>;
   }
 >()("@t3tools/desktop/preview/DesktopBrowserHost") {}
 
@@ -104,9 +112,15 @@ export const make = Effect.gen(function* () {
     readonly x: number;
     readonly y: number;
   }>(16);
+  const renders = yield* PubSub.unbounded<DesktopBrowserTabRender>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
+  const setRendering = (tab: AttachedTab, active: boolean) => {
+    if (tab.rendering === active) return;
+    tab.rendering = active;
+    runFork(PubSub.publish(renders, { ...tab.key, active }));
+  };
 
   const relayFor = (tab: AttachedTab) => {
     if (tab.relay) return tab.relay;
@@ -159,6 +173,7 @@ export const make = Effect.gen(function* () {
     const tab = tabs.get(id);
     if (!tab) return;
     tabs.delete(id);
+    setRendering(tab, false);
     tab.debuggee.debugger.off("message", tab.onMessage);
     emit({ type: "detached", ...key });
   };
@@ -174,6 +189,7 @@ export const make = Effect.gen(function* () {
       downloadDirectory: null,
       pendingDownloadGuid: null,
       agentInputAt: Number.NEGATIVE_INFINITY,
+      rendering: false,
       onMessage: (_event, method, params, sessionId) => {
         if (method === "Browser.downloadWillBegin") {
           const guid = (params as { guid?: unknown } | undefined)?.guid;
@@ -198,6 +214,10 @@ export const make = Effect.gen(function* () {
         runFork(PubSub.publish(pointers, { key: { threadId, tabId }, phase, x, y }));
         return;
       }
+      if (command.value.type === "render") {
+        setRendering(tab, command.value.active);
+        return;
+      }
       if (command.value.type === "release") {
         // A new server connection starts with a fresh relay and fresh sessions.
         tab.relay = null;
@@ -218,6 +238,8 @@ export const make = Effect.gen(function* () {
       [...tabs.values()],
       (tab) => {
         tab.relay = null;
+        // A restarted backend holds no captures.
+        setRendering(tab, false);
         return PubSub.publish(outbox, { type: "attached", ...tab.key });
       },
       { discard: true },
@@ -226,6 +248,7 @@ export const make = Effect.gen(function* () {
 
   return DesktopBrowserHost.of({
     pointers: Stream.fromPubSub(pointers),
+    renders: Stream.fromPubSub(renders),
     // Subscribes before announcing, so no attach falls between the two.
     events: Stream.unwrap(
       Effect.gen(function* () {

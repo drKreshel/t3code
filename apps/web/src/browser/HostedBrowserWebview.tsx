@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { isWhatsAppWebUrl } from "@t3tools/shared/preview";
 import { useShallow } from "zustand/react/shallow";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { previewBridge } from "~/components/preview/previewBridge";
 import { usePreviewBridge } from "~/components/preview/usePreviewBridge";
@@ -20,6 +20,7 @@ import {
   browserViewportSettingKey,
   resolveBrowserViewportLayout,
   resolveFittedBrowserViewport,
+  resolveWebviewLayoutZoomFactor,
 } from "./browserViewportLayout";
 import { BrowserDeviceToolbar } from "./BrowserDeviceToolbar";
 import { BrowserViewportResizeHandles } from "./BrowserViewportResizeHandles";
@@ -46,6 +47,16 @@ declare global {
   interface HTMLElementTagNameMap {
     webview: ElectronWebview;
   }
+}
+
+// Chromium resizes the window's CSS viewport when the app zoom changes.
+function subscribeToAppZoom(onChange: () => void): () => void {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
+function readAppZoomFactor(): number {
+  return window.desktopBridge?.getZoomFactor?.() ?? 1;
 }
 
 export function HostedBrowserWebview(props: {
@@ -216,7 +227,8 @@ export function HostedBrowserWebview(props: {
 
   const active = presentation.visible && presentation.rect !== null;
   const lastRect = presentation.rect;
-  const normalizedZoomFactor = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
+  const appZoomFactor = useSyncExternalStore(subscribeToAppZoom, readAppZoomFactor);
+  const layoutZoomFactor = resolveWebviewLayoutZoomFactor(zoomFactor, appZoomFactor);
   const viewportWidth = viewport._tag === "fill" ? null : viewport.width;
   const viewportHeight = viewport._tag === "fill" ? null : viewport.height;
   const viewportAspectRatio =
@@ -235,8 +247,8 @@ export function HostedBrowserWebview(props: {
   const hiddenSize =
     viewport._tag !== "fill"
       ? {
-          width: viewport.width * normalizedZoomFactor,
-          height: viewport.height * normalizedZoomFactor,
+          width: viewport.width * layoutZoomFactor,
+          height: viewport.height * layoutZoomFactor,
         }
       : {
           width: hiddenContentSize?.width ?? lastRect?.width ?? 1280,
@@ -254,22 +266,18 @@ export function HostedBrowserWebview(props: {
   } = useBrowserViewportResize({
     tabId: runtimeTabId,
     viewport,
-    zoomFactor,
+    zoomFactor: layoutZoomFactor,
     containerSize,
     deviceToolbarVisible,
     aspectRatio: lockedAspectRatio,
   });
   const fittedSourceViewport =
     presentation.fitSourceContent && lastRect
-      ? resolveFittedBrowserViewport(
-          viewport,
-          presentation.fittedSourceContent,
-          normalizedZoomFactor,
-        )
+      ? resolveFittedBrowserViewport(viewport, presentation.fittedSourceContent, layoutZoomFactor)
       : null;
   const layout =
     fittedSourceViewport && lastRect
-      ? resolveBrowserViewportLayout(lastRect, fittedSourceViewport, normalizedZoomFactor)
+      ? resolveBrowserViewportLayout(lastRect, fittedSourceViewport, layoutZoomFactor)
       : viewportLayout;
 
   const syncContentPresentation = useCallback(() => {
@@ -359,14 +367,14 @@ export function HostedBrowserWebview(props: {
             fittedSourceViewport
               ? fittedSourceViewport.width
               : effectiveViewport._tag === "fill"
-                ? Math.max(1, Math.round(layout.viewportWidth / normalizedZoomFactor))
+                ? Math.max(1, Math.round(layout.viewportWidth / layoutZoomFactor))
                 : effectiveViewport.width
           }
           data-preview-css-height={
             fittedSourceViewport
               ? fittedSourceViewport.height
               : effectiveViewport._tag === "fill"
-                ? Math.max(1, Math.round(layout.viewportHeight / normalizedZoomFactor))
+                ? Math.max(1, Math.round(layout.viewportHeight / layoutZoomFactor))
                 : effectiveViewport.height
           }
           aria-hidden={active ? undefined : true}

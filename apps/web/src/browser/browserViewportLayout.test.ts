@@ -7,6 +7,7 @@ import {
   resolveFittedBrowserViewport,
   resolveBrowserViewportLayout,
   resolveResponsiveBrowserViewportSize,
+  resolveWebviewLayoutZoomFactor,
 } from "./browserViewportLayout";
 
 describe("resolveBrowserViewportLayout", () => {
@@ -87,6 +88,22 @@ describe("resolveBrowserViewportLayout", () => {
       width: 500,
       height: 350,
     });
+  });
+
+  it("draws a webview smaller in a zoomed app so its guest keeps the requested viewport", () => {
+    // App zoom level 4: each app CSS pixel covers 2.0736 device pixels.
+    const appZoomFactor = 1.2 ** 4;
+    const zoomFactor = resolveWebviewLayoutZoomFactor(1, appZoomFactor);
+    const layout = resolveBrowserViewportLayout(
+      { width: 1280, height: 800 },
+      { _tag: "freeform", width: 1280, height: 800 },
+      zoomFactor,
+    );
+    expect(layout.viewportScale).toBe(1);
+    expect(layout.viewportWidth * appZoomFactor).toBeCloseTo(1280);
+    expect(layout.viewportHeight * appZoomFactor).toBeCloseTo(800);
+    expect(resolveWebviewLayoutZoomFactor(1.5, 1)).toBe(1.5);
+    expect(resolveWebviewLayoutZoomFactor(1, Number.NaN)).toBe(1);
   });
 
   it("bounds freeform drag sizes and total render area", () => {

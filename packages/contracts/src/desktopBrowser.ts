@@ -42,5 +42,10 @@ export const DesktopBrowserCommand = Schema.Union([
     x: Schema.Finite,
     y: Schema.Finite,
   }),
+  /**
+   * Whether the server is reading the tab's pixels. Electron draws nothing for
+   * a `<webview>` outside the window, so a hidden tab must be brought on screen.
+   */
+  Schema.Struct({ type: Schema.Literal("render"), ...TabKey, active: Schema.Boolean }),
 ]);
 export type DesktopBrowserCommand = typeof DesktopBrowserCommand.Type;

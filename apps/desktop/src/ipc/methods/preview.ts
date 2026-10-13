@@ -28,10 +28,12 @@ import { whatsAppChromeUserAgent } from "@t3tools/shared/preview";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import * as NodeURL from "node:url";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
+import * as DesktopBrowserHost from "../../preview/DesktopBrowserHost.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
@@ -57,6 +59,13 @@ export const installPreviewEventForwarding = Effect.fn(
   );
   yield* manager.subscribeOpenLinks((event) =>
     electronWindow.sendAll(IpcChannels.PREVIEW_OPEN_LINK_CHANNEL, event),
+  );
+  const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
+  yield* browserHost.renders.pipe(
+    Stream.runForEach((request) =>
+      electronWindow.sendAll(IpcChannels.PREVIEW_RENDER_REQUEST_CHANNEL, request),
+    ),
+    Effect.forkScoped,
   );
 });
 
