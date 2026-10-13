@@ -18,6 +18,7 @@ const SidebarFoldersErrorCode = Schema.Literals([
   "timeout",
   "not-found",
   "invalid-path",
+  // Retained so newer servers can decode errors from older connected clients.
   "nested-folder",
   "thread-not-found",
   "thread-settlement-failed",

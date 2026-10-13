@@ -262,22 +262,24 @@ describe("sidebar folder agent actions", () => {
     expect(missingFolder.error?.code).toBe("not-found");
   });
 
-  it.effect("settles a top-level folder and all chats in its subtree", () =>
+  it.effect("settles a nested ticket folder and its descendants without settling siblings", () =>
     Effect.gen(function* () {
       const store = useSidebarFolderStore;
       const parentId = store.getState().createFolder({ name: "Project", parentId: null });
       const childId = store.getState().createFolder({ name: "Feature", parentId });
+      const nestedId = store.getState().createFolder({ name: "Review", parentId: childId });
       store.setState({
         threadKeysByFolderId: {
           [parentId]: ["local:parent"],
           [childId]: ["local:child"],
+          [nestedId]: ["remote:review"],
         },
       });
       let requested: readonly string[] = [];
       const result = yield* executeClaimedSidebarFolderAction(
         Effect.succeed(true),
         store.getState,
-        { type: "set-settled", folderId: parentId, settled: true },
+        { type: "set-settled", folderId: childId, settled: true },
         isExistingThread,
         (threadKeys) =>
           Effect.sync(() => {
@@ -286,14 +288,38 @@ describe("sidebar folder agent actions", () => {
           }),
       );
       expect(result).toEqual({
-        result: { type: "folder-settled", folderId: parentId, settled: true },
+        result: { type: "folder-settled", folderId: childId, settled: true },
       });
-      expect(store.getState().settledFolderIds).toEqual([parentId]);
-      expect(requested).toEqual(["local:parent", "local:child"]);
+      expect(store.getState().settledFolderIds).toEqual([childId]);
+      expect(requested).toEqual(["local:child", "remote:review"]);
+      expect(
+        listSidebarFolderSummaries(store.getState(), () => true).map(({ id, settled }) => ({
+          id,
+          settled,
+        })),
+      ).toEqual([
+        { id: parentId, settled: false },
+        { id: childId, settled: true },
+        { id: nestedId, settled: false },
+      ]);
+      const unsettle = yield* executeClaimedSidebarFolderAction(
+        Effect.succeed(true),
+        store.getState,
+        { type: "set-settled", folderId: childId, settled: false },
+        isExistingThread,
+        () => Effect.die("Un-settling a folder must leave its chats settled"),
+      );
+      expect(unsettle).toEqual({
+        result: { type: "folder-settled", folderId: childId, settled: false },
+      });
+      expect(store.getState().settledFolderIds).toEqual([]);
+      expect(store.getState().folders.find((folder) => folder.id === childId)?.parentId).toBe(
+        parentId,
+      );
     }),
   );
 
-  it("un-settles a top-level folder without un-settling its chats and rejects nested folders", () => {
+  it("settles empty nested folders and un-settles top-level folders", () => {
     const store = useSidebarFolderStore;
     const parentId = store.getState().createFolder({ name: "Project", parentId: null });
     const childId = store.getState().createFolder({ name: "Feature", parentId });
@@ -313,8 +339,9 @@ describe("sidebar folder agent actions", () => {
         store.getState(),
         { type: "set-settled", folderId: childId, settled: true },
         isExistingThread,
-      ).error?.code,
-    ).toBe("nested-folder");
+      ),
+    ).toEqual({ result: { type: "folder-settled", folderId: childId, settled: true } });
+    expect(store.getState().settledFolderIds).toEqual([childId]);
   });
 });
 
@@ -356,7 +383,8 @@ it.effect("does not apply a delete after its queued request expires", () =>
 it.effect("leaves the folder active when one of its chats does not settle", () =>
   Effect.gen(function* () {
     const store = useSidebarFolderStore;
-    const folderId = store.getState().createFolder({ name: "Project", parentId: null });
+    const parentId = store.getState().createFolder({ name: "Project", parentId: null });
+    const folderId = store.getState().createFolder({ name: "Ticket", parentId });
     store.setState({ threadKeysByFolderId: { [folderId]: ["local:chat"] } });
     const result = yield* executeClaimedSidebarFolderAction(
       Effect.succeed(true),
