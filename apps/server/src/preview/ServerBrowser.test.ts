@@ -50,7 +50,8 @@ vi.mock("./ServerBrowserContexts.ts", () => ({
       return makeContext().page as unknown as Page;
     }
     async connectDesktopPage(endpoint: string) {
-      const context = makeContext();
+      // Playwright reports no viewport for a page it connected to over CDP.
+      const context = makeContext(undefined, null);
       desktopConnections.push({ endpoint, context });
       return { browser: { close: async () => {} }, page: context.page as unknown as Page };
     }
@@ -73,11 +74,14 @@ function makeSession() {
   };
 }
 
-function makeContext(onClose?: (context: BrowserContext) => void) {
+function makeContext(
+  onClose?: (context: BrowserContext) => void,
+  initialViewport: { width: number; height: number } | null = { width: 1280, height: 800 },
+) {
   const events = new NodeEvents.EventEmitter();
   const sessions: ReturnType<typeof makeSession>[] = [];
   let url = "about:blank";
-  let viewport = { width: 1280, height: 800 };
+  let viewport = initialViewport;
   let closed = false;
   let contextClosed = false;
   const page = {
@@ -94,7 +98,7 @@ function makeContext(onClose?: (context: BrowserContext) => void) {
     url: () => url,
     title: vi.fn(async () => "test page"),
     viewportSize: () => viewport,
-    setViewportSize: vi.fn(async (size: typeof viewport) => {
+    setViewportSize: vi.fn(async (size: { width: number; height: number }) => {
       viewport = size;
     }),
     goto: vi.fn(async (next: string) => {
@@ -171,6 +175,8 @@ const desktopRenders = (tabId: string) => {
   return desktopTabs.has(tabId);
 };
 const releasedDesktopTabs: Array<string> = [];
+/** What the server asked the desktop to keep on screen, in order. */
+const desktopRenderRequests: Array<{ tabId: string; active: boolean }> = [];
 const desktopConnections: Array<{ endpoint: string; context: ReturnType<typeof makeContext> }> = [];
 const testThread = {
   threadId: ThreadId.make("browser-test-thread"),
@@ -235,6 +241,8 @@ const dependencies = Layer.mergeAll(
         Effect.sync(() => releasedDesktopTabs.push(key.tabId)),
       ),
     pointer: () => Effect.void,
+    render: (key, active) =>
+      Effect.sync(() => desktopRenderRequests.push({ tabId: key.tabId, active })),
   }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
@@ -280,6 +288,7 @@ beforeEach(() => {
   desktopTabs.clear();
   desktopRendersNext = false;
   releasedDesktopTabs.length = 0;
+  desktopRenderRequests.length = 0;
   desktopConnections.length = 0;
 });
 
@@ -1345,11 +1354,49 @@ it.live("drives the desktop's own page for a tab the desktop renders", () =>
         tabId: PreviewTabId.make(opened.tabId),
       });
       expect(evaluated).toMatchObject({ tabId: opened.tabId });
+      // The desktop lays its webview out at the setting, which the agent sees.
+      const resized = yield* broker.invoke({
+        scope: asSession("agent-desktop"),
+        operation: "resize",
+        input: { mode: "preset", preset: "iphone-12-pro" },
+        tabId: PreviewTabId.make(opened.tabId),
+      });
+      expect(resized).toMatchObject({ viewport: { width: 390, height: 844 } });
       // Closing the session lets go of the desktop's page without closing it.
       yield* manager.close({ threadId: scope.thread.threadId, tabId: opened.tabId });
       while (releasedDesktopTabs.length === 0) yield* Effect.yieldNow;
       expect(releasedDesktopTabs).toEqual([opened.tabId]);
       expect(page.close).not.toHaveBeenCalled();
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.live("holds a hidden desktop tab on screen only while the server captures it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* Broker.PreviewAutomationBroker;
+      const manager = yield* Manager.PreviewManager;
+      yield* Effect.yieldNow;
+      desktopAvailable = true;
+      desktopRendersNext = true;
+      const opened = yield* manager.open({ threadId: scope.thread.threadId, runtime: "server" });
+      const tabId = PreviewTabId.make(opened.tabId);
+      const agent = asSession("agent-desktop");
+      yield* broker.invoke({ scope: agent, operation: "status", input: {}, tabId });
+      // Reading the page needs no pixels.
+      expect(desktopRenderRequests).toEqual([]);
+      // Electron draws nothing for a webview outside the window.
+      const snapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
+        scope: agent,
+        operation: "snapshot",
+        input: {},
+        tabId,
+      });
+      expect(snapshot.screenshot.width).toBeGreaterThan(1);
+      expect(desktopRenderRequests).toEqual([
+        { tabId: opened.tabId, active: true },
+        { tabId: opened.tabId, active: false },
+      ]);
     }),
   ).pipe(Effect.provide(layer)),
 );

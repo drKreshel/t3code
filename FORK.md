@@ -36,6 +36,7 @@ Small fixes to upstream behavior. When upstream fixes the same thing, take upstr
 - A turn after a provider switch starts with the recovery marker alone when no history fits the handoff budget, instead of failing with `ContextHandoffBudgetError` (now unraised): `orchestration-v2/ContextHandoffDelivery.ts`, `docs/user/portable-handoffs.md`.
 - `list_scheduled_tasks` says `lastRunStatus` reports dispatch, not the agent turn: `contracts/orchestratorMcp.ts`.
 - User docs additions: `docs/user/composer.md`, `docs/user/thread-sidebar.md`.
+- Desktop preview tabs keep their requested viewport in a zoomed app window, and the server keeps a hidden desktop tab on screen while it snapshots, records, or streams it: `browser/{HostedBrowserWebview.tsx,browserViewportLayout.ts,ElectronBrowserHost.tsx}`, `preview/{ServerBrowser.ts,DesktopBrowserChannel.ts,DesktopBrowserHost.ts}`, `contracts/{desktopBrowser.ts,ipc.ts}`, `desktop/src/{preload.ts,ipc/methods/preview.ts}`.
 - WhatsApp Web receives a plain Chrome UA and client hints per preview tab without changing the persistent browser session or other sites: `packages/shared/src/preview.ts`, `packages/contracts/src/ipc.ts`, `apps/desktop/src/{ipc/methods/preview.ts,preview/Manager.ts}`, `apps/web/src/browser/HostedBrowserWebview.tsx`.
 
 ## Data

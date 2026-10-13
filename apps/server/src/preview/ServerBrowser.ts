@@ -283,6 +283,7 @@ interface Recording {
   readonly startedAt: string;
   /** Frames still being handed to the encoder; stopping waits for them. */
   readonly framesInFlight: Set<Promise<void>>;
+  readonly releaseRendering: () => Promise<void>;
 }
 
 interface ServerTab {
@@ -345,6 +346,8 @@ interface ServerTab {
   captureLock: Promise<void>;
   /** Scaled captures rendering now; screencasts stay stopped meanwhile. */
   capturing: number;
+  /** Captures, recordings, and viewers keeping a desktop tab on screen. */
+  renderHolds: number;
 }
 
 interface ServerDownload {
@@ -698,6 +701,9 @@ const make = Effect.gen(function* () {
     else void tab.page.close().catch(constVoid);
     if (tab.isolatedContext) void tab.page.context().close().catch(constVoid);
     void tab.recording?.encoder.close().catch(constVoid);
+    if (tab.desktop && tab.renderHolds > 0) {
+      runFork(desktopChannel.render({ threadId: tab.threadId, tabId: tab.tabId }, false));
+    }
     void NodeFSP.rm(downloadDir(tab), { recursive: true, force: true }).catch(constVoid);
     reportLiveTabs();
     if (closeSession) {
@@ -817,6 +823,7 @@ const make = Effect.gen(function* () {
       abortedNavigation: null,
       captureLock: Promise.resolve(),
       capturing: 0,
+      renderHolds: 0,
     };
     if (!desktop) {
       await page.setViewportSize(fixedViewportSize(tab.setting) ?? UNATTACHED_FILL_VIEWPORT);
@@ -1444,6 +1451,26 @@ const make = Effect.gen(function* () {
     });
   };
 
+  /**
+   * Electron draws nothing for a desktop `<webview>` outside its window, and a
+   * hidden tab's capture never completes. Holds the tab on screen until released.
+   */
+  const holdDesktopRendering = async (tab: ServerTab): Promise<() => Promise<void>> => {
+    if (!tab.desktop) return async () => {};
+    const key = { threadId: tab.threadId, tabId: tab.tabId };
+    tab.renderHolds += 1;
+    if (tab.renderHolds === 1) await Effect.runPromise(desktopChannel.render(key, true));
+    let released = false;
+    return async () => {
+      if (released) return;
+      released = true;
+      tab.renderHolds -= 1;
+      if (tab.renderHolds === 0 && !tab.closing) {
+        await Effect.runPromise(desktopChannel.render(key, false));
+      }
+    };
+  };
+
   const withCaptureLock = <A>(tab: ServerTab, operation: () => Promise<A>): Promise<A> => {
     const run = tab.captureLock.then(() => {
       if (tab.closing) throw new Error("The preview tab closed.");
@@ -1458,6 +1485,7 @@ const make = Effect.gen(function* () {
       if (tab.recording) return tab.recording;
       const encoder = await contexts.scratchPage();
       let session: CDPSession | null = null;
+      const releaseRendering = await holdDesktopRendering(tab);
       try {
         await encoder.evaluate(ServerBrowserPage.RECORDING_ENCODER_SCRIPT);
         // Seed idle pages before returning so an immediate stop has a frame to encode.
@@ -1501,11 +1529,13 @@ const make = Effect.gen(function* () {
           session: opened,
           startedAt: new Date().toISOString(),
           framesInFlight,
+          releaseRendering,
         };
         tab.recording = recording;
         return recording;
       } catch (cause) {
         // A start that fails partway must not leave its encoder page behind.
+        await releaseRendering();
         await encoder.close().catch(constVoid);
         await session?.detach().catch(constVoid);
         throw cause;
@@ -1522,6 +1552,7 @@ const make = Effect.gen(function* () {
     withCaptureLock(tab, async () => {
       tab.capturing += 1;
       const recording = tab.recording;
+      const releaseRendering = await holdDesktopRendering(tab);
       try {
         await Promise.all([
           ...[...tab.viewers].map((viewer) => viewer.pause()),
@@ -1529,6 +1560,7 @@ const make = Effect.gen(function* () {
         ]);
         return await capture();
       } finally {
+        await releaseRendering();
         tab.capturing -= 1;
         // Viewers that attached during the capture start here too.
         await Promise.all([
@@ -1576,6 +1608,7 @@ const make = Effect.gen(function* () {
         }
       } finally {
         await recording.encoder.close().catch(constVoid);
+        await recording.releaseRendering();
         tab.recording = null;
       }
       const data = Buffer.concat(chunks);
@@ -1931,7 +1964,9 @@ const make = Effect.gen(function* () {
         return {
           tabId: tab.tabId,
           setting,
-          viewport: tab.page.viewportSize() ?? UNATTACHED_FILL_VIEWPORT,
+          // A desktop page has no Playwright viewport; its webview lays out at the setting.
+          viewport:
+            tab.page.viewportSize() ?? fixedViewportSize(setting) ?? UNATTACHED_FILL_VIEWPORT,
         };
       }
       case "setColorScheme": {
@@ -2285,6 +2320,11 @@ const make = Effect.gen(function* () {
         inputAt: 0,
         requestedSize: null,
       };
+      // A remote viewer streams the desktop's pixels even while its window hides the tab.
+      yield* Effect.acquireRelease(
+        Effect.promise(() => holdDesktopRendering(tab)),
+        (release) => Effect.promise(release),
+      );
       yield* Effect.acquireRelease(
         Effect.sync(() => {
           tab.viewers.add(viewer);
