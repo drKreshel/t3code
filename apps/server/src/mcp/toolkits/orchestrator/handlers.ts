@@ -98,11 +98,23 @@ const handlers = {
       return yield* service.requestSecret(scope, input);
     }),
   ),
-  create_threads: McpToolAccess.actsAsCaller((input) =>
+  create_threads: McpToolAccess.actsAsCaller(({ threads, ...input }) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.createThreads(scope, input);
+      // Fork: the ticket and sidebar folder each new chat joins, all checked first.
+      const places = yield* Effect.forEach(threads, ({ ticket, folder }) =>
+        prepareNewChatPlacement({ ticket, folder }),
+      );
+      const requests = threads.map(({ ticket: _ticket, folder: _folder, ...request }) => request);
+      return yield* service.createThreads(
+        scope,
+        { ...input, threads: requests },
+        (threadId, index) => {
+          const place = places[index];
+          return place === undefined ? Effect.void : place(threadId);
+        },
+      );
     }),
   ),
   t3_thread_list: McpToolAccess.reads((input) =>

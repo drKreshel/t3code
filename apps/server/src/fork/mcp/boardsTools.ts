@@ -569,7 +569,7 @@ const FileTaskRunsTool = Tool.make("file_scheduled_task_runs", {
 
 const FileChatTool = Tool.make("file_chat", {
   description:
-    "Choose the sidebar folder a chat is filed in on every client, like 'Research/Benchmarks'; null stops filing and leaves the chat where it is. Omit threadId for this chat. A chat's own folder wins over its ticket's folder. t3_thread_launch and delegate_task take the same folder when starting a chat.",
+    "Choose the sidebar folder a chat is filed in on every client, like 'Research/Benchmarks'; null stops filing and leaves the chat where it is. Omit threadId for this chat. A chat's own folder wins over its ticket's folder. t3_thread_launch, create_threads, and delegate_task take the same folder when starting a chat.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     folder: Schema.NullOr(

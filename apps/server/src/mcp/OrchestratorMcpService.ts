@@ -147,6 +147,11 @@ export interface OrchestratorMcpServiceShape {
   readonly createThreads: (
     scope: McpInvocationScope,
     input: OrchestratorMcpCreateThreadsInput,
+    /** Fork: runs once each chat exists, before its prompt is sent. */
+    onThreadCreated?: (
+      threadId: ThreadId,
+      index: number,
+    ) => Effect.Effect<void, OrchestratorMcpFailure>,
   ) => Effect.Effect<OrchestratorMcpCreateThreadsResult, OrchestratorMcpFailure>;
   readonly scheduleTask: (
     scope: McpInvocationScope,
@@ -2292,7 +2297,7 @@ const make = Effect.gen(function* () {
           status: "cancel_requested",
         };
       }),
-    createThreads: (callerScope, input) =>
+    createThreads: (callerScope, input, onThreadCreated) =>
       Effect.gen(function* () {
         const { scope, parent } = yield* loadThreadCaller(callerScope, "create_threads");
         const parentRun = ThreadManagementService.latestActiveRun(parent);
@@ -2372,6 +2377,7 @@ const make = Effect.gen(function* () {
                     ),
                   ),
                 );
+              if (onThreadCreated !== undefined) yield* onThreadCreated(threadId, index);
               if (request.prompt !== undefined) {
                 yield* threadManagement
                   .dispatch({

@@ -1,8 +1,9 @@
 /**
  * Where a chat an agent starts goes (fork): the ticket it joins and the sidebar
  * folder it is filed in. Both are optional, and a chat given neither joins no
- * ticket and no folder. t3_thread_launch and delegate_task check the placement
- * before creating the chat, so a wrong ticket key creates nothing.
+ * ticket and no folder. t3_thread_launch, create_threads, and delegate_task
+ * check the placement before creating a chat, so a wrong ticket key creates
+ * nothing.
  */
 import {
   OrchestratorMcpFailure,
