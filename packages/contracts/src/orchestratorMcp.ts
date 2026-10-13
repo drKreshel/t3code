@@ -575,7 +575,10 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
     options: Schema.optional(Schema.Array(ProviderOptionSelection)),
   }).annotate({ description: "The provider instance, model, and options each run uses." }),
   nextRunAt: Schema.NullOr(IsoDateTime),
-  lastRunStatus: ScheduledTaskRunStatus,
+  lastRunStatus: ScheduledTaskRunStatus.annotate({
+    description:
+      "Whether the last prompt reached its thread, not how the agent's turn ended. Read the thread's runs for that.",
+  }),
   /** For webhook tasks: the public T3 Connect URL. Absent when this environment has no managed tunnel. */
   webhookUrl: Schema.optional(Schema.String).annotate({
     description:

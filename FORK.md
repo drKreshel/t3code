@@ -33,6 +33,8 @@ Small fixes to upstream behavior. When upstream fixes the same thing, take upstr
 - A picked `$skill` or `@file` survives in question answers: `ChatView.tsx`, `ChatComposer.tsx`, `ComposerPrimaryActions.tsx`.
 - Codex native subagents keep the model and reasoning effort reported by newer `SubAgentActivity` notifications: `effect-codex-app-server/_internal/shared.ts`, `orchestration-v2/Adapters/CodexAdapterV2.ts`.
 - Agents can permanently delete chats through `t3_thread_organize`: `mcp/toolkits/thread/{tools,handlers}.ts`.
+- A turn after a provider switch starts with the recovery marker alone when no history fits the handoff budget, instead of failing with `ContextHandoffBudgetError` (now unraised): `orchestration-v2/ContextHandoffDelivery.ts`, `docs/user/portable-handoffs.md`.
+- `list_scheduled_tasks` says `lastRunStatus` reports dispatch, not the agent turn: `contracts/orchestratorMcp.ts`.
 - User docs additions: `docs/user/composer.md`, `docs/user/thread-sidebar.md`.
 - WhatsApp Web receives a plain Chrome UA and client hints per preview tab without changing the persistent browser session or other sites: `packages/shared/src/preview.ts`, `packages/contracts/src/ipc.ts`, `apps/desktop/src/{ipc/methods/preview.ts,preview/Manager.ts}`, `apps/web/src/browser/HostedBrowserWebview.tsx`.
 

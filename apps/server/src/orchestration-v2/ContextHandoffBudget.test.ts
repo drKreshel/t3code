@@ -669,23 +669,80 @@ describe("handoff delivery", () => {
     }),
   );
 
-  it.effect("fails before delivery when even the coverage marker cannot fit", () =>
+  it.effect.each([
+    { native: true, label: "injected" },
+    { native: false, label: "inline" },
+  ])("starts the turn with the $label recovery marker alone when no history fits", ({ native }) =>
     Effect.gen(function* () {
+      // A long prompt on a half-full native thread leaves imported history no allowance.
+      const budget = handoffBudget({
+        tokenCap: 16_000,
+        userText: "x".repeat(84_000),
+        attachments: [],
+        providerThread: {
+          ...providerThread,
+          contextUsage: { usedTokens: 146_957, maxTokens: 258_400 },
+        },
+        nativeContextEstimate: 0,
+      });
+      assert.equal(budget, 0);
+      let durable = handoff;
+      let injected: ProviderAdapter.ProviderAdapterV2HistoricalContext | undefined;
+      const result = yield* deliverContextHandoffs({
+        handoffs: [handoff],
+        providerThread,
+        budget,
+        alreadyDeliveredItemIds: new Set(),
+        inject: (history) =>
+          Effect.sync(() => {
+            injected = history;
+            return native;
+          }),
+        persist: (value) =>
+          Effect.sync(() => {
+            durable = value;
+          }),
+      });
+      assert.isDefined(injected);
+      assert.deepEqual(injected.messages, []);
+      assert.equal(result.context, native ? "" : injected.context);
+      assert.include(injected.context, "t3_thread_read");
+      assert.include(injected.context, threadId);
+      assert.include(injected.context, "omitted 2 items");
+      assert.isAtMost(historyCost([], injected.context), 1_024);
+      yield* result.delivered;
+      assert.equal(durable.delivery?.status, native ? "injected" : "inline");
+      assert.deepEqual(durable.delivery?.itemIds, []);
+      assert.deepEqual(
+        durable.delivery?.omittedItemIds,
+        messages.map((item) => item.itemId),
+      );
+    }),
+  );
+
+  it.effect("leaves history that does not fit a compaction for the next ordinary turn", () =>
+    Effect.gen(function* () {
+      let durable = handoff;
       let calls = 0;
       const result = yield* deliverContextHandoffs({
         handoffs: [handoff],
         providerThread,
         budget: 0,
+        deferInline: true,
         alreadyDeliveredItemIds: new Set(),
         inject: () =>
           Effect.sync(() => {
             calls++;
             return true;
           }),
-        persist: () => Effect.void,
-      }).pipe(Effect.result);
-      assert.equal(result._tag, "Failure");
+        persist: (value) =>
+          Effect.sync(() => {
+            durable = value;
+          }),
+      });
+      assert.equal(result.context, "");
       assert.equal(calls, 0);
+      assert.isUndefined(durable.delivery);
     }),
   );
 });
