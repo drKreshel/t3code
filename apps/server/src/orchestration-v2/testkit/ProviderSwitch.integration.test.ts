@@ -728,19 +728,18 @@ describe("orchestration v2 provider switching", () => {
           }
           if (reasoningScenario && replaceNative) {
             const replaced = yield* orchestrator.getThreadProjection(threadId);
-            assert.equal(
-              replaced.runs.at(-1)?.status,
-              scenario.includes("small") ? "failed" : "completed",
-            );
+            assert.equal(replaced.runs.at(-1)?.status, "completed");
             const target = replaced.providerThreads.find(
               (thread) => thread.providerInstanceId === CLAUDE_MODEL_SELECTION.instanceId,
             )!;
             assert.isNull(target.contextUsage);
             assert.equal(yield* Ref.get(generation), 2);
-            assert.equal(
-              (yield* Ref.get(capturedTurns)).at(-1)!.driver,
-              scenario.includes("small") ? CODEX_DRIVER : CLAUDE_DRIVER,
-            );
+            assert.equal((yield* Ref.get(capturedTurns)).at(-1)!.driver, CLAUDE_DRIVER);
+            // A window too small for any history still starts the turn, with the marker alone.
+            const delivered = replaced.contextHandoffs
+              .filter((record) => record.targetRunId === replaced.runs.at(-1)!.id)
+              .flatMap((record) => record.delivery?.itemIds ?? []);
+            assert.equal(delivered.length === 0, scenario.includes("small"));
             return;
           }
           if (replaceNative) {
