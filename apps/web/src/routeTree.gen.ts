@@ -37,9 +37,9 @@ import { Route as SettingsAppearanceRouteImport } from './routes/settings.appear
 import { Route as ScheduledTaskIdRouteImport } from './routes/scheduled.$taskId'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
+import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as BoardsBoardKeyIndexRouteImport } from './routes/boards.$boardKey.index'
 import { Route as BoardsBoardKeyTicketNumberRouteImport } from './routes/boards.$boardKey.$ticketNumber'
-import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
@@ -183,6 +183,11 @@ const ChatPullRequestsRoute = ChatPullRequestsRouteImport.update({
   path: '/pull-requests',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatNewRoute = ChatNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => ChatRoute,
+} as any)
 const BoardsBoardKeyIndexRoute = BoardsBoardKeyIndexRouteImport.update({
   id: '/boards/$boardKey/',
   path: '/boards/$boardKey/',
@@ -194,11 +199,6 @@ const BoardsBoardKeyTicketNumberRoute =
     path: '/boards/$boardKey/$ticketNumber',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ChatNewRoute = ChatNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => ChatRoute,
-} as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -636,6 +636,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPullRequestsRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/new': {
+      id: '/_chat/new'
+      path: '/new'
+      fullPath: '/new'
+      preLoaderRoute: typeof ChatNewRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/boards/$boardKey/': {
       id: '/boards/$boardKey/'
       path: '/boards/$boardKey'
@@ -649,13 +656,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/boards/$boardKey/$ticketNumber'
       preLoaderRoute: typeof BoardsBoardKeyTicketNumberRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_chat/new': {
-      id: '/_chat/new'
-      path: '/new'
-      fullPath: '/new'
-      preLoaderRoute: typeof ChatNewRouteImport
-      parentRoute: typeof ChatRoute
     }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
