@@ -181,14 +181,15 @@ You can also move individual sessions afterward. Moving or renaming the folder
 in the sidebar, or a folder above it, updates the ticket's folder to match, so
 agents and your other devices use the new path. Deleting it clears the folder.
 
-Choose **Settle folder** from a top-level folder's menu to settle its chats,
-including those in subfolders, and move the folder into the Settled section.
+Choose **Settle folder** from a folder's menu to settle its chats,
+including those in subfolders. A top-level folder moves into the main Settled
+section; a subfolder stays inside its parent's Settled section, with its chats
+still inside it.
 Settling every chat by hand leaves the folder where it is. **Un-settle folder**
 brings the folder back and keeps its chats settled. While any chat inside is
-active, a settled folder shows with the others. Subfolders offer **Settle all
-chats** instead.
+active, a settled folder shows with the others.
 
-With a web or desktop client connected, you can ask an agent to list or delete
+With a web or desktop client connected, you can ask an agent to list, settle, un-settle, or delete
 sidebar folders, or move an individual chat into or out of one. Deleting a folder
 removes its subfolders and returns their chats to the main list. Clearing a ticket
 or scheduled task's folder field leaves the sidebar folder in place.
