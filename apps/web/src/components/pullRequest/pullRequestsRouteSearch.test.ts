@@ -4,9 +4,12 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { Route as PullRequestsRoute } from "../../routes/_chat.pull-requests";
+
+// Matching route search never mounts a diff viewer or starts its browser worker.
+vi.mock("@pierre/diffs/worker/worker.js?worker", () => ({ default: vi.fn() }));
 
 /** Matches a URL in a router shaped like the app's: a layout without its own search rules. */
 function matchedSearch(url: string) {
