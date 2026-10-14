@@ -475,7 +475,7 @@ describe("buildSidebarFolderTree", () => {
     expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "t2"]);
   });
 
-  it("settles only top-level folders and unsettles them without touching their chats", () => {
+  it("settles folders at any depth and unsettles them without touching their chats", () => {
     const layout = layoutWith(
       [
         ["a", null],
@@ -484,7 +484,8 @@ describe("buildSidebarFolderTree", () => {
       ],
       { a: ["s1"] },
     );
-    expect(setSidebarFolderSettled(layout, "a1", true)).toBe(layout);
+    expect(setSidebarFolderSettled(layout, "a1", true).settledFolderIds).toEqual(["a1"]);
+    expect(setSidebarFolderSettled(layout, "missing", true)).toBe(layout);
     const settled = setSidebarFolderSettled(setSidebarFolderSettled(layout, "a", true), "b", true);
     expect(settled.settledFolderIds).toEqual(["a", "b"]);
     const unsettled = setSidebarFolderSettled(settled, "a", false);
@@ -493,12 +494,190 @@ describe("buildSidebarFolderTree", () => {
     const tree = build(unsettled, ["s1"]);
     expect(tree.roots.map((node) => node.folder.id)).toEqual(["a"]);
     expect(tree.settledRoots.map((node) => node.folder.id)).toEqual(["b"]);
-    // Nesting a settled folder drops its mark; deleting removes it.
+    // Moving retains settlement; deleting removes it.
     const nested = moveSidebarFolder(settled, "b", { kind: "inside", folderId: "a" });
-    expect(nested.settledFolderIds).toEqual(["a"]);
+    expect(nested.settledFolderIds).toEqual(["a", "b"]);
     const beside = moveSidebarFolder(settled, "b", { kind: "after", folderId: "a1" });
-    expect(beside.settledFolderIds).toEqual(["a"]);
+    expect(beside.settledFolderIds).toEqual(["a", "b"]);
     expect(deleteSidebarFolder(settled, "a").settledFolderIds).toEqual(["b"]);
+  });
+
+  it("places a settled subfolder and its subtree behind the parent's shelf alongside settled chats", () => {
+    const layout = setSidebarFolderSettled(
+      layoutWith(
+        [
+          ["parent", null],
+          ["child", "parent"],
+          ["grandchild", "child"],
+          ["sibling", "parent"],
+        ],
+        { parent: ["t1", "s1"], child: ["s2"], grandchild: ["s3"], sibling: ["t2"] },
+      ),
+      "child",
+      true,
+    );
+    const visible = ["t1", "s1", "s2", "s3", "t2"];
+    const collapsed = build(layout, visible);
+    expect(collapsed.settledRoots).toEqual([]);
+    expect(collapsed.roots[0]!.children.map((node) => node.folder.id)).toEqual(["sibling"]);
+    expect(collapsed.roots[0]).toMatchObject({ settledChildren: [], settledCount: 2 });
+    expect(collapsed.renderedThreads.map((thread) => thread.key)).toEqual(["t2", "t1"]);
+    expect(collapsed.roots[0]!.subtreeThreads).toHaveLength(5);
+    expect(collapsed.visibleThreadCount).toBe(5);
+    expect(collapsed.settledKeys).toEqual(new Set(["s1", "s2", "s3"]));
+
+    const expanded = build(toggleSidebarFolderSettledExpanded(layout, "parent"), visible);
+    expect(expanded.roots[0]!.settledChildren.map((node) => node.folder.id)).toEqual(["child"]);
+    expect(expanded.roots[0]!.settledChildren[0]).toMatchObject({ settledCount: 0 });
+    expect(expanded.renderedThreads.map((thread) => thread.key)).toEqual([
+      "t2",
+      "t1",
+      "s3",
+      "s2",
+      "s1",
+    ]);
+    expect(expanded.roots[0]!.rows.map((row) => row.key)).toEqual(["t1", "s1"]);
+    expect(layout.threadKeysByFolderId.child).toEqual(["s2"]);
+  });
+
+  it("settles empty subfolders and un-settles them back to their saved sibling order", () => {
+    const layout = setSidebarFolderSettled(
+      layoutWith([
+        ["parent", null],
+        ["before", "parent"],
+        ["child", "parent"],
+        ["after", "parent"],
+      ]),
+      "child",
+      true,
+    );
+    const tree = build(toggleSidebarFolderSettledExpanded(layout, "parent"), []);
+    expect(tree.roots[0]!.children.map((node) => node.folder.id)).toEqual(["before", "after"]);
+    expect(tree.roots[0]).toMatchObject({ settledCount: 1 });
+    expect(tree.roots[0]!.settledChildren.map((node) => node.folder.id)).toEqual(["child"]);
+    const restored = build(setSidebarFolderSettled(layout, "child", false), []);
+    expect(restored.roots[0]!.children.map((node) => node.folder.id)).toEqual([
+      "before",
+      "child",
+      "after",
+    ]);
+    expect(restored.roots[0]).toMatchObject({ settledChildren: [], settledCount: 0 });
+  });
+
+  it("keeps the open chat visible through settled shelves at multiple depths", () => {
+    let layout = layoutWith(
+      [
+        ["parent", null],
+        ["child", "parent"],
+        ["grandchild", "child"],
+        ["other", "parent"],
+      ],
+      { parent: ["s1"], child: ["s2"], grandchild: ["s3", "s4"], other: ["s5"] },
+    );
+    for (const id of ["child", "grandchild", "other"])
+      layout = setSidebarFolderSettled(layout, id, true);
+    const tree = buildSidebarFolderTree<Thread>({
+      layout,
+      threadByKey: threads(["s1", "s2", "s3", "s4", "s5"]),
+      sectionOf: (thread) => (thread.settled ? "settled" : "active"),
+      hideEmptyFolders: false,
+      routeThreadKey: "s3",
+    });
+    expect(tree.roots[0]!.settledChildren.map((node) => node.folder.id)).toEqual(["child"]);
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["s3", "s4", "s2"]);
+    expect(tree.roots[0]).toMatchObject({ settledExpanded: false, settledCount: 3 });
+  });
+
+  it("brings a settled subfolder back into view when a descendant becomes active", () => {
+    const layout = setSidebarFolderSettled(
+      layoutWith(
+        [
+          ["parent", null],
+          ["child", "parent"],
+          ["grandchild", "child"],
+        ],
+        { child: ["s1"], grandchild: ["t1"] },
+      ),
+      "child",
+      true,
+    );
+    const tree = build(layout, ["s1", "t1"]);
+    expect(tree.roots[0]!.children.map((node) => node.folder.id)).toEqual(["child"]);
+    expect(tree.roots[0]).toMatchObject({ settledChildren: [], settledCount: 0 });
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1"]);
+    const after = build(layout, ["s1"]);
+    expect(after.roots[0]).toMatchObject({ children: [], settledChildren: [], settledCount: 1 });
+    expect(after.renderedThreads).toEqual([]);
+  });
+
+  it("shows nested settled folders directly inside a settled root and restores their own shelves on un-settle", () => {
+    let layout = layoutWith(
+      [
+        ["parent", null],
+        ["child", "parent"],
+      ],
+      { parent: ["s1"], child: ["s2"] },
+    );
+    for (const id of ["parent", "child"]) layout = setSidebarFolderSettled(layout, id, true);
+    const tree = build(layout, ["s1", "s2"]);
+    expect(tree.roots).toEqual([]);
+    expect(tree.settledRoots[0]).toMatchObject({ settledChildren: [], settledCount: 0 });
+    expect(tree.settledRoots[0]!.children.map((node) => node.folder.id)).toEqual(["child"]);
+    expect(renderedSidebarFolderThreads(tree.settledRoots).map((thread) => thread.key)).toEqual([
+      "s2",
+      "s1",
+    ]);
+    const restored = build(setSidebarFolderSettled(layout, "parent", false), ["s1", "s2"]);
+    expect(restored.roots[0]).toMatchObject({ children: [], settledChildren: [], settledCount: 2 });
+  });
+
+  it("preserves settled subfolders through moves and reloads, placing them in the new parent's shelf", () => {
+    const layout = setSidebarFolderSettled(
+      layoutWith(
+        [
+          ["parent", null],
+          ["child", "parent"],
+          ["other", null],
+        ],
+        { child: ["s1"] },
+      ),
+      "child",
+      true,
+    );
+    const moved = moveSidebarFolder(layout, "child", { kind: "inside", folderId: "other" });
+    const reloaded = JSON.parse(JSON.stringify(moved)) as SidebarFolderLayout;
+    const tree = build(toggleSidebarFolderSettledExpanded(reloaded, "other"), ["s1"]);
+    expect(tree.roots[0]).toMatchObject({ children: [], settledCount: 0 });
+    expect(tree.roots[1]!.settledChildren.map((node) => node.folder.id)).toEqual(["child"]);
+    const rooted = build(moveSidebarFolder(moved, "child", { kind: "root" }), ["s1"]);
+    expect(rooted.settledRoots.map((node) => node.folder.id)).toEqual(["child"]);
+  });
+
+  it("respects parent collapse and project scope for nested settled folders", () => {
+    const layout = setSidebarFolderSettled(
+      layoutWith(
+        [
+          ["parent", null],
+          ["child", "parent"],
+        ],
+        { child: ["s1"] },
+      ),
+      "child",
+      true,
+    );
+    const expanded = toggleSidebarFolderSettledExpanded(layout, "parent");
+    const tree = build(toggleSidebarFolderCollapsed(expanded, "parent"), ["s1"]);
+    expect(tree.roots[0]).toMatchObject({ children: [], settledChildren: [], rows: [] });
+    expect(tree.roots[0]!.subtreeThreads).toHaveLength(1);
+    expect(tree.renderedThreads).toEqual([]);
+    const scoped = buildSidebarFolderTree<Thread>({
+      layout: expanded,
+      threadByKey: threads([]),
+      sectionOf: (thread) => (thread.settled ? "settled" : "active"),
+      hideEmptyFolders: true,
+    });
+    expect(scoped.roots).toEqual([]);
+    expect(scoped.settledRoots).toEqual([]);
   });
 
   it("returns an unsettled thread to its saved position among the other active threads", () => {

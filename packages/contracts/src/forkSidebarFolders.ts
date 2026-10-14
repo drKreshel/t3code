@@ -18,7 +18,7 @@ const SidebarFoldersErrorCode = Schema.Literals([
   "timeout",
   "not-found",
   "invalid-path",
-  "nested-folder",
+  "nested-folder", // Older clients may still reject subfolder settlement.
   "thread-not-found",
   "thread-settlement-failed",
   "invalid-response",
@@ -32,7 +32,7 @@ const errorMessages = {
   timeout: "The sidebar folder client did not respond in time. List folders again before retrying.",
   "not-found": "The sidebar folder was not found in the selected client.",
   "invalid-path": "The sidebar folder path must contain slash-separated, non-empty names.",
-  "nested-folder": "Only top-level sidebar folders can be settled or un-settled.",
+  "nested-folder": "The selected client does not support settling subfolders. Update it and retry.",
   "thread-not-found": "The thread was not found in the selected client.",
   "thread-settlement-failed":
     "The folder was not settled because one or more of its chats could not be settled.",

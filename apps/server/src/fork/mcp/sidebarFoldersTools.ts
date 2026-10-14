@@ -65,7 +65,7 @@ const DeleteSidebarFolder = Tool.make("delete_sidebar_folder", {
 const SettleSidebarFolder = Tool.make("settle_sidebar_folder", {
   ...shared,
   description:
-    "Settle or un-settle a top-level sidebar folder in the selected connected client, using clientId and folderId from list_sidebar_folders. Settling also settles every eligible chat in the folder and its subfolders. Set settled=false to return the folder to the active Folders section; its chats stay settled, matching the UI. The layout is client-local, so repeat for another listed client when desired.",
+    "Settle or un-settle a sidebar folder in the selected connected client, using clientId and folderId from list_sidebar_folders. Settling also settles every eligible chat in the folder and its subfolders. A subfolder stays inside its parent, alongside the parent's settled chats; a top-level folder goes into the main Settled section. Set settled=false to return the folder to its active siblings; its chats stay settled, matching the UI. The layout is client-local, so repeat for another listed client when desired.",
   parameters: Schema.Struct({
     clientId: TrimmedNonEmptyString,
     folderId: TrimmedNonEmptyString,

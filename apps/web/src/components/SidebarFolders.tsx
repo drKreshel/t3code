@@ -629,9 +629,6 @@ async function showFolderMenu(
   const threadKeys = folderSubtreeThreadKeys(layout, folderId);
   const folder = layout.folders.find((candidate) => candidate.id === folderId);
   const ownDefaultKey = folder?.defaultProjectKey ?? null;
-  // Only top-level folders move to the Settled section; a subfolder can only
-  // settle its chats.
-  const isTopLevel = folder?.parentId === null;
   const isSettled = layout.settledFolderIds?.includes(folderId) ?? false;
   const ownDefault =
     ownDefaultKey === null
@@ -664,14 +661,7 @@ async function showFolderMenu(
             ]),
         isSettled
           ? { id: "unsettle-folder", label: "Un-settle folder", separatorBefore: true }
-          : isTopLevel
-            ? { id: "settle-folder", label: "Settle folder", separatorBefore: true }
-            : {
-                id: "settle-chats",
-                label: "Settle all chats",
-                disabled: threadKeys.length === 0,
-                separatorBefore: true,
-              },
+          : { id: "settle-folder", label: "Settle folder", separatorBefore: true },
         { id: "new-subfolder", label: "New subfolder", icon: "folder", separatorBefore: true },
         { id: "rename", label: "Rename folder", icon: "pencil" },
         { id: "choose-icon", label: "Choose icon…", icon: "palette" },
@@ -694,9 +684,6 @@ async function showFolderMenu(
     case "settle-folder":
       store.setFolderSettled(folderId, true);
       if (threadKeys.length > 0) actions.setThreadsSettled(threadKeys, true);
-      return;
-    case "settle-chats":
-      actions.setThreadsSettled(threadKeys, true);
       return;
     // The folder returns on its own; its chats stay settled.
     case "unsettle-folder":
@@ -1086,13 +1073,22 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
               <CollapsibleSectionHeader
                 expanded={node.settledExpanded}
                 onClick={() => toggleSettledExpanded(folder.id)}
-                aria-label={`Settled chats in ${folder.name}`}
+                aria-label={`Settled chats and folders in ${folder.name}`}
                 accessory={<span className="tabular-nums">{node.settledCount}</span>}
               >
                 Settled
               </CollapsibleSectionHeader>
             </li>
           ) : null}
+          {node.settledChildren.map((child) => (
+            <FolderNode
+              key={child.folder.id}
+              node={child}
+              renamingThreadKey={props.renamingThreadKey}
+              renderThreadRow={props.renderThreadRow}
+              chatActions={props.chatActions}
+            />
+          ))}
           {node.rows.slice(settledStart).map(renderRow)}
         </ul>
       ) : null}

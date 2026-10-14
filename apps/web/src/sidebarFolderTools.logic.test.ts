@@ -293,29 +293,89 @@ describe("sidebar folder agent actions", () => {
     }),
   );
 
-  it("un-settles a top-level folder without un-settling its chats and rejects nested folders", () => {
+  it("settles and un-settles a nested folder without changing its parent or filing", () => {
     const store = useSidebarFolderStore;
     const parentId = store.getState().createFolder({ name: "Project", parentId: null });
     const childId = store.getState().createFolder({ name: "Feature", parentId });
-    store.getState().setFolderSettled(parentId, true);
-    expect(
-      executeSidebarFolderAction(
-        store.getState(),
-        { type: "set-settled", folderId: parentId, settled: false },
-        isExistingThread,
-      ),
-    ).toEqual({
-      result: { type: "folder-settled", folderId: parentId, settled: false },
-    });
-    expect(store.getState().settledFolderIds).toEqual([]);
+    store.setState({ threadKeysByFolderId: { [childId]: ["local:chat"] } });
     expect(
       executeSidebarFolderAction(
         store.getState(),
         { type: "set-settled", folderId: childId, settled: true },
         isExistingThread,
-      ).error?.code,
-    ).toBe("nested-folder");
+      ),
+    ).toEqual({
+      result: { type: "folder-settled", folderId: childId, settled: true },
+    });
+    expect(store.getState().settledFolderIds).toEqual([childId]);
+    expect(listSidebarFolderSummaries(store.getState(), isExistingThread)).toEqual([
+      expect.objectContaining({ id: parentId, settled: false }),
+      expect.objectContaining({ id: childId, settled: true }),
+    ]);
+    expect(
+      executeSidebarFolderAction(
+        store.getState(),
+        { type: "set-settled", folderId: childId, settled: false },
+        isExistingThread,
+      ),
+    ).toEqual({ result: { type: "folder-settled", folderId: childId, settled: false } });
+    expect(store.getState().settledFolderIds).toEqual([]);
+    expect(store.getState().threadKeysByFolderId).toEqual({ [childId]: ["local:chat"] });
   });
+
+  it.effect("settles only a nested folder's subtree before marking that folder settled", () =>
+    Effect.gen(function* () {
+      const store = useSidebarFolderStore;
+      const parentId = store.getState().createFolder({ name: "Project", parentId: null });
+      const childId = store.getState().createFolder({ name: "Feature", parentId });
+      const grandchildId = store.getState().createFolder({ name: "Work", parentId: childId });
+      const siblingId = store.getState().createFolder({ name: "Other", parentId });
+      store.setState({
+        threadKeysByFolderId: {
+          [parentId]: ["local:parent"],
+          [childId]: ["local:child"],
+          [grandchildId]: ["remote:grandchild"],
+          [siblingId]: ["local:sibling"],
+        },
+      });
+      let requested: readonly string[] = [];
+      const result = yield* executeClaimedSidebarFolderAction(
+        Effect.succeed(true),
+        store.getState,
+        { type: "set-settled", folderId: childId, settled: true },
+        isExistingThread,
+        (keys) =>
+          Effect.sync(() => {
+            expect(store.getState().settledFolderIds).toEqual([]);
+            requested = keys;
+            return true;
+          }),
+      );
+      expect(result).toEqual({
+        result: { type: "folder-settled", folderId: childId, settled: true },
+      });
+      expect(requested).toEqual(["local:child", "remote:grandchild"]);
+      expect(store.getState().settledFolderIds).toEqual([childId]);
+    }),
+  );
+
+  it.effect("leaves a nested folder active when settling its chats fails", () =>
+    Effect.gen(function* () {
+      const store = useSidebarFolderStore;
+      const parentId = store.getState().createFolder({ name: "Project", parentId: null });
+      const childId = store.getState().createFolder({ name: "Feature", parentId });
+      store.setState({ threadKeysByFolderId: { [childId]: ["local:chat"] } });
+      const result = yield* executeClaimedSidebarFolderAction(
+        Effect.succeed(true),
+        store.getState,
+        { type: "set-settled", folderId: childId, settled: true },
+        isExistingThread,
+        () => Effect.succeed(false),
+      );
+      expect(result?.error?.code).toBe("thread-settlement-failed");
+      expect(store.getState().settledFolderIds).toEqual([]);
+    }),
+  );
 });
 
 it("counts only existing, unarchived chats when listing and releasing a folder", () => {

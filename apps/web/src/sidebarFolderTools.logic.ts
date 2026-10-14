@@ -128,7 +128,6 @@ export function executeSidebarFolderAction(
     };
   }
   if (action.type === "set-settled") {
-    if (folder.parentId !== null) return { error: SidebarFoldersError.fromCode("nested-folder") };
     store.setFolderSettled(action.folderId, action.settled);
     return {
       result: {
@@ -170,7 +169,7 @@ export function executeClaimedSidebarFolderAction<E, R, R2 = never>(
       action.type === "set-settled" &&
       action.settled &&
       settleThreads !== undefined &&
-      store.folders.some((folder) => folder.id === action.folderId && folder.parentId === null)
+      store.folders.some((folder) => folder.id === action.folderId)
     ) {
       const threadKeys = folderSubtreeThreadKeys(store, action.folderId);
       if (threadKeys.length > 0 && !(yield* settleThreads(threadKeys))) {
