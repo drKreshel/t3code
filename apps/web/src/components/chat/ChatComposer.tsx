@@ -5248,7 +5248,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isMobileViewport,
     isScrollCollapsed: isComposerScrollCollapsed,
     hasExpandedChrome: composerHasExpandedChrome,
-    hasMultilinePrompt,
     timelineOverflows,
   });
   const expandedComposerImages = isComposerResting
@@ -5364,7 +5363,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const canScrollCollapseComposer =
     canTrackComposerScrollGesture &&
     settings.composerCollapseOnScroll &&
-    !hasMultilinePrompt &&
     !composerHasExpandedChrome &&
     !showInlineTasksBadge;
   // Scrolling only has something to collapse while the composer is expanded,

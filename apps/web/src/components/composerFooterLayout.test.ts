@@ -150,7 +150,6 @@ describe("shouldUseRestingComposerLayout", () => {
     isMobileViewport: false,
     isScrollCollapsed: true,
     hasExpandedChrome: false,
-    hasMultilinePrompt: false,
     timelineOverflows: true,
   };
 
@@ -177,19 +176,6 @@ describe("shouldUseRestingComposerLayout", () => {
   it("keeps drawers and composer-owned menus expanded", () => {
     expect(shouldUseRestingComposerLayout({ ...resting, hasExpandedChrome: true })).toBe(false);
   });
-
-  it.each([false, true])(
-    "keeps multiline drafts expanded when scroll collapsed is %s",
-    (isScrollCollapsed) => {
-      expect(
-        shouldUseRestingComposerLayout({
-          ...resting,
-          hasMultilinePrompt: true,
-          isScrollCollapsed,
-        }),
-      ).toBe(false);
-    },
-  );
 });
 
 describe("shouldAnimateComposerRestingTransition", () => {
