@@ -73,4 +73,21 @@ describe("TaskFolders", () => {
         expect(cleared._tag === "Some" ? cleared.value.routes : null).toEqual([]);
       }).pipe(Effect.provide(TestLayer)),
   );
+
+  it.effect("streams a chat's own folder as a scoped thread key until it is cleared", () =>
+    Effect.gen(function* () {
+      const folders = yield* TaskFolders;
+      const review = ThreadId.make("review-1");
+      yield* folders.setChat({ threadId: review, folder: "Salon/tickets/44" });
+      yield* folders.setChat({ threadId: review, folder: "Salon/tickets/44/review-rounds" });
+      const filed = yield* folders.stream.pipe(Stream.take(1), Stream.runHead);
+      expect(filed._tag === "Some" ? filed.value.chats : null).toEqual([
+        { threadId: review, threadKey: "env-1:review-1", folder: "Salon/tickets/44/review-rounds" },
+      ]);
+
+      yield* folders.setChat({ threadId: review, folder: null });
+      const cleared = yield* folders.stream.pipe(Stream.take(1), Stream.runHead);
+      expect(cleared._tag === "Some" ? cleared.value.chats : null).toEqual([]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });

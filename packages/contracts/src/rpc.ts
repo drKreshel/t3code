@@ -44,7 +44,11 @@ import {
   ForkSkillsSaveSettingsRpc,
 } from "./forkSkills.ts";
 import { ForkTemplatesDispatchRpc, ForkTemplatesSubscribeRpc } from "./forkBoardTemplates.ts";
-import { ForkTaskFoldersSetRpc, ForkTaskFoldersSubscribeRpc } from "./forkTaskFolders.ts";
+import {
+  ForkTaskFoldersSetChatRpc,
+  ForkTaskFoldersSetRpc,
+  ForkTaskFoldersSubscribeRpc,
+} from "./forkTaskFolders.ts";
 import {
   ForkWorkspacesDispatchRpc,
   ForkWorkspacesListReposRpc,
@@ -2118,6 +2122,7 @@ export const ForkWsRpcGroup = RpcGroup.make(
   ForkTemplatesDispatchRpc,
   ForkTaskFoldersSubscribeRpc,
   ForkTaskFoldersSetRpc,
+  ForkTaskFoldersSetChatRpc,
   ForkAgentContextThreadRpc,
   ForkSkillsListRpc,
   ForkSkillsReadRpc,

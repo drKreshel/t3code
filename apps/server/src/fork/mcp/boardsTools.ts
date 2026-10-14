@@ -11,6 +11,7 @@ import {
   OrchestratorMcpFailure,
   PositiveInt,
   ScheduledTaskId,
+  ThreadId,
   TicketPriority,
   TicketFolderPath,
   TrimmedNonEmptyString,
@@ -566,6 +567,25 @@ const FileTaskRunsTool = Tool.make("file_scheduled_task_runs", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const FileChatTool = Tool.make("file_chat", {
+  description:
+    "Choose the sidebar folder a chat is filed in on every client, like 'Research/Benchmarks'; null stops filing and leaves the chat where it is. Omit threadId for this chat. A chat's own folder wins over its ticket's folder. t3_thread_launch, create_threads, and delegate_task take the same folder when starting a chat.",
+  parameters: Schema.Struct({
+    threadId: Schema.optional(ThreadId),
+    folder: Schema.NullOr(
+      TicketFolderPath.annotate({ description: "Folder names separated by /." }),
+    ),
+  }),
+  success: Schema.Struct({ threadId: ThreadId, folder: Schema.NullOr(Schema.String) }),
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Title, "File chat")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 export const BoardsToolkit = Toolkit.make(
   ListBoardsTool,
   ListTicketsTool,
@@ -581,4 +601,5 @@ export const BoardsToolkit = Toolkit.make(
   LinkThreadTool,
   RemoveWorkspaceTool,
   FileTaskRunsTool,
+  FileChatTool,
 );

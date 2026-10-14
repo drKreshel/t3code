@@ -9,6 +9,7 @@ import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { prepareNewChatPlacement } from "../../../fork/mcp/newChatPlacement.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { projectSettingsView, writeProjectSettings } from "./projectSettings.ts";
 import { ProjectToolkit } from "./tools.ts";
@@ -124,6 +125,8 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             message:
               "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
           });
+        // Fork: the ticket and sidebar folder the new chat joins.
+        const place = yield* prepareNewChatPlacement(input);
         const result = yield* ThreadMessageIntake.launchThread({
           commandId,
           threadId,
@@ -163,6 +166,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           }),
         );
         const thread = result.projection.thread;
+        yield* place(thread.id);
         const run = result.projection.runs.find((run) => run.userMessageId === messageId);
         return {
           threadId: thread.id,

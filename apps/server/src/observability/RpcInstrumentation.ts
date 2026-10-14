@@ -235,6 +235,7 @@ const RPC_AGGREGATES = {
   [FORK_TEMPLATES_WS_METHODS.dispatch]: "fork-boards",
   [FORK_TASK_FOLDERS_WS_METHODS.subscribe]: "scheduledTasks",
   [FORK_TASK_FOLDERS_WS_METHODS.set]: "scheduledTasks",
+  [FORK_TASK_FOLDERS_WS_METHODS.setChat]: "fork-boards",
   [FORK_AGENT_CONTEXT_WS_METHODS.thread]: "fork-agent-context",
   [FORK_SKILLS_WS_METHODS.list]: "fork-skills",
   [FORK_SKILLS_WS_METHODS.read]: "fork-skills",

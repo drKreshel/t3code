@@ -234,6 +234,7 @@ export const RPC_REQUIRED_SCOPES = {
   [FORK_TEMPLATES_WS_METHODS.dispatch]: AuthOrchestrationOperateScope,
   [FORK_TASK_FOLDERS_WS_METHODS.subscribe]: AuthOrchestrationReadScope,
   [FORK_TASK_FOLDERS_WS_METHODS.set]: AuthOrchestrationOperateScope,
+  [FORK_TASK_FOLDERS_WS_METHODS.setChat]: AuthOrchestrationOperateScope,
   [FORK_AGENT_CONTEXT_WS_METHODS.thread]: AuthOrchestrationReadScope,
   [FORK_SKILLS_WS_METHODS.list]: AuthOrchestrationReadScope,
   [FORK_SKILLS_WS_METHODS.read]: AuthOrchestrationReadScope,

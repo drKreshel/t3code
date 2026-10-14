@@ -722,6 +722,13 @@ async function showFolderMenu(
             ...(routed.tickets + routed.tasks > 0
               ? [`${describeRoutedSources(routed)} file chats here; their folder is cleared.`]
               : []),
+            ...(routed.chats > 0
+              ? [
+                  routed.chats === 1
+                    ? "1 chat was filed here by an agent; its folder is cleared."
+                    : `${routed.chats} chats were filed here by agents; their folder is cleared.`,
+                ]
+              : []),
           ].join("\n"),
           { variant: "destructive" },
         ),

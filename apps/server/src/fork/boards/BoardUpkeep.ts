@@ -1,8 +1,9 @@
 /**
- * Keeps boards in step with chats and time: files chats another chat started
- * or briefed under that chat's ticket, unlinks deleted chats, hands legacy
+ * Keeps boards in step with chats and time: files a fork under its source
+ * chat's ticket, unlinks deleted chats and drops their folders, hands legacy
  * ticket blockers to the chat that raised them, and moves tickets on from
- * columns that set `autoMove`.
+ * columns that set `autoMove`. Other new chats join a ticket only when the
+ * agent that starts them names one.
  */
 import {
   CommandId,
@@ -14,6 +15,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -21,6 +23,7 @@ import * as Stream from "effect/Stream";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
+import { TaskFolders } from "../taskFolders/TaskFolders.ts";
 import { BoardsService } from "./BoardsService.ts";
 
 const UPKEEP_TICK = "20 seconds";
@@ -66,6 +69,7 @@ const make = (options: { readonly background: boolean }) =>
     const boards = yield* BoardsService;
     const orchestration = yield* Orchestrator.OrchestratorV2;
     const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
+    const folders = yield* Effect.serviceOption(TaskFolders);
     const lock = yield* Semaphore.make(1);
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) => lock.withPermits(1)(effect);
 
@@ -119,12 +123,12 @@ const make = (options: { readonly background: boolean }) =>
       ),
     );
 
-    /** Files a chat another chat started or briefed under that chat's ticket. */
-    const linkToParentTicket = (childThreadId: string, parentThreadId: string) => {
+    /** Files a fork under its source chat's ticket. */
+    const linkToSourceTicket = (childThreadId: string, parentThreadId: string) => {
       const parentKey = `${environmentId}:${parentThreadId}`;
       const childKey = `${environmentId}:${childThreadId}`;
       return logged(
-        "child chat linking",
+        "fork linking",
         serialized(
           Effect.gen(function* () {
             const snapshot = yield* boards.snapshot;
@@ -144,35 +148,31 @@ const make = (options: { readonly background: boolean }) =>
       );
     };
 
-    /** A deleted chat leaves its ticket. */
-    const unlinkDeleted = (threadKey: string) =>
+    /** A deleted chat leaves its ticket and its folder. */
+    const forgetDeleted = (threadId: ThreadId) =>
       Effect.gen(function* () {
+        const threadKey = `${environmentId}:${threadId}`;
         const ticket = (yield* boards.snapshot).tickets.find((candidate) =>
           candidate.threadKeys.includes(threadKey),
         );
-        if (!ticket) return;
-        yield* boards.dispatch({ type: "thread.link", threadKey, ticketId: null }, "system");
+        if (ticket) {
+          yield* boards.dispatch({ type: "thread.link", threadKey, ticketId: null }, "system");
+        }
+        if (Option.isSome(folders)) yield* folders.value.setChat({ threadId, folder: null });
       });
 
     const handleDomainEvent = (event: OrchestrationV2DomainEvent) => {
-      // Subagents, delegated tasks, and forks.
-      if (event.type === "thread.created" && event.payload.lineage.parentThreadId !== null) {
-        return linkToParentTicket(event.threadId, event.payload.lineage.parentThreadId);
-      }
-      if (event.type === "turn-item.updated") {
-        const item = event.payload;
-        // Chats an agent started with create_threads.
-        if (item.type === "thread_created")
-          return linkToParentTicket(item.targetThreadId, event.threadId);
-        // Chats an agent launched or messaged (t3_thread_launch, t3_thread_send).
-        if (item.type === "user_message" && item.senderThreadId !== undefined)
-          return linkToParentTicket(event.threadId, item.senderThreadId);
+      // A fork continues its source's work. Subagents, delegated tasks, and
+      // launched or messaged chats join a ticket only when their starter names it.
+      if (
+        event.type === "thread.created" &&
+        event.payload.lineage.relationshipToParent === "fork" &&
+        event.payload.lineage.parentThreadId !== null
+      ) {
+        return linkToSourceTicket(event.threadId, event.payload.lineage.parentThreadId);
       }
       if (event.type === "thread.deleted") {
-        return logged(
-          "chat deletion",
-          serialized(unlinkDeleted(`${environmentId}:${event.threadId}`)),
-        );
+        return logged("chat deletion", serialized(forgetDeleted(event.threadId)));
       }
       return Effect.void;
     };

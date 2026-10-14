@@ -138,6 +138,7 @@ describe("sidebar folder agent actions", () => {
         releasedThreadCount: 0,
         queuedTicketFolderClears: 0,
         queuedTaskFolderClears: 0,
+        queuedChatFolderClears: 0,
       },
     });
     expect(store.getState().folders).toEqual([]);
@@ -170,18 +171,29 @@ describe("sidebar folder agent actions", () => {
     expect(store.getState().folders.find((folder) => folder.id === folderId)?.icon).toBeNull();
   });
 
-  it("removes descendants, preserves chats, and queues ticket and task routing cleanup through the existing store", () => {
+  it("removes descendants, preserves chats, and queues ticket, task, and chat routing cleanup through the existing store", () => {
     const store = useSidebarFolderStore;
     store.getState().syncTicketFolders([
       { id: "ticket", folder: "Project/Feature", archivedAt: null, threadKeys: ["local:chat"] },
       { id: "task:scheduled", folder: "Project", archivedAt: null, threadKeys: ["remote:run"] },
+      {
+        id: "chat:review",
+        folder: "Project/Reviews",
+        archivedAt: null,
+        threadKeys: ["local:review"],
+      },
       { id: "other", folder: "Keep", archivedAt: null, threadKeys: ["local:other"] },
     ]);
     const parentId = store.getState().folders.find((folder) => folder.name === "Project")!.id;
     const listed = listSidebarFolderSummaries(store.getState(), isExistingThread).find(
       (folder) => folder.id === parentId,
     );
-    expect(listed).toMatchObject({ subtreeThreadCount: 2, routedTickets: 1, routedTasks: 1 });
+    expect(listed).toMatchObject({
+      subtreeThreadCount: 3,
+      routedTickets: 1,
+      routedTasks: 1,
+      routedChats: 1,
+    });
     const result = executeSidebarFolderAction(
       store.getState(),
       {
@@ -192,15 +204,17 @@ describe("sidebar folder agent actions", () => {
     );
     expect(result.result).toMatchObject({
       type: "deleted",
-      releasedThreadCount: 2,
+      releasedThreadCount: 3,
       queuedTicketFolderClears: 1,
       queuedTaskFolderClears: 1,
+      queuedChatFolderClears: 1,
     });
     expect(store.getState().folders.map((folder) => folder.name)).toEqual(["Keep"]);
     expect(Object.values(store.getState().threadKeysByFolderId).flat()).toEqual(["local:other"]);
     expect(store.getState().pendingFolderPaths).toMatchObject({
       ticket: { path: null },
       "task:scheduled": { path: null },
+      "chat:review": { path: null },
     });
     expect(store.getState().ticketFolderRoutes?.other).toBeDefined();
   });

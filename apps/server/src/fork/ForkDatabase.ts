@@ -351,6 +351,16 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
     version: 17,
     statements: [`ALTER TABLE fork_boards ADD COLUMN icon_json TEXT`],
   },
+  {
+    // The sidebar folder an agent filed one chat into.
+    version: 18,
+    statements: [
+      `CREATE TABLE fork_chat_folders (
+        thread_id TEXT PRIMARY KEY,
+        folder TEXT NOT NULL
+      )`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

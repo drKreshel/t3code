@@ -54,6 +54,7 @@ export function listSidebarFolderSummaries(
       settled: layout.settledFolderIds?.includes(folder.id) ?? false,
       routedTickets: routed.tickets,
       routedTasks: routed.tasks,
+      routedChats: routed.chats,
     };
   });
 }
@@ -150,6 +151,7 @@ export function executeSidebarFolderAction(
       releasedThreadCount,
       queuedTicketFolderClears: routed.tickets,
       queuedTaskFolderClears: routed.tasks,
+      queuedChatFolderClears: routed.chats,
     },
   };
 }

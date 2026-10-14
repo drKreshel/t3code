@@ -133,6 +133,8 @@ export interface OrchestratorMcpServiceShape {
   readonly delegateTask: (
     scope: McpInvocationScope,
     input: OrchestratorMcpDelegateTaskInput,
+    /** Fork: runs once the child chat exists, before a wait for its result. */
+    onChildCreated?: (childThreadId: ThreadId) => Effect.Effect<void, OrchestratorMcpFailure>,
   ) => Effect.Effect<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure>;
   readonly taskStatus: (
     scope: McpInvocationScope,
@@ -145,6 +147,11 @@ export interface OrchestratorMcpServiceShape {
   readonly createThreads: (
     scope: McpInvocationScope,
     input: OrchestratorMcpCreateThreadsInput,
+    /** Fork: runs once each chat exists, before its prompt is sent. */
+    onThreadCreated?: (
+      threadId: ThreadId,
+      index: number,
+    ) => Effect.Effect<void, OrchestratorMcpFailure>,
   ) => Effect.Effect<OrchestratorMcpCreateThreadsResult, OrchestratorMcpFailure>;
   readonly scheduleTask: (
     scope: McpInvocationScope,
@@ -1993,7 +2000,7 @@ const make = Effect.gen(function* () {
           },
         };
       }),
-    delegateTask: (callerScope, input) =>
+    delegateTask: (callerScope, input, onChildCreated) =>
       Effect.gen(function* () {
         const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
         const parentRun = parent.runs
@@ -2080,6 +2087,9 @@ const make = Effect.gen(function* () {
           );
         }
         const taskId = taskEvent.event.payload.id;
+        const childThreadId = taskEvent.event.payload.childThreadId;
+        if (onChildCreated !== undefined && childThreadId !== null)
+          yield* onChildCreated(childThreadId);
 
         if (input.mode !== "wait") {
           return yield* readTask(scope, taskId, false, true);
@@ -2287,7 +2297,7 @@ const make = Effect.gen(function* () {
           status: "cancel_requested",
         };
       }),
-    createThreads: (callerScope, input) =>
+    createThreads: (callerScope, input, onThreadCreated) =>
       Effect.gen(function* () {
         const { scope, parent } = yield* loadThreadCaller(callerScope, "create_threads");
         const parentRun = ThreadManagementService.latestActiveRun(parent);
@@ -2367,6 +2377,7 @@ const make = Effect.gen(function* () {
                     ),
                   ),
                 );
+              if (onThreadCreated !== undefined) yield* onThreadCreated(threadId, index);
               if (request.prompt !== undefined) {
                 yield* threadManagement
                   .dispatch({

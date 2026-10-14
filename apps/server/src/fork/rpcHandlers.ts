@@ -19,6 +19,7 @@ import {
   type SidebarFolderRequestRef,
   FORK_TASK_FOLDERS_WS_METHODS,
   FORK_TEMPLATES_WS_METHODS,
+  type SetChatFolderInput,
   type SetTaskFolderInput,
   TaskFoldersError,
   FORK_WORKSPACES_WS_METHODS,
@@ -167,6 +168,11 @@ export const makeForkRpcHandlers = () =>
         Option.match(taskFolders, {
           onNone: () => Effect.fail(taskFoldersUnavailable),
           onSome: (service) => service.set(input),
+        }),
+      [FORK_TASK_FOLDERS_WS_METHODS.setChat]: (input: SetChatFolderInput) =>
+        Option.match(taskFolders, {
+          onNone: () => Effect.fail(taskFoldersUnavailable),
+          onSome: (service) => service.setChat(input),
         }),
     };
   });

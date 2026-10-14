@@ -1,6 +1,7 @@
 import {
   OrchestratorMcpCapabilitiesResult,
   OrchestrationV2StopWorkflowInput,
+  OrchestratorMcpCreateThreadRequest,
   OrchestratorMcpCreateThreadsInput,
   OrchestratorMcpCreateThreadsResult,
   OrchestratorMcpDelegateTaskInput,
@@ -38,6 +39,7 @@ import * as ThreadManagementService from "../../../orchestration-v2/ThreadManage
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
+import { NewChatPlacementFields } from "../../../fork/mcp/newChatPlacement.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
@@ -65,8 +67,12 @@ const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
 
 export const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Needs an agent running inside a T3 thread. Delegate one task to a T3-owned child agent/subagent of THIS thread and run it with only the supplied task prompt, without copying parent conversation history. Choose providers and models from orchestrator_capabilities, which uses the same live catalog as the composer. Prefer native subagent tools for same-provider work only when they support the chosen model. Use this for any model missing from the native tool, including same-provider work, for cross-provider work, or for explicitly T3-owned child tasks. For every T3 delegated review round, call delegate_task again with the original brief, prior findings, responses, and unresolved objections in the task prompt. Track each round by its own taskId and use a distinct clientRequestId per round, stable across retries of that round. The childThreadId is backing storage, not the target for starting another delegated review round through t3_thread_send. Provider, model, model options (see orchestrator_capabilities), runtime mode, and interaction mode inherit unless target overrides them. A requested runtimeMode must be one the target provider lists in orchestrator_capabilities runtimeModes; an inherited one steps down to the broadest mode it offers. Prefer mode='async' for long work; mode='wait' blocks until completion or timeout. timeoutMs on mode=wait is only the parent's wait budget and does not cancel the child. waitTimedOut on that wait call means the timeout fired; keep that taskId and read status on later task_status. An async child's completion wakes this thread through a notification, steered into active turns where supported or queued otherwise, so end the turn instead of polling or spawning watchers; use task_status only when the result is needed mid-turn.",
-  parameters: OrchestratorMcpDelegateTaskInput,
+    "Needs an agent running inside a T3 thread. Delegate one task to a T3-owned child agent/subagent of THIS thread and run it with only the supplied task prompt, without copying parent conversation history. Choose providers and models from orchestrator_capabilities, which uses the same live catalog as the composer. Prefer native subagent tools for same-provider work only when they support the chosen model. Use this for any model missing from the native tool, including same-provider work, for cross-provider work, or for explicitly T3-owned child tasks. For every T3 delegated review round, call delegate_task again with the original brief, prior findings, responses, and unresolved objections in the task prompt. Track each round by its own taskId and use a distinct clientRequestId per round, stable across retries of that round. The childThreadId is backing storage, not the target for starting another delegated review round through t3_thread_send. Provider, model, model options (see orchestrator_capabilities), runtime mode, and interaction mode inherit unless target overrides them. A requested runtimeMode must be one the target provider lists in orchestrator_capabilities runtimeModes; an inherited one steps down to the broadest mode it offers. Prefer mode='async' for long work; mode='wait' blocks until completion or timeout. timeoutMs on mode=wait is only the parent's wait budget and does not cancel the child. waitTimedOut on that wait call means the timeout fired; keep that taskId and read status on later task_status. An async child's completion wakes this thread through a notification, steered into active turns where supported or queued otherwise, so end the turn instead of polling or spawning watchers; use task_status only when the result is needed mid-turn. The child chat joins a ticket only when ticket names one, and gets a sidebar folder of its own only when folder is set.",
+  parameters: Schema.Struct({
+    ...OrchestratorMcpDelegateTaskInput.fields,
+    // Fork: ticket and folder.
+    ...NewChatPlacementFields,
+  }),
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
@@ -179,8 +185,14 @@ const RequestSecretTool = Tool.make("request_secret", {
 
 export const CreateThreadsTool = Tool.make("create_threads", {
   description:
-    "Needs an agent running inside a T3 thread. Create one or more ORDINARY TOP-LEVEL T3 conversations. This is not delegation and does not create child agents/subagents. For delegated work, choose models from orchestrator_capabilities. Prefer native subagents only when they support the chosen model; otherwise call delegate_task, including for same-provider work. Use create_threads for a batch of separate top-level threads sharing this checkout. Prefer t3_thread_launch for a single thread. Both require the user to request separate/new/top-level threads or conversations. Each entry may override provider, model, options, runtime mode, and interaction mode; omitted settings inherit. Project, branch, and worktree always inherit and cannot be overridden here. For independent implementation or a PR stack in its own worktree, use t3_thread_launch with workspaceStrategy instead of asking the agent to create a worktree in its prompt.",
-  parameters: OrchestratorMcpCreateThreadsInput,
+    "Needs an agent running inside a T3 thread. Create one or more ORDINARY TOP-LEVEL T3 conversations. This is not delegation and does not create child agents/subagents. For delegated work, choose models from orchestrator_capabilities. Prefer native subagents only when they support the chosen model; otherwise call delegate_task, including for same-provider work. Use create_threads for a batch of separate top-level threads sharing this checkout. Prefer t3_thread_launch for a single thread. Both require the user to request separate/new/top-level threads or conversations. Each entry may override provider, model, options, runtime mode, and interaction mode; omitted settings inherit. Project, branch, and worktree always inherit and cannot be overridden here. For independent implementation or a PR stack in its own worktree, use t3_thread_launch with workspaceStrategy instead of asking the agent to create a worktree in its prompt. A thread joins a ticket only when its entry's ticket names one, and gets a sidebar folder of its own only when its folder is set.",
+  parameters: Schema.Struct({
+    ...OrchestratorMcpCreateThreadsInput.fields,
+    // Fork: ticket and folder per thread.
+    threads: Schema.Array(
+      Schema.Struct({ ...OrchestratorMcpCreateThreadRequest.fields, ...NewChatPlacementFields }),
+    ).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+  }),
   success: OrchestratorMcpCreateThreadsResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",

@@ -173,6 +173,7 @@ describe("ticket folder routing", () => {
     expect(folderRouteSourcesIn(moved, new Set(["folder-1", "folder-2"]))).toEqual({
       tickets: 2,
       tasks: 1,
+      chats: 0,
     });
   });
 
@@ -272,5 +273,59 @@ describe("ticket folder routing", () => {
         ids(),
       ),
     ).toBe(initial);
+  });
+
+  it("files a chat in its own folder over its ticket's, and follows a rename of either", () => {
+    const newId = ids();
+    const review = (folder: string) => ({
+      id: "chat:review-1",
+      folder,
+      archivedAt: null,
+      threadKeys: ["env:review"],
+    });
+    const salon = ticket({
+      folder: "salon/tickets/44",
+      threadKeys: ["env:implement", "env:review"],
+    });
+    const initial = syncTicketFolders(
+      EMPTY_SIDEBAR_FOLDER_LAYOUT,
+      [salon, review("salon/tickets/44/review-rounds")],
+      newId,
+    );
+    const pathOf = (layout: typeof initial, threadKey: string) =>
+      flattenSidebarFolders(layout).find(({ folder }) =>
+        layout.threadKeysByFolderId[folder.id]?.includes(threadKey),
+      )?.path;
+    expect(pathOf(initial, "env:implement")).toBe("salon / tickets / 44");
+    expect(pathOf(initial, "env:review")).toBe("salon / tickets / 44 / review-rounds");
+    expect(folderRouteSourcesIn(initial, new Set(["folder-4"]))).toEqual({
+      tickets: 0,
+      tasks: 0,
+      chats: 1,
+    });
+
+    // The ticket moves to a new folder: its implementer follows, its reviewer stays.
+    const moved = syncTicketFolders(
+      initial,
+      [{ ...salon, folder: "salon/done/44" }, review("salon/tickets/44/review-rounds")],
+      newId,
+    );
+    expect(pathOf(moved, "env:implement")).toBe("salon / done / 44");
+    expect(pathOf(moved, "env:review")).toBe("salon / tickets / 44 / review-rounds");
+
+    // Renaming the ticket folder in the sidebar sends both new paths.
+    const renamed = syncTicketFolders(
+      renameSidebarFolder(initial, "folder-3", "SALON-44"),
+      [salon, review("salon/tickets/44/review-rounds")],
+      newId,
+    );
+    expect(
+      Object.fromEntries(
+        Object.entries(renamed.pendingFolderPaths!).map(([id, { path }]) => [id, path]),
+      ),
+    ).toEqual({
+      "ticket-1": "salon/tickets/SALON-44",
+      "chat:review-1": "salon/tickets/SALON-44/review-rounds",
+    });
   });
 });
