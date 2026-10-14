@@ -1166,7 +1166,7 @@ export function SidebarFolderBlock<TThread extends SidebarThreadSummary>(props: 
   );
 }
 
-/** Settled top-level folders, shown at the end of the main Settled section.
+/** Settled folders, shown at the end of the main Settled section.
     An active thread inside returns its folder to the Folders block. */
 export function SidebarSettledFolderBlock<TThread extends SidebarThreadSummary>(props: {
   roots: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
