@@ -90,6 +90,33 @@ describe("server browser element refs", () => {
     expect(result.screenshot).toMatchObject({ mimeType: "image/png", width: 1, height: 1 });
   });
 
+  it("captures a page without a Playwright viewport at its own size", async () => {
+    // A desktop webview's page, which Playwright reaches over CDP, has no viewport.
+    const viewportless = await browser.newContext({ viewport: null });
+    const viewportlessPage = await viewportless.newPage();
+    const viewportlessCdp = await viewportless.newCDPSession(viewportlessPage);
+    await viewportlessCdp.send("Emulation.setDeviceMetricsOverride", {
+      width: 1100,
+      height: 760,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+
+    const result = await ServerBrowserPage.snapshot({
+      page: viewportlessPage,
+      cdp: viewportlessCdp,
+      renderScale: 2,
+      consoleEntries: [],
+      networkEntries: [],
+      actionTimeline: [],
+    });
+    await viewportless.close();
+
+    const png = Buffer.from(result.screenshot.data, "base64");
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1100, 760]);
+    expect(result.screenshot).toMatchObject({ width: 1100, height: 760 });
+  });
+
   it("returns supporting captures when page evaluation loses its navigation context", async () => {
     await page.setContent("<main>Sign in to continue</main>");
     vi.spyOn(page, "evaluate").mockRejectedValueOnce(
