@@ -135,13 +135,18 @@ function makeContext(
     reload: vi.fn(async () => {}),
     emulateMedia: vi.fn(async () => {}),
     waitForLoadState: vi.fn(async () => {}),
-    evaluate: vi.fn(async () => ({
-      url,
-      title: "test page",
-      loading: false,
-      visibleText: "delete",
-      interactiveElements: [],
-    })),
+    evaluate: vi.fn(async (script: unknown) =>
+      // A desktop page has no Playwright viewport, so captures measure it.
+      String(script).includes("devicePixelRatio")
+        ? { width: 1100, height: 760, renderScale: 1 }
+        : {
+            url,
+            title: "test page",
+            loading: false,
+            visibleText: "delete",
+            interactiveElements: [],
+          },
+    ),
     ariaSnapshot: vi.fn(async () => '- button "delete" [ref=e1]'),
     locator: vi.fn(() => {
       throw new Error("Unexpected locator action");
@@ -1434,7 +1439,7 @@ it.live("holds a hidden desktop tab on screen only while the server captures it"
         input: {},
         tabId,
       });
-      expect(snapshot.screenshot.width).toBeGreaterThan(1);
+      expect(snapshot.screenshot).toMatchObject({ width: 1100, height: 760 });
       expect(desktopRenderRequests).toEqual([
         { tabId: opened.tabId, active: true },
         { tabId: opened.tabId, active: false },
