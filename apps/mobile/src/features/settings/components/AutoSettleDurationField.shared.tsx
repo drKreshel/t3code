@@ -8,8 +8,8 @@ import {
 import { useState } from "react";
 import { View } from "react-native";
 
-import { AppTextInput } from "../../../components/AppText";
-import { SegmentedControl } from "../../../components/SegmentedControl";
+import { AppTextInput } from "../../../components/ui/AppText";
+import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 
 export interface AutoSettleDaysFieldProps {
   readonly value: number;

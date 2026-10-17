@@ -110,7 +110,7 @@ const make = Effect.gen(function* () {
           yield* assertRoom(command.threadId);
           yield* sql`
             INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
-            VALUES (${yield* crypto.randomUUIDv4}, ${command.threadId}, ${command.title}, NULL,
+            VALUES (${yield* crypto.randomUUIDv4()}, ${command.threadId}, ${command.title}, NULL,
               ${command.text}, ${now}, ${now})`;
           return;
         }
@@ -129,7 +129,7 @@ const make = Effect.gen(function* () {
           yield* assertRoom(command.threadId);
           yield* sql`
             INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
-            VALUES (${yield* crypto.randomUUIDv4}, ${command.threadId}, ${command.title},
+            VALUES (${yield* crypto.randomUUIDv4()}, ${command.threadId}, ${command.title},
               ${command.target}, NULL, ${now}, ${now})`;
           return;
         }

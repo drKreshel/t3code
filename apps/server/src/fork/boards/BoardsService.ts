@@ -138,7 +138,7 @@ const make = Effect.gen(function* () {
   const changes = yield* PubSub.unbounded<ReadonlyArray<string>>();
   const writeLock = yield* Semaphore.make(1);
 
-  const newId = crypto.randomUUIDv4;
+  const newId = crypto.randomUUIDv4();
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
   const loadSnapshot = Effect.gen(function* () {
@@ -267,7 +267,6 @@ const make = Effect.gen(function* () {
       } satisfies TicketDetail;
     }).pipe(Effect.mapError(toCommandError));
 
-  // ---------------------------------------------------------------------------
   // Lookups
 
   const findBoard = (boardId: string) =>
@@ -357,7 +356,6 @@ const make = Effect.gen(function* () {
       return false;
     });
 
-  // ---------------------------------------------------------------------------
   // Commands
 
   const run = (command: BoardsCommand, actor: BoardsActor) =>

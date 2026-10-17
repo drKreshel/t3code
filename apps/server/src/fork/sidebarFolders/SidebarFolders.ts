@@ -100,7 +100,7 @@ const make = Effect.gen(function* () {
     Stream.unwrap(
       Effect.acquireRelease(
         Effect.gen(function* () {
-          const connectionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+          const connectionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
           const queue = yield* Queue.dropping<SidebarFolderStreamEvent, Cause.Done>(32);
           const prior = clients.get(input.clientId);
           if (prior) yield* disconnect(prior.clientId, prior.connectionId);
@@ -117,7 +117,7 @@ const make = Effect.gen(function* () {
     clientId: string,
     action: SidebarFolderAction,
   ) {
-    const requestId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+    const requestId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
     const deferred = yield* Deferred.make<SidebarFolderResult, SidebarFoldersError>();
     const client = clients.get(clientId);
     if (!client) return yield* SidebarFoldersError.fromCode("client-disconnected");

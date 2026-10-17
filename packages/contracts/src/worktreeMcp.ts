@@ -43,10 +43,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
     }),
   ),
   path: Schema.optional(
-    TrimmedNonEmptyString.check(
-      // Absolute POSIX (/...), Windows drive (C:\ or C:/), or UNC (\\host).
-      Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/),
-    ).annotate({
+    TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/)).annotate({
       description:
         "Absolute filesystem path of the target checkout. Relative paths are rejected. When creating, defaults to the server-managed worktrees directory; required when attaching.",
     }),

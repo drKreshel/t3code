@@ -148,7 +148,6 @@ const make = Effect.gen(function* () {
     fail("storage", `${what}: ${cause instanceof Error ? cause.message : String(cause)}`);
   const announce = PubSub.publish(changes, undefined);
 
-  // ---------------------------------------------------------------------------
   // Lookups
 
   const findProject = (projectKey: string) =>
@@ -245,7 +244,6 @@ const make = Effect.gen(function* () {
       return { ticket, board, key: `${board.key}-${ticket.number}`, projectKey };
     });
 
-  // ---------------------------------------------------------------------------
   // Creating
 
   /** The ref a new ticket branch starts from; bare names fall back to `origin/<name>`. */
@@ -448,7 +446,6 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  // ---------------------------------------------------------------------------
   // Removing
 
   const remove = (ticketId: string, force: boolean) =>
@@ -509,7 +506,6 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  // ---------------------------------------------------------------------------
   // Rules, snapshot, dispatch
 
   const setRules = (rules: Pick<WorkspaceRules, "scope" | "scopeId" | "defaults" | "repos">) =>

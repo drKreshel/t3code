@@ -266,8 +266,6 @@ export function delegatedTaskProgress(projection: {
   const workRuns = projection.runs.filter(
     (run) => !monitorRuns.has(run.id) && run.status !== "rolled_back",
   );
-  // A held queue waits for the user to resume it (after Stop, a restart, or a
-  // provider failure), so its runs are not work the task still owes.
   const active = workRuns.some(
     (run) => !terminal(run.status) && !(run.status === "queued" && run.queueHeld === true),
   );
@@ -288,7 +286,6 @@ export function delegatedTaskProgress(projection: {
   };
 }
 
-/** Ids that `emitted` already wrote with an event of `type`. */
 function writtenIds(
   emitted: ReadonlyArray<OrchestrationV2DomainEvent>,
   type: "subagent.updated" | "node.updated" | "turn-item.updated",
@@ -296,11 +293,6 @@ function writtenIds(
   return new Set(emitted.flatMap((event) => (event.type === type ? [event.payload.id] : [])));
 }
 
-/**
- * Ends a provider-native subagent, its node and its turn item once the provider
- * process that ran it is gone, since no terminal event will come from it. Each
- * record is skipped if already settled or already ended by `emitted`.
- */
 export const endOrphanedNativeSubagent = <E>(input: {
   readonly projection: Pick<OrchestrationV2ThreadProjection, "nodes" | "subagents" | "turnItems">;
   readonly subagentId: NodeId;
@@ -378,11 +370,6 @@ export const endOrphanedNativeSubagent = <E>(input: {
     return events;
   });
 
-/**
- * Ends a provider-native subagent thread's work, a runless root turn plus the
- * items under it (Claude's live progress), which only the provider process that
- * ran it could settle. Skips records `emitted` already ended.
- */
 export const endRunlessRootTurns = <E>(input: {
   readonly threadId: ThreadId;
   readonly providerInstanceId: ProviderInstanceId;
@@ -411,8 +398,6 @@ export const endRunlessRootTurns = <E>(input: {
       ) {
         continue;
       }
-      // Recovery may have ended this node through one of its items; its other
-      // items still need ending.
       if (!endedNodeIds.has(node.id)) {
         events.push({
           ...scope,

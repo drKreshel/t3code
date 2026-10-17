@@ -120,7 +120,7 @@ const make = Effect.gen(function* () {
               SELECT id FROM fork_board_templates WHERE name = ${command.name}
             `,
           );
-          const id = existing[0]?.id ?? (yield* storage(crypto.randomUUIDv4));
+          const id = existing[0]?.id ?? (yield* storage(crypto.randomUUIDv4()));
           yield* storage(sql`
             INSERT INTO fork_board_templates
               (id, name, description, columns_json, created_at, updated_at)

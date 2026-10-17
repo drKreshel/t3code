@@ -2,7 +2,7 @@
 # Build and install the stable (daily-driver) T3 Code app from this fork.
 #
 # Three instances live side by side:
-#   stable  /Applications/T3 Code (Alpha).app  data ~/.t3/userdata   profile ~/Library/Application Support/t3code-v2
+#   stable  /Applications/T3 Code (Beta).app  data ~/.t3/userdata   profile ~/Library/Application Support/t3code-v2
 #   dev     `vp run dev:desktop` in the dev checkout, data ~/.t3/dev, profile .../t3code-dev
 #   build   a script-owned git worktree (T3_STABLE_DIR) that only this script touches
 #
@@ -18,8 +18,13 @@ done
 export PATH
 
 STABLE_DIR="${T3_STABLE_DIR:-$HOME/Code/projects/t3-code-stable}"
-APP_NAME="T3 Code (Alpha).app"
+APP_NAME="T3 Code (Beta).app"
 APP_PATH="/Applications/$APP_NAME"
+# Names earlier builds installed under. The same app id and data, so install
+# replaces them and treats them as the previous app.
+LEGACY_APP_NAMES=("T3 Code (Alpha).app")
+ALL_APP_PATHS=("$APP_PATH")
+for legacy_app in "${LEGACY_APP_NAMES[@]}"; do ALL_APP_PATHS+=("/Applications/$legacy_app"); done
 APP_ID="com.t3tools.t3code"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 DATA_DIR="$HOME/.t3/userdata"
@@ -53,16 +58,42 @@ Usage: $(basename "$0") <command>
 EOF
 }
 
+# Fixed-string patterns for processes started from any stable bundle path.
+app_process_patterns() {
+  local path
+  for path in "${ALL_APP_PATHS[@]}"; do printf -- '-e\n%s/Contents/MacOS/\n' "$path"; done
+}
+
 stable_app_running() {
   # Detection only: never kill by pattern. Fixed-string match, since the
   # app name contains regex characters.
-  ps -axo command= | grep -F "$APP_PATH/Contents/MacOS/" | grep -vqF "grep -F"
+  local patterns=()
+  while IFS= read -r line; do patterns+=("$line"); done < <(app_process_patterns)
+  ps -axo command= | grep -F "${patterns[@]}" | grep -vqF "grep -F"
 }
 
-# PIDs of running T3 Code processes started from the /Applications path.
+# PIDs of running T3 Code processes started from an /Applications path.
 # Detection only, like stable_app_running.
 stable_app_pids() {
-  ps -axo pid=,command= | grep -F "$APP_PATH/Contents/MacOS/" | grep -vF "grep -F" | awk '{print $1}'
+  local patterns=()
+  while IFS= read -r line; do patterns+=("$line"); done < <(app_process_patterns)
+  ps -axo pid=,command= | grep -F "${patterns[@]}" | grep -vF "grep -F" | awk '{print $1}'
+}
+
+# Stable bundles currently in /Applications, current name first.
+installed_app_paths() {
+  local path
+  for path in "${ALL_APP_PATHS[@]}"; do
+    if [ -d "$path" ]; then printf '%s\n' "$path"; fi
+  done
+}
+
+# Moves every bundle kept for rollback back into /Applications.
+restore_previous_apps() {
+  local previous
+  for previous in "$PREVIOUS_APP_DIR"/*.app; do
+    if [ -d "$previous" ]; then mv "$previous" /Applications/; fi
+  done
 }
 
 # A process keeps the bundle it launched from even after that bundle is moved,
@@ -174,11 +205,13 @@ cmd_install() {
       die "T3 Code was reopened during the backup; nothing was installed. Quit it and run this again."
     fi
   fi
-  if [ -d "$APP_PATH" ]; then
+  local installed
+  installed="$(installed_app_paths)"
+  if [ -n "$installed" ]; then
     log "Keeping the current app for rollback"
     rm -rf "$PREVIOUS_APP_DIR"
     mkdir -p "$PREVIOUS_APP_DIR"
-    mv "$APP_PATH" "$PREVIOUS_APP_DIR/"
+    while IFS= read -r path; do mv "$path" "$PREVIOUS_APP_DIR/"; done <<<"$installed"
   fi
   log "Installing $(basename "$zip")"
   ditto -x -k "$zip" /Applications/
@@ -237,8 +270,8 @@ cmd_restart() {
   else
     result="Update failed; the previous app was kept. See $RESTART_LOG"
     # Install moves the old app aside before unpacking; put it back if needed.
-    if [ ! -d "$APP_PATH" ] && [ -d "$PREVIOUS_APP_DIR/$APP_NAME" ]; then
-      mv "$PREVIOUS_APP_DIR/$APP_NAME" /Applications/
+    if [ -z "$(installed_app_paths)" ]; then
+      restore_previous_apps
     fi
   fi
   # Reopen before notifying: getting the app back is the part that matters.
@@ -254,9 +287,12 @@ cmd_restart() {
 }
 
 reopen_app() {
-  [ -d "$APP_PATH" ] || return 1
+  # The current name, or the previous app a failed install put back.
+  local app
+  app="$(installed_app_paths | head -1)"
+  [ -n "$app" ] || return 1
   # A freshly unpacked bundle may not be registered with Launch Services yet.
-  "$LSREGISTER" -f "$APP_PATH" >/dev/null 2>&1 || true
+  "$LSREGISTER" -f "$app" >/dev/null 2>&1 || true
   local attempt
   for attempt in 1 2 3; do
     log "Reopening T3 Code (attempt $attempt)"
@@ -266,7 +302,7 @@ reopen_app() {
     # Launch it with a login-like environment instead, as the Dock would.
     env -i HOME="$HOME" USER="$USER" LOGNAME="${LOGNAME:-$USER}" TMPDIR="${TMPDIR:-/tmp}" \
       PATH="/usr/bin:/bin:/usr/sbin:/sbin" LANG="${LANG:-en_US.UTF-8}" \
-      open -n "$APP_PATH" || log "open exited with status $?"
+      open -n "$app" || log "open exited with status $?"
     sleep 5
     if stable_app_runs_previous_build; then
       # The old instance holds the single-instance lock, so the new one exits.
@@ -310,13 +346,16 @@ cmd_ship() {
 }
 
 cmd_rollback() {
-  local previous="$PREVIOUS_APP_DIR/$APP_NAME"
-  [ -d "$previous" ] || die "No previous app to roll back to."
+  compgen -G "$PREVIOUS_APP_DIR/*.app" >/dev/null || die "No previous app to roll back to."
   require_app_quit
   local swap="$BACKUP_ROOT/rollback-swap"
   rm -rf "$swap" && mkdir -p "$swap"
-  [ -d "$APP_PATH" ] && mv "$APP_PATH" "$swap/"
-  mv "$previous" /Applications/
+  local installed
+  installed="$(installed_app_paths)"
+  if [ -n "$installed" ]; then
+    while IFS= read -r path; do mv "$path" "$swap/"; done <<<"$installed"
+  fi
+  restore_previous_apps
   rm -rf "$PREVIOUS_APP_DIR" && mv "$swap" "$PREVIOUS_APP_DIR"
   log "Rolled back. Run rollback again to switch back."
 }
@@ -331,8 +370,12 @@ cmd_status() {
     echo "  checked out:   $(git -C "$STABLE_DIR" log --oneline -1 HEAD)"
   }
   echo "last build:      $(latest_zip || true) $(cat "$STABLE_DIR/release/BUILT_FROM" 2>/dev/null || true)"
-  if [ -d "$APP_PATH" ]; then
-    echo "installed app:   $APP_PATH $(defaults read "$APP_PATH/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null)"
+  local installed
+  installed="$(installed_app_paths)"
+  if [ -n "$installed" ]; then
+    while IFS= read -r path; do
+      echo "installed app:   $path $(defaults read "$path/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null)"
+    done <<<"$installed"
   else
     echo "installed app:   none"
   fi

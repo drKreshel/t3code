@@ -38,29 +38,20 @@ describe("createFileTreeDragMentionController", () => {
     expect(transfer.getData(COMPOSER_MENTION_DRAG_TYPE)).toBe("[architecture](docs/architecture)");
   });
 
-  it("emits absolute mentions for host files and folders while deselecting relative rows", () => {
-    const deselected: string[] = [];
+  it("mentions rows of a host folder by their host path", () => {
     const controller = createFileTreeDragMentionController({
-      deselect: (path) => deselected.push(path),
-      linkPath: (path) => `/tmp/sdf-ui/${path}`,
+      deselect: () => {},
+      mentionPath: (path) => `/Users/me/scope/${path}`,
     });
-    controller.handleSelectionChange(["preview.png", "nested/"]);
     const transfer = makeTransfer();
     controller.handleDragStart({
       dataTransfer: transfer,
-      composedPath: () => [rowNode("preview.png")],
+      composedPath: () => [rowNode("notes/")],
     });
-    expect(transfer.getData(COMPOSER_MENTION_DRAG_TYPE)).toBe(
-      "[preview.png](/tmp/sdf-ui/preview.png) [nested](/tmp/sdf-ui/nested)",
-    );
-    controller.handleDragEnd();
-    expect(deselected).toEqual(["preview.png", "nested/"]);
+    expect(transfer.getData(COMPOSER_MENTION_DRAG_TYPE)).toBe("[notes](/Users/me/scope/notes)");
   });
 
   it("does not tag drags of selected text from the panel chrome", () => {
-    // Only a drag that originates on a tree row is a mention; dragging a text
-    // selection also carries text/plain, and tagging it would drop an invalid
-    // pill into the composer.
     const controller = createFileTreeDragMentionController({ deselect: () => {} });
     const transfer = makeTransfer("selected text");
     controller.handleDragStart({ dataTransfer: transfer, composedPath: () => [{}] });
