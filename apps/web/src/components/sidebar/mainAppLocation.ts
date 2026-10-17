@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 
 // Settings, Usage, and Pull Requests are side trips: Escape (and Settings'
 // sidebar Back button) returns to the main app, which is everything else.
@@ -31,5 +31,5 @@ export function MainAppLocationTracker() {
 
 export function useNavigateToMainApp() {
   const navigate = useNavigate();
-  return useCallback(() => navigate({ href: mainAppHref ?? "/" }), [navigate]);
+  return () => navigate({ href: mainAppHref ?? "/" });
 }

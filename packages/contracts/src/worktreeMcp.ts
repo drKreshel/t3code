@@ -45,7 +45,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   path: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/)).annotate({
       description:
-        "Absolute filesystem path of the target checkout. Relative paths are rejected. When creating, defaults to the server-managed worktrees directory; required when attaching.",
+        "Absolute filesystem path of the target checkout. Relative paths are rejected. Required when attaching. Ignored when creating: new worktrees always go in the server-managed worktrees directory.",
     }),
   ),
   runSetupScript: Schema.optional(

@@ -7,7 +7,7 @@ import {
   CalendarClockIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -89,14 +89,11 @@ export function SidebarBrandWidthProbe({
 }: {
   onWidthChange: (width: number) => void;
 }) {
-  const observeWidth = useCallback(
-    (probe: HTMLDivElement) => {
-      return observeResize(probe, ([entry]) => {
-        if (entry) onWidthChange(entry.borderBoxSize[0]?.inlineSize ?? probe.offsetWidth);
-      });
-    },
-    [onWidthChange],
-  );
+  const observeWidth = (probe: HTMLDivElement) => {
+    return observeResize(probe, ([entry]) => {
+      if (entry) onWidthChange(entry.borderBoxSize[0]?.inlineSize ?? probe.offsetWidth);
+    });
+  };
 
   return (
     <div
@@ -193,50 +190,50 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   // Only the first path segment, so switching threads does not re-render the row.
   const page = useLocation({ select: (location) => location.pathname.split("/")[1] });
   const pullRequestsSupported = usePullRequestsSupported();
-  const closeMobileSidebar = useCallback(() => {
+  const closeMobileSidebar = () => {
     if (isMobile) {
       setOpenMobile(false);
     }
-  }, [isMobile, setOpenMobile]);
-  const handlePullRequestsClick = useCallback(() => {
+  };
+  const handlePullRequestsClick = () => {
     closeMobileSidebar();
     void navigate({
       to: "/pull-requests",
       search: readPullRequestListPreferences(),
     });
-  }, [closeMobileSidebar, navigate]);
-  const handleSettingsClick = useCallback(() => {
+  };
+  const handleSettingsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
-  }, [closeMobileSidebar, navigate]);
+  };
 
   const boardsNeedsYou = useBoardsNeedsYouCount();
-  const handleBoardsClick = useCallback(() => {
+  const handleBoardsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/boards" });
-  }, [closeMobileSidebar, navigate]);
+  };
 
-  const handleScheduledTasksClick = useCallback(() => {
+  const handleScheduledTasksClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/scheduled" });
-  }, [closeMobileSidebar, navigate]);
+  };
 
-  const handleSkillsClick = useCallback(() => {
+  const handleSkillsClick = () => {
     closeMobileSidebar();
     void navigate({ to: "/skills" });
-  }, [closeMobileSidebar, navigate]);
+  };
 
-  const handleUsageClick = useCallback(() => {
+  const handleUsageClick = () => {
     if (isMobile) {
       setOpenMobile(false);
     }
     void navigate({ to: "/usage" });
-  }, [isMobile, navigate, setOpenMobile]);
+  };
 
-  const handleBackClick = useCallback(() => {
+  const handleBackClick = () => {
     closeMobileSidebar();
     void navigateToMainApp();
-  }, [closeMobileSidebar, navigateToMainApp]);
+  };
 
   // Settings replaces the thread list, so it offers a way back instead.
   if (page === "settings") {

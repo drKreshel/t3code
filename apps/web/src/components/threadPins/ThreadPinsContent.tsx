@@ -3,11 +3,12 @@ import { scopeProjectRef, scopedThreadKey } from "@t3tools/client-runtime/enviro
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { projectScriptCwd } from "@t3tools/shared/projectScripts";
 import { ChevronRightIcon, GlobeIcon, PencilIcon, StickyNoteIcon, XIcon } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useId, useState } from "react";
 
 import { useTheme } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
-import { useProject, useServerConfigs, useThreadShell } from "../../state/entities";
+import { useProject, useThreadShell } from "../../state/entities";
+import { useEnvironmentProviders } from "../../state/environments";
 import { isUrlPinTarget, useThreadPinsDispatch } from "../../state/threadPins";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useUiStateStore } from "../../uiStateStore";
@@ -30,19 +31,15 @@ function useThreadMarkdownContext(threadRef: ScopedThreadRef) {
   const project = useProject(
     thread === null ? null : scopeProjectRef(thread.environmentId, thread.projectId),
   );
-  const serverConfig = useServerConfigs().get(threadRef.environmentId) ?? null;
+  const providers = useEnvironmentProviders().get(threadRef.environmentId);
   const instanceId = thread?.modelSelection.instanceId;
   const worktreePath = thread?.worktreePath ?? null;
-  return useMemo(() => {
-    const cwd =
-      project === null
-        ? undefined
-        : projectScriptCwd({ project: { cwd: project.workspaceRoot }, worktreePath });
-    const provider = serverConfig?.providers.find(
-      (candidate) => candidate.instanceId === instanceId,
-    );
-    return { cwd, skills: provider ? resolveProviderSkillsForCwd(provider, cwd) : [] };
-  }, [instanceId, project, serverConfig, worktreePath]);
+  const cwd =
+    project === null
+      ? undefined
+      : projectScriptCwd({ project: { cwd: project.workspaceRoot }, worktreePath });
+  const provider = providers?.find((candidate) => candidate.instanceId === instanceId);
+  return { cwd, skills: provider ? resolveProviderSkillsForCwd(provider, cwd) : [] };
 }
 
 /**
