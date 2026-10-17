@@ -513,33 +513,55 @@ it.effect.each([
 );
 
 it.effect.each([
-  { clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID, shown: true },
-  { clientId: "client-1", shown: false },
-])("tells the agent why its own server browser failed ($clientId)", ({ clientId, shown }) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const broker = yield* makeBroker;
-      const requests = requestsFrom(yield* broker.connect(makeHost({ clientId })));
-      yield* Stream.runForEach(requests, (request) =>
-        broker.respond({
-          clientId,
-          connectionId: request.connectionId,
-          requestId: request.requestId,
-          ok: false,
-          error: {
-            _tag: "PreviewAutomationExecutionError",
-            message: "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:4719/",
-          },
-        }),
-      ).pipe(Effect.forkScoped);
-      yield* Effect.yieldNow;
-      const error = yield* broker
-        .invoke<void>({ scope, operation: "open", input: {} })
-        .pipe(Effect.flip);
-      expect(error._tag).toBe("PreviewAutomationExecutionError");
-      expect(error.message.includes("ERR_CONNECTION_REFUSED")).toBe(shown);
-    }),
-  ),
+  {
+    clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID,
+    tag: "PreviewAutomationExecutionError",
+    message: "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:4719/",
+    shown: true,
+  },
+  {
+    clientId: "client-1",
+    tag: "PreviewAutomationExecutionError",
+    message: "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:4719/",
+    shown: false,
+  },
+  // The host gives up before the broker would, so its own reason is the accurate one.
+  {
+    clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID,
+    tag: "PreviewAutomationTimeoutError",
+    message: "The page was too busy to capture a snapshot in time.",
+    shown: true,
+  },
+  {
+    clientId: "client-1",
+    tag: "PreviewAutomationTimeoutError",
+    message: "The page was too busy to capture a snapshot in time.",
+    shown: false,
+  },
+])(
+  "tells the agent why its own server browser failed ($clientId, $tag)",
+  ({ clientId, tag, message, shown }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const broker = yield* makeBroker;
+        const requests = requestsFrom(yield* broker.connect(makeHost({ clientId })));
+        yield* Stream.runForEach(requests, (request) =>
+          broker.respond({
+            clientId,
+            connectionId: request.connectionId,
+            requestId: request.requestId,
+            ok: false,
+            error: { _tag: tag, message },
+          }),
+        ).pipe(Effect.forkScoped);
+        yield* Effect.yieldNow;
+        const error = yield* broker
+          .invoke<void>({ scope, operation: "open", input: {} })
+          .pipe(Effect.flip);
+        expect(error._tag).toBe(tag);
+        expect(error.message.includes(message)).toBe(shown);
+      }),
+    ),
 );
 
 it.effect("distinguishes malformed remote failures", () =>

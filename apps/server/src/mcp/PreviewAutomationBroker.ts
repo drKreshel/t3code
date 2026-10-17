@@ -252,6 +252,9 @@ const classifyResponseError = (
       return new PreviewAutomationTimeoutError({
         ...context,
         ...remoteDiagnostics,
+        ...(context.clientId === SERVER_BROWSER_AUTOMATION_CLIENT_ID
+          ? { reason: error.message.slice(0, MAX_REASON_CHARS) }
+          : {}),
       });
     case "PreviewAutomationControlInterruptedError": {
       const reason = decodeControlReason(error.detail);
