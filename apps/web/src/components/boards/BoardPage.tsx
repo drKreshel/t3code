@@ -372,7 +372,7 @@ function BoardColumnView({
       >
         <ol
           ref={setNodeRef}
-          className="flex min-h-12 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2"
+          className="flex min-h-12 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 pb-2"
         >
           {views.map((view) => (
             <SortableTicket
@@ -497,6 +497,9 @@ function TicketCard({
       : undefined;
   const visibleSessions =
     runningSessions.length > 0 ? runningSessions : lastSession ? [lastSession] : [];
+  const requirementsText = view.requirements
+    .map((requirement) => `${requirement.label} · ${requirement.columnName}`)
+    .join(", ");
   return (
     <article
       className={cn(
@@ -535,11 +538,9 @@ function TicketCard({
       {view.requirements.length > 0 || ticket.criteria.length > 0 || project ? (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {view.requirements.length > 0 ? (
-            <Badge variant="outline" size="sm">
+            <Badge variant="outline" size="sm" className="min-w-0 max-w-full shrink">
               <LinkIcon />
-              {view.requirements
-                .map((requirement) => `${requirement.label} · ${requirement.columnName}`)
-                .join(", ")}
+              <span className="truncate">{requirementsText}</span>
             </Badge>
           ) : null}
           {ticket.criteria.length > 0 ? (
