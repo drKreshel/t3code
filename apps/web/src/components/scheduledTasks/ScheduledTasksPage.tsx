@@ -11,7 +11,7 @@ import { useState } from "react";
 import { BoardsPageFrame } from "../boards/BoardsPageFrame";
 import {
   ScheduledTaskEditorDialog,
-  relativeLabel,
+  ScheduledRelativeLabel,
   scheduleLabel,
 } from "../settings/ScheduledTasksSettings";
 import { SettingsScopeProvider } from "../settings/SettingsScopeContext";
@@ -221,7 +221,7 @@ export function ScheduledTasksPage() {
                   </TableCell>
                   <TableCell>
                     <span className="text-muted-foreground">
-                      {task.enabled ? relativeLabel(task.nextRunAt) : "Paused"}
+                      {task.enabled ? <ScheduledRelativeLabel value={task.nextRunAt} /> : "Paused"}
                     </span>
                   </TableCell>
                   <TableCell>

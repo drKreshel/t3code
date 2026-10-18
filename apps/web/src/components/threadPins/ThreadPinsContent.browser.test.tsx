@@ -1,7 +1,7 @@
 import { EnvironmentId, ThreadId, type ThreadPins } from "@t3tools/contracts";
 import { act } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, expect, it, vi } from "vite-plus/test";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
 vi.mock("../../state/entities", () => ({
   useProject: () => null,
@@ -37,56 +37,55 @@ const pins: ThreadPins = {
   ],
 };
 
-let renderer: ReactTestRenderer | null = null;
+let root: Root;
+let container: HTMLDivElement;
 
-afterEach(() => {
-  act(() => renderer?.unmount());
-  renderer = null;
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
   useUiStateStore.setState({ collapsedThreadPinNoteKeys: [] });
   vi.unstubAllGlobals();
 });
 
-it("remembers a collapsed pinned note when the chat view remounts", () => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  act(() => {
-    renderer = create(
+function render() {
+  return act(async () =>
+    root.render(
       <ThreadPinsContent
         threadRef={threadRef}
         pins={pins}
         onOpenFile={vi.fn()}
         onOpenUrl={vi.fn()}
       />,
-    );
-  });
+    ),
+  );
+}
 
-  const noteBodies = () => renderer!.root.findAllByProps({ "data-thread-pin-note-body": true });
+const noteBodies = () => container.querySelectorAll("[data-thread-pin-note-body]");
+const toggle = (label: string) =>
+  container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+
+it("remembers a collapsed pinned note when the chat view remounts", async () => {
+  await render();
   expect(noteBodies()).toHaveLength(1);
-  expect(
-    renderer!.root.findAllByProps({ "data-note-markdown": "Agent one is running" }),
-  ).toHaveLength(1);
+  expect(container.querySelectorAll('[data-note-markdown="Agent one is running"]')).toHaveLength(1);
 
-  act(() => renderer!.root.findByProps({ "aria-label": "Collapse Delivery map" }).props.onClick());
+  await act(async () => toggle("Collapse Delivery map").click());
   expect(noteBodies()).toHaveLength(0);
-  expect(
-    renderer!.root.findByProps({ "aria-label": "Expand Delivery map" }).props["aria-expanded"],
-  ).toBe(false);
+  expect(toggle("Expand Delivery map").getAttribute("aria-expanded")).toBe("false");
 
-  act(() => {
-    renderer?.unmount();
-    renderer = create(
-      <ThreadPinsContent
-        threadRef={threadRef}
-        pins={pins}
-        onOpenFile={vi.fn()}
-        onOpenUrl={vi.fn()}
-      />,
-    );
-  });
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await render();
   expect(noteBodies()).toHaveLength(0);
-  expect(
-    renderer!.root.findByProps({ "aria-label": "Expand Delivery map" }).props["aria-expanded"],
-  ).toBe(false);
+  expect(toggle("Expand Delivery map").getAttribute("aria-expanded")).toBe("false");
 
-  act(() => renderer!.root.findByProps({ "aria-label": "Expand Delivery map" }).props.onClick());
+  await act(async () => toggle("Expand Delivery map").click());
   expect(noteBodies()).toHaveLength(1);
 });

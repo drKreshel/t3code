@@ -24,7 +24,7 @@ import { BoardsPageFrame } from "../boards/BoardsPageFrame";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
   ScheduledTaskEditorDialog,
-  relativeLabel,
+  ScheduledRelativeLabel,
   scheduleLabel,
 } from "../settings/ScheduledTasksSettings";
 import { SettingsScopeProvider } from "../settings/SettingsScopeContext";
@@ -216,7 +216,11 @@ function TaskDetails({
           ) : null}
         </Detail>
         <Detail label="Next run">
-          {task.enabled ? relativeLabel(task.nextRunAt) : <Badge variant="outline">Paused</Badge>}
+          {task.enabled ? (
+            <ScheduledRelativeLabel value={task.nextRunAt} />
+          ) : (
+            <Badge variant="outline">Paused</Badge>
+          )}
         </Detail>
         <Detail label="Last run">
           <span className="flex flex-wrap items-center gap-2">
