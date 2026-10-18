@@ -3,6 +3,7 @@
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   AuthPreviewOperateScope,
+  type DesktopPreviewAgentInput,
   type DesktopPreviewOpenLinkEvent,
   type DesktopPreviewRenderRequest,
   type EnvironmentId,
@@ -32,6 +33,7 @@ import { useBrowserPointerStore } from "./browserPointerStore";
 import { acquireBrowserSurfaceActivity } from "./browserSurfaceStore";
 import { HostedBrowserWebview } from "./HostedBrowserWebview";
 import { openUrlInPreview } from "./openFileInPreview";
+import { holdPreviewHostFocus } from "./previewHostFocus";
 import { rendersServerTabNatively } from "./previewRuntime";
 import { previewRuntimeTabId } from "./previewRuntimeTabId";
 
@@ -146,6 +148,28 @@ export function ElectronBrowserHost() {
       unsubscribe();
       for (const release of releases.values()) release();
     };
+  }, []);
+
+  const onAgentInput = useEffectEvent(
+    ({ threadId, tabId, active }: DesktopPreviewAgentInput, releases: Map<string, () => void>) => {
+      const key = `${threadId}\u0000${tabId}`;
+      releases.get(key)?.();
+      releases.delete(key);
+      if (!active) return;
+      const session = sessions.find(
+        (candidate) =>
+          candidate.threadRef.environmentId === primaryEnvironmentId &&
+          candidate.threadRef.threadId === threadId &&
+          candidate.snapshot.tabId === tabId,
+      );
+      if (session) releases.set(key, holdPreviewHostFocus(session.runtimeTabId));
+    },
+  );
+  useEffect(() => {
+    const preview = window.desktopBridge?.preview;
+    if (!preview?.onAgentInput) return;
+    const releases = new Map<string, () => void>();
+    return preview.onAgentInput((input) => onAgentInput(input, releases));
   }, []);
 
   if (!isElectron) return null;

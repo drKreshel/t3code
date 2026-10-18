@@ -27,6 +27,23 @@ const AGENT_INPUT_COMMAND =
   /"method":"(?:Input\.|Page\.navigate"|Runtime\.(?:evaluate|callFunctionOn)")/;
 const AGENT_DOWNLOAD_WINDOW_MS = 5_000;
 
+/** CDP commands that can pull window focus into the page: a press, or page script calling focus(). */
+const canTakeFocus = (method: string, params: Record<string, unknown>) => {
+  switch (method) {
+    case "Input.dispatchMouseEvent":
+      return params["type"] === "mousePressed";
+    case "Input.dispatchTouchEvent":
+      return params["type"] === "touchStart";
+    case "DOM.focus":
+    case "Page.bringToFront":
+    case "Runtime.evaluate":
+    case "Runtime.callFunctionOn":
+      return true;
+    default:
+      return false;
+  }
+};
+
 export interface DesktopBrowserTabKey {
   readonly threadId: string;
   readonly tabId: string;
@@ -41,6 +58,11 @@ export interface DesktopBrowserTabRender extends DesktopBrowserTabKey {
   readonly active: boolean;
 }
 
+/** The agent is running commands in this tab that can take focus (`active`), or finished them. */
+export interface DesktopBrowserTabAgentInput extends DesktopBrowserTabKey {
+  readonly active: boolean;
+}
+
 const keyOf = ({ threadId, tabId }: DesktopBrowserTabKey) => `${threadId}\u0000${tabId}`;
 
 interface AttachedTab {
@@ -50,6 +72,7 @@ interface AttachedTab {
   downloadDirectory: string | null;
   pendingDownloadGuid: string | null;
   agentInputAt: number;
+  focusingCommands: number;
   /** The server is capturing this tab, so the window keeps it on screen. */
   rendering: boolean;
   readonly onMessage: (
@@ -77,6 +100,11 @@ export class DesktopBrowserHost extends Context.Service<
     }>;
     /** Server tabs that must stay on screen while the server captures them, and when that ends. */
     readonly renders: Stream.Stream<DesktopBrowserTabRender>;
+    /**
+     * Only the window knows what had focus before an agent command focused
+     * the page, so it hands focus back when the command ends.
+     */
+    readonly agentInputs: Stream.Stream<DesktopBrowserTabAgentInput>;
   }
 >()("@t3tools/desktop/preview/DesktopBrowserHost") {}
 
@@ -89,6 +117,7 @@ export const make = Effect.gen(function* () {
     readonly y: number;
   }>(16);
   const renders = yield* PubSub.unbounded<DesktopBrowserTabRender>();
+  const agentInputs = yield* PubSub.unbounded<DesktopBrowserTabAgentInput>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
@@ -98,15 +127,34 @@ export const make = Effect.gen(function* () {
     runFork(PubSub.publish(renders, { ...tab.key, active }));
   };
 
+  const setAgentInput = (tab: AttachedTab, active: boolean) =>
+    runFork(PubSub.publish(agentInputs, { ...tab.key, active }));
+  const trackFocus = async (
+    tab: AttachedTab,
+    method: string,
+    params: Record<string, unknown>,
+    send: () => Promise<unknown>,
+  ) => {
+    if (!canTakeFocus(method, params)) return send();
+    if (tab.focusingCommands++ === 0) setAgentInput(tab, true);
+    try {
+      return await send();
+    } finally {
+      if (--tab.focusingCommands === 0) setAgentInput(tab, false);
+    }
+  };
+
   const relayFor = (tab: AttachedTab) => {
     if (tab.relay) return tab.relay;
     const { webContents, debugger: debuggee } = tab.debuggee;
     const relay: CdpRelayConnection = createCdpRelayConnection(
       {
         send: (method, params, sessionId) =>
-          sessionId === undefined
-            ? sendPageCommand(webContents, debuggee, method, params)
-            : debuggee.sendCommand(method, params, sessionId),
+          trackFocus(tab, method, params, () =>
+            sessionId === undefined
+              ? sendPageCommand(webContents, debuggee, method, params)
+              : debuggee.sendCommand(method, params, sessionId),
+          ),
         targetId: () =>
           debuggee
             .sendCommand("Target.getTargetInfo")
@@ -163,6 +211,7 @@ export const make = Effect.gen(function* () {
       downloadDirectory: null,
       pendingDownloadGuid: null,
       agentInputAt: Number.NEGATIVE_INFINITY,
+      focusingCommands: 0,
       rendering: false,
       onMessage: (_event, method, params, sessionId) => {
         if (method === "Browser.downloadWillBegin") {
@@ -221,6 +270,7 @@ export const make = Effect.gen(function* () {
   return DesktopBrowserHost.of({
     pointers: Stream.fromPubSub(pointers),
     renders: Stream.fromPubSub(renders),
+    agentInputs: Stream.fromPubSub(agentInputs),
     // Subscribes before announcing, so no attach falls between the two.
     events: Stream.unwrap(
       Effect.gen(function* () {

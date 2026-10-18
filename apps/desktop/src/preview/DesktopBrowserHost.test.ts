@@ -147,6 +147,39 @@ describe("DesktopBrowserHost", () => {
     }),
   );
 
+  it.effect("tells the window while agent commands that can focus the page run", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.make;
+      const debuggee = makeDebuggee();
+      host.attach(key, debuggee.tab);
+      const reader = yield* host.agentInputs.pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
+      const command = (id: number, method: string, params: Record<string, unknown> = {}) =>
+        host.handleCommandLine(
+          encodeJson({
+            type: "cdp",
+            ...key,
+            message: encodeJson({ id, method, params, sessionId: "t3-preview-page" }),
+          }),
+        );
+      yield* command(1, "Page.captureScreenshot");
+      yield* command(2, "Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+      // Overlapping commands that can take focus count as one stretch of input.
+      yield* command(3, "Input.dispatchMouseEvent", { type: "mousePressed", x: 1, y: 1 });
+      yield* command(4, "Runtime.callFunctionOn", { functionDeclaration: "function(){}" });
+      debuggee.release();
+
+      expect(yield* Fiber.join(reader)).toEqual([
+        { ...key, active: true },
+        { ...key, active: false },
+      ]);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("keeps a captured tab on screen until the server stops or the tab detaches", () =>
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.make;
