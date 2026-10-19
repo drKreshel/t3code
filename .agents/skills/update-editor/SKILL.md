@@ -21,7 +21,7 @@ Kreshel runs this fork as their daily editor while changing it. Keep the working
 
 ## Develop
 
-1. Work in the dev checkout on a feature branch off `main`.
+1. Work in a new T3 worktree on a feature branch off `main` (`t3_worktree_handoff`), not in the main checkout: another chat may be editing there.
 2. `vp` is not installed globally: use `pnpm exec vp ...` from the checkout root.
 3. Start the dev app in the background and track its PID: `pnpm exec vp run dev:desktop`. It defaults to `~/.t3/dev`; read the real ports from the `[dev-runner]` line. For browser testing use `pnpm exec vp run dev` with the `test-t3-app` skill.
 4. Known dev glitch: the first window load can fail with `T3 Code failed to start ... main.tsx` (`ERR_INSUFFICIENT_RESOURCES`). Relaunch the window with `touch apps/desktop/dist-electron/preload.cjs`, or ask Kreshel to press ⌘R.
@@ -40,6 +40,7 @@ Refresh dev data only with the dev app stopped: move the old `~/.t3/dev/state.sq
 - `main` is the fork's stable line: upstream plus merged fork features.
 - Commit finished work and upstream merges on the right branch with conventional messages. Ask before pushing feature work to `origin`; an upstream update pushes `main` on its own (below). Never push to `upstream`.
 - Keep fork changes merge-friendly: logic in new files, thin hooks into upstream files.
+- Bugfixes and other small changes close on their own: once verified, merge the branch into `main` from the main checkout (`git merge --no-ff`), then clean up as below, without asking. Leave the worktree and branch open only for big work that needs Kreshel's smoke test or input, and say so in the reply.
 - Once a feature branch is merged into `main`, remove its worktree and delete the branch (`git worktree remove <path>`, then `git branch -d <branch>`, which refuses unmerged work). Skip a worktree with uncommitted changes and say so.
 - [`FORK.md`](../../../FORK.md) lists each fork feature, the upstream files it touches, and where its data lives. Update it in the same commit when a fork feature lands, moves, or is dropped.
 
