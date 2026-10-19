@@ -628,6 +628,16 @@ export interface DesktopPreviewRenderRequest {
   active: boolean;
 }
 
+/**
+ * The agent is running commands in a tab of the desktop's own server that can
+ * focus its page (`active`), or finished them. Keyed like a render request.
+ */
+export interface DesktopPreviewAgentInput {
+  threadId: string;
+  tabId: string;
+  active: boolean;
+}
+
 /** A `target="_blank"` link the previewed page asked to open beside itself. */
 export interface DesktopPreviewOpenLinkEvent {
   tabId: string;
@@ -1227,6 +1237,7 @@ export interface DesktopPreviewBridge {
   onStateChange: (listener: (tabId: string, state: DesktopPreviewTabState) => void) => () => void;
   onPointerEvent: (listener: (event: DesktopPreviewPointerEvent) => void) => () => void;
   onRenderRequest?: (listener: (request: DesktopPreviewRenderRequest) => void) => () => void;
+  onAgentInput?: (listener: (input: DesktopPreviewAgentInput) => void) => () => void;
   onOpenLink: (listener: (event: DesktopPreviewOpenLinkEvent) => void) => () => void;
 }
 

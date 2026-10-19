@@ -67,6 +67,12 @@ export const installPreviewEventForwarding = Effect.fn(
     ),
     Effect.forkScoped,
   );
+  yield* browserHost.agentInputs.pipe(
+    Stream.runForEach((input) =>
+      electronWindow.sendAll(IpcChannels.PREVIEW_AGENT_INPUT_CHANNEL, input),
+    ),
+    Effect.forkScoped,
+  );
 });
 
 export const setForwardedShortcuts = DesktopIpc.makeIpcMethod({
