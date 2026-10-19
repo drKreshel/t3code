@@ -1,6 +1,4 @@
 import {
-  CommandId,
-  MessageId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ScheduledTask,
   ScheduledTaskError,
@@ -49,6 +47,10 @@ import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import {
+  cancelSupersededTicks,
+  scheduledTaskDispatchIds,
+} from "../fork/scheduledTasks/tickSupersession.ts";
 import {
   isMissedFixedTimeRun,
   isSameSchedule,
@@ -783,12 +785,12 @@ export const layer = Layer.effect(
         yield* markRunning(active.id, startedAtIso);
         yield* notifyChanged;
 
-        const fireKey =
-          webhook === undefined
-            ? `${active.id}:${DateTime.toEpochMillis(startedAt)}:${trigger}`
-            : `${active.id}:webhook:${webhook.deliveryId}`;
-        const commandId = CommandId.make(`scheduled-task:${fireKey}`);
-        const messageId = MessageId.make(`scheduled-task-message:${fireKey}`);
+        const { commandId, messageId } = scheduledTaskDispatchIds({
+          taskId: active.id,
+          firedAtMillis: DateTime.toEpochMillis(startedAt),
+          trigger,
+          webhookDeliveryId: webhook?.deliveryId,
+        });
         // A webhook prompt was rendered from the row when the request arrived.
         const prompt = webhook?.prompt ?? active.prompt;
 
@@ -831,6 +833,14 @@ export const layer = Layer.effect(
                   creationSource: active.creationSource,
                 }),
               );
+        // Fork: only an accepted automatic tick replaces older waiting ticks of its task.
+        if (trigger === "scheduled" && active.threadId !== null && result._tag === "Success")
+          yield* cancelSupersededTicks(threadManagement, {
+            threadId: ThreadId.make(active.threadId),
+            taskId: active.id,
+            acceptedMessageId: messageId,
+            commandId,
+          });
 
         const completedAt = yield* localNow;
         const runSucceeded = result._tag === "Success";
