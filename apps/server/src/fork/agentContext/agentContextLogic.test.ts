@@ -28,7 +28,10 @@ describe("agentInstructions", () => {
     });
     expect(instructions.map((instruction) => instruction.title)).toEqual([
       "Codex instructions",
-      "t3_code_orchestration",
+      "t3_code_orchestration_01",
+      "t3_code_orchestration_02",
+      "t3_code_orchestration_03",
+      "t3_code_orchestration_04",
       "t3_code_runtime",
       "t3_code_tools",
       "Collaboration mode: plan",
