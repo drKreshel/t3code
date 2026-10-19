@@ -27,8 +27,14 @@ import {
   ProviderThreadId,
   ProviderTurnId,
   RunId,
+  ScheduledTaskId,
   ThreadId,
+  type OrchestrationV2ThreadProjection,
 } from "@t3tools/contracts";
+import {
+  cancelSupersededTicks,
+  scheduledTaskDispatchIds,
+} from "../fork/scheduledTasks/tickSupersession.ts";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -4495,6 +4501,105 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         );
         assert.equal(resumed.runs.length, 3, "resume retries must not duplicate messages or runs");
       }),
+  );
+
+  // Fork: scheduled-task tick supersession (fork/scheduledTasks/tickSupersession.ts).
+  it.effect("supersedes a task's waiting ticks without releasing a restart hold", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const recovery = yield* ProviderRuntimeRecoveryService.ProviderRuntimeRecoveryService;
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const threadId = ThreadId.make("superseded-ticks");
+      const taskId = ScheduledTaskId.make("scheduled-task:monitor");
+      const otherTaskId = ScheduledTaskId.make("scheduled-task:monitor:2");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make(`${threadId}:create`),
+        threadId,
+        projectId: ProjectId.make(`${threadId}:project`),
+        title: "Monitor",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+      });
+      const tick = (
+        firedAtMillis: number,
+        trigger: "scheduled" | "manual" | "webhook" = "scheduled",
+        id = taskId,
+      ) =>
+        scheduledTaskDispatchIds({
+          taskId: id,
+          firedAtMillis,
+          trigger,
+          webhookDeliveryId: trigger === "webhook" ? `delivery-${firedAtMillis}` : undefined,
+        }).messageId;
+      const send = (messageId: MessageId, scheduledTaskId?: ScheduledTaskId) =>
+        orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`${threadId}:${messageId}`),
+          threadId,
+          messageId,
+          text: messageId,
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type: "queue_after_active" },
+          ...(scheduledTaskId === undefined ? {} : { scheduledTaskId }),
+        });
+      const active = MessageId.make(`${threadId}:active`);
+      const userQueued = MessageId.make(`${threadId}:user-queued`);
+      const untouched = [tick(2, "manual"), tick(3, "webhook"), tick(4, "scheduled", otherTaskId)];
+      yield* send(active);
+      yield* send(tick(1), taskId);
+      yield* send(untouched[0]!, taskId);
+      yield* send(untouched[1]!, taskId);
+      yield* send(untouched[2]!, otherTaskId);
+      yield* send(userQueued);
+      yield* send(tick(5), taskId);
+      const runOf = (
+        projection: Pick<OrchestrationV2ThreadProjection, "runs">,
+        messageId: MessageId,
+      ) => projection.runs.find((run) => run.userMessageId === messageId)!;
+      const supersede = (acceptedMessageId: MessageId) =>
+        cancelSupersededTicks(threads, {
+          threadId,
+          taskId,
+          acceptedMessageId,
+          commandId: CommandId.make(`${threadId}:supersede:${acceptedMessageId}`),
+        });
+
+      // A newer tick that queues behind running work ends the older one only.
+      yield* supersede(tick(5));
+      const queuedBehind = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(runOf(queuedBehind, active).status, "starting");
+      assert.equal(runOf(queuedBehind, tick(1)).status, "cancelled");
+      assert.equal(runOf(queuedBehind, tick(5)).status, "queued");
+      for (const messageId of [...untouched, userQueued]) {
+        assert.equal(runOf(queuedBehind, messageId).status, "queued");
+      }
+
+      // After a restart the queue waits for Resume. A tick that starts on the
+      // now idle thread ends its older waiting tick and leaves the hold on the rest.
+      yield* recovery.reconcile("shutdown");
+      yield* recovery.reconcile("startup");
+      yield* send(tick(6), taskId);
+      const started = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(runOf(started, tick(6)).status, "starting");
+      yield* supersede(tick(6));
+      yield* supersede(tick(6));
+      const after = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(runOf(after, tick(5)).status, "cancelled");
+      assert.equal(runOf(after, tick(6)).status, "starting");
+      for (const messageId of [...untouched, userQueued]) {
+        assert.equal(runOf(after, messageId).status, "queued");
+        assert.isTrue(runOf(after, messageId).queueHeld);
+      }
+    }),
   );
 
   it.effect("edits and removes queued runs", () =>
