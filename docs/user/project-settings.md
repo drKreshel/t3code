@@ -70,6 +70,9 @@ set on the task, or the environment's when you leave it empty, which may differ
 from your phone's. New tasks use the project checkout by default. Choose a new
 worktree when you want each run isolated, or a specific checkout to reuse one.
 
+Deleting a thread also deletes tasks that post into that thread. Tasks that start
+a new thread on each run survive deletion of their previous threads.
+
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run
 immediately.

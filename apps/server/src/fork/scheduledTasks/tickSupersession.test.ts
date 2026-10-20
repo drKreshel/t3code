@@ -23,6 +23,7 @@ import * as ThreadManagementService from "../../orchestration-v2/ThreadManagemen
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ScheduledTaskService from "../../scheduledTasks/ScheduledTaskService.ts";
 import * as Scheduler from "../../scheduling/Scheduler.ts";
+import * as ManagedProjectFolders from "../../project/ManagedProjectFolders.ts";
 import * as SecretRequests from "../../secrets/SecretRequests.ts";
 import { isAutomaticTick, scheduledTaskDispatchIds } from "./tickSupersession.ts";
 
@@ -94,6 +95,10 @@ it.effect(
         Scheduler.layer,
         Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: "/projects",
+          isScratchProject: () => Effect.succeed(false),
+        }),
         Layer.mock(ThreadManagementService.ThreadManagementService)({
           sendToThread: (input) =>
             Ref.update(sent, (all) => [...all, input.messageId]).pipe(

@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { isWhatsAppWebUrl } from "@t3tools/shared/preview";
 import { useShallow } from "zustand/react/shallow";
-import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { previewBridge } from "~/components/preview/previewBridge";
 import { usePreviewBridge } from "~/components/preview/usePreviewBridge";
@@ -20,13 +20,13 @@ import {
   browserViewportSettingKey,
   resolveBrowserViewportLayout,
   resolveFittedBrowserViewport,
-  resolveWebviewLayoutZoomFactor,
 } from "./browserViewportLayout";
 import { BrowserDeviceToolbar } from "./BrowserDeviceToolbar";
 import { BrowserViewportResizeHandles } from "./BrowserViewportResizeHandles";
 import { acquireDesktopTab, type AcquiredDesktopTab, withDesktopTab } from "./desktopTabLifetime";
 import { resolveHostedBrowserWebviewWrapperStyle } from "./hostedBrowserWebviewStyle";
 import { usePreviewWebviewConfig } from "./previewWebviewConfigState";
+import { useBrowserLayoutZoomFactor } from "./useBrowserLayoutZoomFactor";
 import { useBrowserViewportResize } from "./useBrowserViewportResize";
 import {
   INITIAL_WEBVIEW_CRASH_RECOVERY_STATE,
@@ -47,16 +47,6 @@ declare global {
   interface HTMLElementTagNameMap {
     webview: ElectronWebview;
   }
-}
-
-// Chromium resizes the window's CSS viewport when the app zoom changes.
-function subscribeToAppZoom(onChange: () => void): () => void {
-  window.addEventListener("resize", onChange);
-  return () => window.removeEventListener("resize", onChange);
-}
-
-function readAppZoomFactor(): number {
-  return window.desktopBridge?.getZoomFactor?.() ?? 1;
 }
 
 export function HostedBrowserWebview(props: {
@@ -221,8 +211,7 @@ export function HostedBrowserWebview(props: {
 
   const active = presentation.visible && presentation.rect !== null;
   const lastRect = presentation.rect;
-  const appZoomFactor = useSyncExternalStore(subscribeToAppZoom, readAppZoomFactor);
-  const layoutZoomFactor = resolveWebviewLayoutZoomFactor(zoomFactor, appZoomFactor);
+  const layoutZoomFactor = useBrowserLayoutZoomFactor(zoomFactor);
   const viewportWidth = viewport._tag === "fill" ? null : viewport.width;
   const viewportHeight = viewport._tag === "fill" ? null : viewport.height;
   const viewportAspectRatio =

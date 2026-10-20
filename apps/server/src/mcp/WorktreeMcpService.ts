@@ -61,7 +61,8 @@ type HandoffPlan =
       readonly branch: string;
       readonly baseRef: string;
       readonly worktreeBaseRef: string;
-      readonly startFromOrigin: boolean;
+      readonly baseRefName: string;
+      readonly startedFromOrigin: boolean;
     }
   | {
       readonly kind: "attach";
@@ -223,21 +224,27 @@ const make = Effect.gen(function* () {
     const startFromOrigin = input.startFromOrigin ?? (yield* readDefaultStartFromOrigin);
 
     let worktreeBaseRef = baseRef;
+    let baseRefName = baseRef;
+    let startedFromOrigin = false;
     if (startFromOrigin) {
-      yield* gitWorkflow
-        .fetchRemote({ cwd: projectCwd, remoteName: "origin" })
-        .pipe(asOperationFailed("Unable to fetch origin"));
       const resolvedRemoteBase = yield* gitWorkflow
-        .resolveRemoteTrackingCommit({
-          cwd: projectCwd,
-          refName: baseRef,
-          fallbackRemoteName: "origin",
-        })
-        .pipe(asOperationFailed(`Unable to resolve the remote-tracking commit of '${baseRef}'`));
-      worktreeBaseRef = resolvedRemoteBase.commitSha;
+        .fetchWorktreeBaseCommit({ cwd: projectCwd, refName: baseRef })
+        .pipe(asOperationFailed(`Unable to fetch the remote base of '${baseRef}'`));
+      if (resolvedRemoteBase !== null) {
+        worktreeBaseRef = resolvedRemoteBase.commitSha;
+        baseRefName = `refs/remotes/${resolvedRemoteBase.remoteRefName}`;
+        startedFromOrigin = true;
+      }
     }
 
-    return { kind: "create", branch, baseRef, worktreeBaseRef, startFromOrigin } as const;
+    return {
+      kind: "create",
+      branch,
+      baseRef,
+      worktreeBaseRef,
+      baseRefName,
+      startedFromOrigin,
+    } as const;
   });
 
   // Attach mode: the checkout already exists, typically made by a project's
@@ -365,7 +372,7 @@ const make = Effect.gen(function* () {
                     cwd: projectCwd,
                     refName: plan.worktreeBaseRef,
                     newRefName: plan.branch,
-                    baseRefName: plan.baseRef,
+                    baseRefName: plan.baseRefName,
                     path: null,
                   })
                   .pipe(
@@ -535,7 +542,7 @@ const make = Effect.gen(function* () {
           worktreePath,
           branch: checkout.refName,
           baseRef: plan.kind === "create" ? plan.baseRef : null,
-          startedFromOrigin: plan.kind === "create" && plan.startFromOrigin,
+          startedFromOrigin: plan.kind === "create" && plan.startedFromOrigin,
           setupScript,
           continuation,
           note:

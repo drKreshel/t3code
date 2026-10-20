@@ -32,6 +32,7 @@ describe("agentInstructions", () => {
       "t3_code_orchestration_02",
       "t3_code_orchestration_03",
       "t3_code_orchestration_04",
+      "t3_code_orchestration_05",
       "t3_code_runtime",
       "t3_code_tools",
       "Collaboration mode: plan",
