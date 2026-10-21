@@ -141,7 +141,9 @@ export function isSameSchedule(a: ScheduledTaskSchedule, b: ScheduledTaskSchedul
   );
 }
 
-const MISSED_FIXED_TIME_GRACE_MS = 10 * MINUTE_MS;
+// A sleeping Mac only runs the poll during maintenance wakes, typically 15-20
+// minutes apart, so a shorter grace drops runs whose slot fell between wakes.
+const MISSED_FIXED_TIME_GRACE_MS = 60 * MINUTE_MS;
 
 /**
  * True when a due wall-clock run (fixed time, cron, or one-off) was missed by
