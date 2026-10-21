@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 
-import { isSameSchedule, nextScheduledRunAt, scheduleProblem } from "./Schedule.ts";
+import {
+  isMissedFixedTimeRun,
+  isSameSchedule,
+  nextScheduledRunAt,
+  scheduleProblem,
+} from "./Schedule.ts";
 
 describe("scheduled task schedule calculation", () => {
   it("skips to the next matching fixed-time weekday", () => {
@@ -142,5 +147,26 @@ describe("cron, one-off, and timezone schedules", () => {
         { type: "fixed_time", timeOfDay: "09:00", timezone: "UTC" },
       ),
     ).toBe(false);
+  });
+});
+
+describe("missed wall-clock runs", () => {
+  const schedule = {
+    type: "fixed_time",
+    timeOfDay: "14:00",
+    timezone: "America/Argentina/Buenos_Aires",
+  } as const;
+  const dueAt = DateTime.makeUnsafe("2026-10-21T17:00:00.000Z");
+
+  it("still fires a run first polled after the host woke from sleep", () => {
+    expect(
+      isMissedFixedTimeRun(schedule, dueAt, DateTime.makeUnsafe("2026-10-21T17:12:52.000Z")),
+    ).toBe(false);
+  });
+
+  it("skips a run that is hours overdue, but never an interval catch-up", () => {
+    const now = DateTime.makeUnsafe("2026-10-21T19:00:00.000Z");
+    expect(isMissedFixedTimeRun(schedule, dueAt, now)).toBe(true);
+    expect(isMissedFixedTimeRun({ type: "interval", everyMs: 60_000 }, dueAt, now)).toBe(false);
   });
 });
