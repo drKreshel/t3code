@@ -99,8 +99,13 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   t3_thread_search: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const { caller } = yield* readCaller();
-      const { projectId: requested, ...query } = input;
-      const projectId = requested ?? caller?.projectId;
+      const { projectId: requested, allProjects, ...query } = input;
+      if (allProjects === true && requested !== undefined)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "Pass either projectId or allProjects, not both.",
+        });
+      const projectId = allProjects === true ? undefined : (requested ?? caller?.projectId);
       const threadSearch = yield* ThreadSearch.ThreadSearch;
       const result = yield* threadSearch.search(query).pipe(Effect.mapError(unavailable));
       return {

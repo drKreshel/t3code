@@ -736,7 +736,29 @@ describe("orchestrator MCP toolkit", () => {
             Layer.provide(layerProviderRegistry),
             Layer.provide(ServerSettings.layerTest()),
             Layer.provide(layerScheduledTaskStub),
-            Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
+            Layer.provide(
+              Layer.mock(ThreadSearch.ThreadSearch)({
+                search: () =>
+                  Effect.succeed({
+                    matches: [
+                      {
+                        threadId: parentThreadId,
+                        projectId,
+                        source: "user",
+                        snippet: "PR 2613",
+                        messageCreatedAt: null,
+                      },
+                      {
+                        threadId: ThreadId.make("thread:mcp-search-elsewhere"),
+                        projectId: ProjectId.make("project:mcp-search-elsewhere"),
+                        source: "user",
+                        snippet: "PR 2613",
+                        messageCreatedAt: null,
+                      },
+                    ],
+                  }),
+              }),
+            ),
             Layer.provide(
               Layer.mock(ProjectService.ProjectService)({
                 getById: (id) =>
@@ -842,6 +864,27 @@ describe("orchestrator MCP toolkit", () => {
             expect((yield* orchestrator.getThreadShell(parentThreadId))?.pinnedAt).not.toBeNull();
             yield* invoke("t3_thread_organize", { action: "unpin" });
             expect((yield* orchestrator.getThreadShell(parentThreadId))?.pinnedAt).toBeNull();
+
+            const searchedProjects = (result: McpSchema.CallToolResult) =>
+              (
+                result.structuredContent as {
+                  readonly matches: ReadonlyArray<{ readonly projectId: string }>;
+                }
+              ).matches.map((match) => match.projectId);
+            expect(searchedProjects(yield* invoke("t3_thread_search", { query: "2613" }))).toEqual([
+              projectId,
+            ]);
+            expect(
+              searchedProjects(
+                yield* invoke("t3_thread_search", { query: "2613", allProjects: true }),
+              ),
+            ).toEqual([projectId, "project:mcp-search-elsewhere"]);
+            const conflictingSearch = yield* invoke("t3_thread_search", {
+              query: "2613",
+              projectId,
+              allProjects: true,
+            });
+            expect(declaredFailure(conflictingSearch)).toMatchObject({ code: "invalid_request" });
 
             if (parentRun === undefined || parentRun.rootNodeId === null) {
               return yield* Effect.die(new Error("Parent run missing."));
