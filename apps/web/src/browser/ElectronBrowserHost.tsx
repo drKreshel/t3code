@@ -1,5 +1,3 @@
-"use client";
-
 import { parseScopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   AuthPreviewOperateScope,

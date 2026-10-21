@@ -10,7 +10,7 @@ import * as Result from "effect/Result";
 
 const MINUTE_MS = 60_000;
 
-export function parseTimeOfDay(value: string): { hour: number; minute: number } | null {
+function parseTimeOfDay(value: string): { hour: number; minute: number } | null {
   const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
   if (!match) return null;
   return { hour: Number(match[1]), minute: Number(match[2]) };

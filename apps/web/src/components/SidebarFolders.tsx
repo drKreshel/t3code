@@ -43,7 +43,6 @@ import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
 import type { SidebarThreadSummary } from "../types";
 import { useUiStateStore } from "../uiStateStore";
 import {
-  getSidebarForkParentThreadId,
   resolveProjectStatusIndicator,
   resolveThreadStatusPill,
   type SidebarDropVerb,
@@ -88,6 +87,18 @@ const FolderIconPicker = lazy(() =>
     default: module.ProjectIconPickerDialog,
   })),
 );
+
+// Forks stay beside their source: a run fork points at its source thread.
+function getSidebarForkParentThreadId(
+  thread: Pick<SidebarThreadSummary, "forkedFrom" | "lineage">,
+) {
+  if (thread.lineage.relationshipToParent !== "fork") {
+    return null;
+  }
+  return thread.forkedFrom?.type === "run"
+    ? thread.forkedFrom.threadId
+    : thread.lineage.parentThreadId;
+}
 
 export function useSidebarFolderLayout(): SidebarFolderLayout {
   const folders = useSidebarFolderStore((state) => state.folders);
