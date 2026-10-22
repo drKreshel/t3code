@@ -472,96 +472,84 @@ describe("V2 thread find", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("finds Needs-you replies in both persisted and memory history", () =>
-    Effect.gen(function* () {
-      const projection = yield* setup;
-      const requestId = RuntimeRequestId.make("human:choose-account");
-      const answer = item(
-        `async-answer:${requestId}`,
-        2,
-        "Use the staging account.",
-        "user_message",
-      );
-      const question: OrchestrationV2TurnItem = {
-        ...item("needs-you", 1, ""),
-        runId: null,
-        type: "user_input_request",
-        requestId,
-        questions: [],
-        questionAnswer: {
-          requestId,
-          answers: { decision: "Use the staging account." },
-          attachmentsByQuestionId: {},
-        },
-      };
-      yield* putItems([question, answer]);
-      const input = { threadId, query: "staging" };
-      const persisted = yield* projection.searchThread(input);
-      const memory = findProjectedThreadItems(
-        [question, answer].map((item, position) => ({
-          position,
-          visibility: "local" as const,
-          sourceThreadId: threadId,
-          sourceItemId: item.id,
-          item,
-        })),
-        input,
-        persisted.snapshotSequence,
-      );
-      for (const result of [persisted, memory]) {
-        assert.equal(result.totalMatches, 1);
-        assert.equal(result.match?.entryId, `async-answer:${requestId}`);
-      }
-    }).pipe(Effect.provide(layerTest)),
-  );
-
-  it.effect(
-    "does not search undispatched inputs, cancelled queue rows, or folded question answers",
-    () =>
+  it.effect.each(["human:choose-account", "choose-account"])(
+    "finds question replies in both persisted and memory history (%s)",
+    (requestKey) =>
       Effect.gen(function* () {
         const projection = yield* setup;
-        const queuedRunId = RunId.make("queued:cancelled");
-        yield* commit([run(threadId, queuedRunId, 2, "cancelled")]);
-        const queued = item("cancelled", 1, "needle", "user_message");
-        if (queued.type !== "user_message") return;
-        const answer = item("async-answer:question", 2, "needle", "user_message");
+        const requestId = RuntimeRequestId.make(requestKey);
+        const answer = item(
+          `async-answer:${requestId}`,
+          2,
+          "Use the staging account.",
+          "user_message",
+        );
         const question: OrchestrationV2TurnItem = {
-          ...item("question", 3, ""),
+          ...item("needs-you", 1, ""),
+          runId: null,
           type: "user_input_request",
-          requestId: RuntimeRequestId.make("question"),
+          requestId,
           questions: [],
-          questionAnswer: { requestId: "question", answers: {}, attachmentsByQuestionId: {} },
-        };
-        yield* putItems([
-          { ...queued, runId: queuedRunId, inputIntent: "queued_turn" },
-          answer,
-          question,
-        ]);
-        const event: OrchestrationV2DomainEvent = {
-          id: EventId.make("undispatched"),
-          threadId,
-          occurredAt: at(2),
-          type: "message.updated",
-          payload: {
-            id: MessageId.make("undispatched"),
-            threadId,
-            runId: null,
-            nodeId: null,
-            role: "user",
-            text: "needle",
-            attachments: [],
-            streaming: false,
-            createdBy: "user",
-            creationSource: "web",
-            createdAt: at(2),
-            updatedAt: at(2),
+          questionAnswer: {
+            requestId,
+            answers: { decision: "Use the staging account." },
+            attachmentsByQuestionId: {},
           },
         };
-        yield* commit([event]);
-        const result = yield* projection.searchThread({ threadId, query: "needle" });
-        assert.equal(result.totalMatches, 0);
-        assert.isNull(result.match);
+        yield* putItems([question, answer]);
+        const input = { threadId, query: "staging" };
+        const persisted = yield* projection.searchThread(input);
+        const memory = findProjectedThreadItems(
+          [question, answer].map((item, position) => ({
+            position,
+            visibility: "local" as const,
+            sourceThreadId: threadId,
+            sourceItemId: item.id,
+            item,
+          })),
+          input,
+          persisted.snapshotSequence,
+        );
+        for (const result of [persisted, memory]) {
+          assert.equal(result.totalMatches, 1);
+          assert.equal(result.match?.entryId, `async-answer:${requestId}`);
+        }
       }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("does not search undispatched inputs or cancelled queue rows", () =>
+    Effect.gen(function* () {
+      const projection = yield* setup;
+      const queuedRunId = RunId.make("queued:cancelled");
+      yield* commit([run(threadId, queuedRunId, 2, "cancelled")]);
+      const queued = item("cancelled", 1, "needle", "user_message");
+      if (queued.type !== "user_message") return;
+      yield* putItems([{ ...queued, runId: queuedRunId, inputIntent: "queued_turn" }]);
+      const event: OrchestrationV2DomainEvent = {
+        id: EventId.make("undispatched"),
+        threadId,
+        occurredAt: at(2),
+        type: "message.updated",
+        payload: {
+          id: MessageId.make("undispatched"),
+          threadId,
+          runId: null,
+          nodeId: null,
+          role: "user",
+          text: "needle",
+          attachments: [],
+          streaming: false,
+          createdBy: "user",
+          creationSource: "web",
+          createdAt: at(2),
+          updatedAt: at(2),
+        },
+      };
+      yield* commit([event]);
+      const result = yield* projection.searchThread({ threadId, query: "needle" });
+      assert.equal(result.totalMatches, 0);
+      assert.isNull(result.match);
+    }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect(

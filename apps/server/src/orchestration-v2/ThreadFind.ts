@@ -83,19 +83,8 @@ function parseText(key: TextKey): readonly string[] {
 }
 
 function searchableRows(items: readonly OrchestrationV2ProjectedTurnItem[]) {
-  const foldedAnswers = new Set(
-    items.flatMap(({ item }) =>
-      item.type === "user_input_request" &&
-      !item.requestId.startsWith("human:") &&
-      item.questionAnswer
-        ? [`async-answer:${item.questionAnswer.requestId}`]
-        : [],
-    ),
-  );
-  return items.filter(
-    ({ item }) =>
-      ["user_message", "assistant_message", "proposed_plan"].includes(item.type) &&
-      !(item.type === "user_message" && foldedAnswers.has(item.messageId)),
+  return items.filter(({ item }) =>
+    ["user_message", "assistant_message", "proposed_plan"].includes(item.type),
   );
 }
 
@@ -337,9 +326,7 @@ export const makeThreadFind = Effect.fn("makeThreadFind")(function* (
       const candidates = index
         .map((row, position) => ({ ...row, position }))
         .filter((row) =>
-          ["user_message", "assistant_message", "proposed_plan", "user_input_request"].includes(
-            row.item.type,
-          ),
+          ["user_message", "assistant_message", "proposed_plan"].includes(row.item.type),
         );
       const payloads: FindPayload[] = [];
       for (let start = 0; start < candidates.length; start += 128) {
@@ -363,7 +350,7 @@ export const makeThreadFind = Effect.fn("makeThreadFind")(function* (
         // Release SQLite before decoding and parsing. Both frames describe one snapshot.
         const data = yield* snapshot(input);
         if (data.result) return Stream.succeed(data.result);
-        const { payloads, cwd, sequence, cacheKey, sourceThreadIds } = data;
+        const { payloads: rows, cwd, sequence, cacheKey, sourceThreadIds } = data;
         const decode = (row: FindPayload) =>
           decodeItem(row.payload).pipe(
             Effect.map((item) => ({ ...row, item })),
@@ -371,24 +358,6 @@ export const makeThreadFind = Effect.fn("makeThreadFind")(function* (
               (cause) => new ProjectionStoreReadError({ threadId: input.threadId, cause }),
             ),
           );
-        // Needs-you replies stay searchable as the user messages clients display.
-        // Other answers rendered inside question cards are folded out of the timeline.
-        const foldedAnswers = new Set<string>();
-        for (const payload of payloads) {
-          if (payload.type !== "user_input_request") continue;
-          const { item } = yield* decode(payload);
-          if (
-            item.type === "user_input_request" &&
-            !item.requestId.startsWith("human:") &&
-            item.questionAnswer
-          )
-            foldedAnswers.add(`async-answer:${item.questionAnswer.requestId}`);
-        }
-        const rows = payloads.filter(
-          (row) =>
-            row.type !== "user_input_request" &&
-            !(row.type === "user_message" && foldedAnswers.has(row.entryId)),
-        );
         const documents = new Map<number, FindDocument>();
         const count = Effect.fnUntraced(function* (row: FindPayload) {
           const cached = documents.get(row.position);
