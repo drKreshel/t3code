@@ -1251,15 +1251,23 @@ describe("native provider presentation in the v2 timeline", () => {
     item,
   });
 
+  const colorQuestion = {
+    id: "color",
+    header: "Color",
+    question: "Which color?",
+    options: [],
+  };
+
   it.each(["question", "human:question"])(
-    "preserves question history and shows Needs-you replies for %s, including incremental updates",
+    "keeps the question history and shows the reply message for %s, including incremental updates",
     (requestKey) => {
       const requestId = RuntimeRequestId.make(requestKey);
       const question: OrchestrationV2TurnItem = {
         ...base,
         type: "user_input_request",
         requestId,
-        questions: [],
+        responseMode: "message",
+        questions: [colorQuestion],
         questionAnswer: { requestId, answers: { color: "Blue" }, attachmentsByQuestionId: {} },
       };
       const reply: OrchestrationV2TurnItem = {
@@ -1278,37 +1286,50 @@ describe("native provider presentation in the v2 timeline", () => {
       const nextInput = { ...input, visibleTurnItems: [...input.visibleTurnItems, visible(reply)] };
       const next = deriveTimelineEntriesFromVisibleTurnItemsWithState(nextInput, previous);
       expect(next.entries).toEqual(deriveTimelineEntriesFromVisibleTurnItems(nextInput));
-      expect(next.entries).toHaveLength(requestKey.startsWith("human:") ? 2 : 1);
-      if (requestKey.startsWith("human:")) {
-        expect(next.entries[1]).toMatchObject({
-          kind: "message",
-          message: { id: reply.messageId, role: "user", text: reply.text },
-        });
-      }
-      const replyFirst = { ...input, visibleTurnItems: [visible(reply)] };
-      const replyProjection = deriveTimelineEntriesFromVisibleTurnItemsWithState(replyFirst);
-      const questionAfterReply = {
-        ...input,
-        visibleTurnItems: [...replyFirst.visibleTurnItems, visible(question)],
-      };
-      expect(
-        deriveTimelineEntriesFromVisibleTurnItemsWithState(questionAfterReply, replyProjection)
-          .entries,
-      ).toEqual(deriveTimelineEntriesFromVisibleTurnItems(questionAfterReply));
-
+      expect(next.entries).toHaveLength(2);
       expect(next.entries[0]).toMatchObject({
         kind: "work",
         entry: { questionAnswer: question.questionAnswer },
       });
-      // A separately paged reply stays visible until its question history is available.
-      expect(
-        deriveTimelineEntriesFromVisibleTurnItems({
-          ...input,
-          visibleTurnItems: [visible(reply)],
-        })[0]?.kind,
-      ).toBe("message");
+      expect(next.entries[1]).toMatchObject({
+        kind: "message",
+        message: { id: reply.messageId, role: "user", text: reply.text },
+      });
     },
   );
+
+  it("shows a live answer as the user's reply after its question", () => {
+    const requestId = RuntimeRequestId.make("live-question");
+    const pending: OrchestrationV2TurnItem = {
+      ...base,
+      type: "user_input_request",
+      requestId,
+      questions: [colorQuestion],
+    };
+    const answered: OrchestrationV2TurnItem = {
+      ...pending,
+      questionAnswer: {
+        requestId,
+        answers: { color: ["Blue", "Green"] },
+        attachmentsByQuestionId: {},
+      },
+    };
+    const input = { visibleTurnItems: [visible(pending)], optimisticMessages: [] };
+    const previous = deriveTimelineEntriesFromVisibleTurnItemsWithState(input);
+    expect(previous.entries.map((entry) => entry.kind)).toEqual(["work"]);
+
+    const nextInput = { ...input, visibleTurnItems: [visible(answered)] };
+    const next = deriveTimelineEntriesFromVisibleTurnItemsWithState(nextInput, previous);
+    expect(next.entries.map((entry) => entry.kind)).toEqual(["work", "message"]);
+    expect(next.entries[1]).toMatchObject({
+      message: {
+        id: `async-answer:${requestId}`,
+        role: "user",
+        text: "Which color?\nBlue, Green",
+        inputIntent: "steer",
+      },
+    });
+  });
 
   it("excludes checkpoint-only work from the timeline", () => {
     const message: OrchestrationV2TurnItem = {

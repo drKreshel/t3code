@@ -143,15 +143,18 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
 }
 
 describe("buildThreadFeed", () => {
+  const colorQuestion = { id: "color", header: "Color", question: "Which color?", options: [] };
+
   it.each(["question", "human:question"])(
-    "preserves question history and shows Needs-you replies for %s",
+    "keeps the question history and shows the reply message for %s",
     (requestKey) => {
       const requestId = RuntimeRequestId.make(requestKey);
       const question: OrchestrationV2TurnItem = {
         ...base("question", "2026-06-20T00:00:01.000Z", 0),
         type: "user_input_request",
         requestId,
-        questions: [],
+        responseMode: "message",
+        questions: [colorQuestion],
         questionAnswer: { requestId, answers: { color: "Blue" }, attachmentsByQuestionId: {} },
       };
       const reply: OrchestrationV2TurnItem = {
@@ -161,20 +164,44 @@ describe("buildThreadFeed", () => {
         text: "Which color?\nBlue\nKeep the existing logo.",
       };
       const feed = buildThreadFeed([projected(question, 0), projected(reply, 1)]);
-      expect(feed).toHaveLength(requestKey.startsWith("human:") ? 2 : 1);
-      if (requestKey.startsWith("human:")) {
-        expect(feed[1]).toMatchObject({
-          type: "message",
-          message: { id: reply.messageId, role: "user", text: reply.text },
-        });
-      }
+      expect(feed).toHaveLength(2);
       expect(feed[0]).toMatchObject({
         type: "activity-group",
         activities: [{ workEntry: { questionAnswer: question.questionAnswer } }],
       });
-      expect(buildThreadFeed([projected(reply, 0)])[0]?.type).toBe("message");
+      expect(feed[1]).toMatchObject({
+        type: "message",
+        message: { id: reply.messageId, role: "user", text: reply.text },
+      });
     },
   );
+
+  it("shows a live answer as the user's reply after its question, also from the cache", () => {
+    const requestId = RuntimeRequestId.make("live-question");
+    const question: OrchestrationV2TurnItem = {
+      ...base("question", "2026-06-20T00:00:01.000Z", 0),
+      type: "user_input_request",
+      requestId,
+      questions: [colorQuestion],
+      questionAnswer: { requestId, answers: { color: "Blue" }, attachmentsByQuestionId: {} },
+    };
+    const cache = createThreadFeedCache();
+    const rows = [projected(question, 0)];
+    const before = buildThreadFeed(rows, { cache });
+    const after = buildThreadFeed([...rows, projected(assistantMessage(), 1)], { cache });
+    for (const feed of [before, after]) {
+      expect(feed[1]).toMatchObject({
+        type: "message",
+        message: {
+          id: `async-answer:${requestId}`,
+          role: "user",
+          text: "Which color?\nBlue",
+          inputIntent: "steer",
+        },
+      });
+    }
+    expect(after.map((entry) => entry.type)).toEqual(["activity-group", "message", "message"]);
+  });
 
   it.each([false, true])(
     "keeps answered questions outside settled work (attachments only: %s)",

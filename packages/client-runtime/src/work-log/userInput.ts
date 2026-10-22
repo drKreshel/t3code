@@ -42,3 +42,22 @@ export function hasQuestionAnswer(answer: UserInputAttachmentAnswerPayload): boo
     Object.values(answer.attachmentsByQuestionId).some((attachments) => attachments.length > 0)
   );
 }
+
+/**
+ * Reply text for a question answered in place. Message-mode answers arrive as their own
+ * `async-answer:` user message; live answers go straight to the provider and leave none,
+ * so clients show this as the user's reply.
+ */
+export function liveQuestionReplyText(item: {
+  readonly responseMode?: "message" | undefined;
+  readonly questions: ReadonlyArray<{ readonly id: string; readonly question: string }>;
+  readonly questionAnswer?: UserInputAttachmentAnswerPayload | undefined;
+}): string | undefined {
+  if (item.responseMode === "message" || item.questionAnswer === undefined) return undefined;
+  const { answers } = item.questionAnswer;
+  const replies = item.questions.flatMap((question) => {
+    const answer = getQuestionAnswerText(answers[question.id]).trim();
+    return answer ? [`${question.question}\n${answer}`] : [];
+  });
+  return replies.length > 0 ? replies.join("\n\n") : undefined;
+}

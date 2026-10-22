@@ -39,7 +39,6 @@ import {
 } from "@t3tools/shared/t3McpToolPresentation";
 import type {
   ChatAttachment,
-  MessageId,
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2ExecutionNode,
@@ -53,7 +52,8 @@ import type {
   ScheduledTaskId,
   TurnItemId,
 } from "@t3tools/contracts";
-import { RunId, ThreadId } from "@t3tools/contracts";
+import { MessageId, RunId, ThreadId } from "@t3tools/contracts";
+import { liveQuestionReplyText } from "@t3tools/client-runtime/work-log/user-input";
 import {
   classifyToolActivity,
   collectToolFilePaths,
@@ -320,6 +320,7 @@ const projectedEntriesCache = new WeakMap<
   {
     readonly attemptId: RunAttemptId | null;
     readonly entry: RawThreadFeedEntry;
+    readonly reply?: RawThreadFeedEntry;
   }
 >();
 const localMessageEntriesCache = new WeakMap<
@@ -812,6 +813,37 @@ export function formatItemFullDetail(
     null,
     2,
   );
+}
+
+function liveQuestionReplyEntry(
+  row: OrchestrationV2ProjectedTurnItem,
+): RawThreadFeedEntry | undefined {
+  const { item } = row;
+  if (item.type !== "user_input_request") return undefined;
+  const text = liveQuestionReplyText(item);
+  if (text === undefined) return undefined;
+  const id = MessageId.make(`async-answer:${item.requestId}`);
+  const repliedAt = DateTime.formatIso(item.completedAt ?? item.updatedAt);
+  return {
+    type: "message",
+    id,
+    createdAt: repliedAt,
+    message: {
+      id,
+      role: "user",
+      text,
+      attachments: [],
+      runId: item.runId,
+      streaming: false,
+      // Same id a message-mode answer would get; "steer" keeps rewind off this bubble.
+      inputIntent: "steer",
+      createdBy: "user",
+      visibility: row.visibility,
+      sourceThreadId: row.sourceThreadId,
+      createdAt: repliedAt,
+      updatedAt: repliedAt,
+    },
+  };
 }
 
 function toFeedActivity(
@@ -1938,7 +1970,6 @@ interface ThreadFeedBuild {
   readonly attempts: ReadonlyArray<OrchestrationV2RunAttempt> | undefined;
   readonly nodes: ReadonlyArray<OrchestrationV2ExecutionNode> | undefined;
   readonly checkpointSummaries: ReadonlyArray<ThreadCheckpointSummary> | undefined;
-  readonly foldedAnswerMessageIds: ReadonlySet<string>;
   readonly delegatedChildrenByRun: ReadonlyMap<RunId, ReadonlySet<string>>;
   readonly feed: ReadonlyArray<ThreadFeedEntry>;
   /** Grouping is empty before `row`: the rows before it produced `feed.slice(0, feedLength)`. */
@@ -2044,17 +2075,9 @@ export function buildThreadFeed(
   };
   // Thread-wide facts that change rows anywhere in the feed. A cached prefix
   // is reused only while these match the build that produced it.
-  const foldedAnswerMessageIds = new Set<string>();
   const delegatedChildrenByRun = new Map<RunId, Set<string>>();
   for (const { item } of visibleTurnItems) {
-    // Needs-you replies are user messages, even when the question keeps answer history.
-    if (
-      item.type === "user_input_request" &&
-      !item.requestId.startsWith("human:") &&
-      item.questionAnswer
-    ) {
-      foldedAnswerMessageIds.add(`async-answer:${item.questionAnswer.requestId}`);
-    } else if (item.type === "subagent" && item.origin === "app_owned" && item.runId !== null) {
+    if (item.type === "subagent" && item.origin === "app_owned" && item.runId !== null) {
       const children = delegatedChildrenByRun.get(item.runId) ?? new Set<string>();
       children.add(item.subagentId);
       delegatedChildrenByRun.set(item.runId, children);
@@ -2070,7 +2093,6 @@ export function buildThreadFeed(
     previous.attempts === options?.attempts &&
     previous.nodes === options?.nodes &&
     checkpointSummariesEqual(previous.checkpointSummaries, options?.checkpointSummaries) &&
-    setsEqual(previous.foldedAnswerMessageIds, foldedAnswerMessageIds) &&
     setMapsEqual(previous.delegatedChildrenByRun, delegatedChildrenByRun)
   ) {
     const firstChanged = firstChangedIndex(previous.rows, visibleTurnItems);
@@ -2090,7 +2112,6 @@ export function buildThreadFeed(
     const item = row.item;
     if (turnItemIsWorkspacePreparation(item)) continue;
     if (item.type === "todo_list" || item.type === "checkpoint") continue;
-    if (item.type === "user_message" && foldedAnswerMessageIds.has(item.messageId)) continue;
     if (item.type === "run_interrupt_request") {
       continue;
     }
@@ -2099,6 +2120,10 @@ export function buildThreadFeed(
     if (cached?.attemptId === attemptId) {
       entries.push(cached.entry);
       entryRows.push(index);
+      if (cached.reply) {
+        entries.push(cached.reply);
+        entryRows.push(index);
+      }
       continue;
     }
     const createdAt = DateTime.formatIso(item.startedAt ?? item.updatedAt);
@@ -2182,14 +2207,18 @@ export function buildThreadFeed(
       runId: item.runId,
       activity,
     };
-    projectedEntriesCache.set(row, { attemptId, entry });
+    const reply = liveQuestionReplyEntry(row);
+    projectedEntriesCache.set(row, { attemptId, entry, ...(reply ? { reply } : {}) });
     entries.push(entry);
     entryRows.push(index);
+    if (reply) {
+      entries.push(reply);
+      entryRows.push(index);
+    }
   }
-  const retainedMessageIds = new Set([
-    ...foldedAnswerMessageIds,
-    ...entries.flatMap((entry) => (entry.type === "message" ? [entry.id] : [])),
-  ]);
+  const retainedMessageIds = new Set(
+    entries.flatMap((entry) => (entry.type === "message" ? [entry.id] : [])),
+  );
   const appendLocalMessage = (message: LocalThreadMessage): RawThreadFeedEntry => {
     const cached = localMessageEntriesCache.get(message);
     if (cached) return cached;
@@ -2256,7 +2285,6 @@ export function buildThreadFeed(
             attempts: options?.attempts,
             nodes: options?.nodes,
             checkpointSummaries: options?.checkpointSummaries,
-            foldedAnswerMessageIds,
             delegatedChildrenByRun,
             feed,
             restarts,

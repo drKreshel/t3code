@@ -2,6 +2,7 @@ import type { ThreadStructure, ThreadStructureRuntime } from "@t3tools/client-ru
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
 import {
   type AssetResource,
+  MessageId,
   type OrchestrationV2Checkpoint,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2PlanArtifact,
@@ -26,6 +27,7 @@ import {
 } from "@t3tools/shared/toolActivity";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
+import { liveQuestionReplyText } from "@t3tools/client-runtime/work-log/user-input";
 import type { McpAppReference } from "@t3tools/shared/mcpApp";
 import { htmlRenderFromToolItem, mcpAppFromToolItem } from "@t3tools/shared/toolOutput";
 import {
@@ -659,21 +661,10 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
     return undefined;
   };
 
-  const foldedAnswerMessageIds = new Set(
-    input.visibleTurnItems.flatMap(({ item }) =>
-      // Needs-you replies are user messages, even when the question keeps answer history.
-      item.type === "user_input_request" &&
-      !item.requestId.startsWith("human:") &&
-      item.questionAnswer
-        ? [`async-answer:${item.questionAnswer.requestId}`]
-        : [],
-    ),
-  );
   for (const row of input.visibleTurnItems) {
     const { item } = row;
     if (turnItemIsWorkspacePreparation(item)) continue;
     if (item.type === "todo_list" || item.type === "checkpoint") continue;
-    if (item.type === "user_message" && foldedAnswerMessageIds.has(item.messageId)) continue;
     const createdAt = projectedItemCreatedAt(row);
     const attempt = resolveAttempt(item);
     const attemptMetadata = attempt === undefined ? {} : { attempt };
@@ -811,9 +802,33 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
       entry: projectedWorkEntry(row),
       ...attemptMetadata,
     });
+    const replyText = item.type === "user_input_request" ? liveQuestionReplyText(item) : undefined;
+    if (item.type === "user_input_request" && replyText !== undefined) {
+      const repliedAt = DateTime.formatIso(item.completedAt ?? item.updatedAt);
+      // Same id a message-mode answer would get; "steer" keeps rewind off this bubble.
+      const message: ChatMessage = {
+        id: MessageId.make(`async-answer:${item.requestId}`),
+        role: "user",
+        text: replyText,
+        runId: item.runId,
+        streaming: false,
+        createdBy: "user",
+        createdAt: repliedAt,
+        updatedAt: repliedAt,
+        inputIntent: "steer",
+      };
+      committedMessageIds.add(message.id);
+      entries.push({
+        id: message.id,
+        kind: "message",
+        createdAt: repliedAt,
+        message,
+        ...attemptMetadata,
+      });
+    }
   }
 
-  const retainedMessageIds = new Set([...committedMessageIds, ...foldedAnswerMessageIds]);
+  const retainedMessageIds = new Set(committedMessageIds);
   for (const message of input.anchoredMessages ?? []) {
     if (retainedMessageIds.has(message.id)) continue;
     retainedMessageIds.add(message.id);
@@ -992,18 +1007,6 @@ function reuseTimelineEntries(
   ) {
     return null;
   }
-  // Answer rows can replace a message already present in the retained prefix.
-  if (
-    appended &&
-    input.visibleTurnItems
-      .slice(before.visibleTurnItems.length)
-      .some(
-        ({ item }) =>
-          (item.type === "user_input_request" && item.questionAnswer !== undefined) ||
-          (item.type === "user_message" && item.messageId.startsWith("async-answer:")),
-      )
-  )
-    return null;
   const replacements = new Map<
     OrchestrationV2ProjectedTurnItem,
     OrchestrationV2ProjectedTurnItem
