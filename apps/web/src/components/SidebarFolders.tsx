@@ -918,8 +918,12 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
   };
   const openMenu = (position: { x: number; y: number }) =>
     void showFolderMenu(folder.id, position, actions);
+  const showSettledShelf = !node.collapsed && node.settledCount > 0;
   const hasContent =
-    !node.collapsed && (node.children.length > 0 || node.rows.length > 0 || node.settledCount > 0);
+    node.children.length > 0 ||
+    node.settledChildren.length > 0 ||
+    node.rows.length > 0 ||
+    showSettledShelf;
   const firstSettledIndex = node.rows.findIndex((row) => row.section === "settled");
   const settledStart = firstSettledIndex === -1 ? node.rows.length : firstSettledIndex;
   const renderRow = (row: (typeof node.rows)[number]) => (
@@ -1086,7 +1090,7 @@ function FolderNode<TThread extends SidebarThreadSummary>(props: {
             />
           ))}
           {node.rows.slice(0, settledStart).map(renderRow)}
-          {node.settledCount > 0 ? (
+          {showSettledShelf ? (
             <li className="mt-1 list-none" data-thread-selection-safe>
               <CollapsibleSectionHeader
                 expanded={node.settledExpanded}
