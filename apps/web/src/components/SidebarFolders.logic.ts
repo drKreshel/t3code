@@ -517,11 +517,12 @@ export interface SidebarFolderTreeNode<TThread> {
   readonly folder: SidebarFolder;
   readonly depth: number;
   readonly collapsed: boolean;
-  /** Subfolders to render; empty while collapsed. */
+  /** Subfolders to render; while collapsed, only the one leading to the open chat. */
   readonly children: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
   /** Subfolders visible behind this folder's Settled shelf. */
   readonly settledChildren: ReadonlyArray<SidebarFolderTreeNode<TThread>>;
-  /** This folder's threads in visual order, with settled rows last; empty while collapsed. */
+  /** This folder's threads in visual order, with settled rows last; only the open chat
+      while collapsed. */
   readonly rows: ReadonlyArray<SidebarFolderThreadRow<TThread>>;
   /** Chats and folders behind this folder's own Settled shelf. Zero inside the Settled
       section, where a folder's rows render directly. */
@@ -667,8 +668,9 @@ export function buildSidebarFolderTree<TThread>(input: {
     if (input.hideEmptyFolders && subtreeThreads.length === 0) return null;
     const isCollapsed = collapsed.has(folder.id);
     const settledExpanded = expandedSettled.has(folder.id);
+    // Like a collapsed shelf, a collapsed folder still shows the open chat.
     const rows = isCollapsed
-      ? []
+      ? ownRows.filter((row) => row.key === input.routeThreadKey)
       : inSettledSection
         ? ownRows
         : ownRows.filter(
@@ -679,10 +681,12 @@ export function buildSidebarFolderTree<TThread>(input: {
       folder,
       depth,
       collapsed: isCollapsed,
-      children: isCollapsed ? [] : activeChildren,
-      settledChildren: isCollapsed
-        ? []
-        : settledChildren.filter((child) => settledExpanded || routeFolderIds.has(child.folder.id)),
+      children: isCollapsed
+        ? activeChildren.filter((child) => routeFolderIds.has(child.folder.id))
+        : activeChildren,
+      settledChildren: settledChildren.filter(
+        (child) => (settledExpanded && !isCollapsed) || routeFolderIds.has(child.folder.id),
+      ),
       rows,
       settledCount: inSettledSection
         ? 0

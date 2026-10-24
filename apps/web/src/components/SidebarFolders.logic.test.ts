@@ -414,6 +414,34 @@ describe("buildSidebarFolderTree", () => {
     expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s2"]);
   });
 
+  it("keeps the open chat visible inside collapsed nested folders", () => {
+    const collapsed = toggleSidebarFolderCollapsed(
+      toggleSidebarFolderCollapsed(
+        layoutWith(
+          [
+            ["a", null],
+            ["b", null],
+            ["a1", "a"],
+          ],
+          { a: ["t1"], a1: ["t2", "t3"], b: ["t4"] },
+        ),
+        "a",
+      ),
+      "a1",
+    );
+    const tree = buildSidebarFolderTree<Thread>({
+      layout: toggleSidebarFolderCollapsed(collapsed, "b"),
+      threadByKey: threads(["t1", "t2", "t3", "t4"]),
+      sectionOf: () => "active",
+      hideEmptyFolders: false,
+      routeThreadKey: "t3",
+    });
+    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t3"]);
+    expect(tree.roots[0]).toMatchObject({ collapsed: true, rows: [] });
+    expect(tree.roots[0]!.children.map((node) => node.folder.id)).toEqual(["a1"]);
+    expect(tree.roots[1]).toMatchObject({ collapsed: true, children: [], rows: [] });
+  });
+
   it("remembers shelf expansion across folder collapse and removes it when the folder is deleted", () => {
     const layout = layoutWith([["a", null]], { a: ["t1", "s1"] });
     const expanded = toggleSidebarFolderSettledExpanded(layout, "a");
