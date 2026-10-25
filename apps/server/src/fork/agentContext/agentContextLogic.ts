@@ -7,10 +7,7 @@ import * as Context from "effect/Context";
 import { Tool } from "effect/ai";
 
 import { claudeSystemPromptAppend } from "../../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
-import {
-  buildCodexAdditionalContext,
-  buildCodexDeveloperInstructions,
-} from "../../provider/CodexDeveloperInstructions.ts";
+import { buildCodexAdditionalContext } from "../../provider/CodexDeveloperInstructions.ts";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { AttachmentToolkit } from "../../mcp/toolkits/attachment/tools.ts";
@@ -81,8 +78,8 @@ export function agentInstructions(input: AgentSessionInput): {
           })),
           {
             title: `Collaboration mode: ${input.interactionMode}`,
-            channel: "Developer instructions; newer models may use their own text instead",
-            text: buildCodexDeveloperInstructions(input.interactionMode),
+            channel: "Built into Codex: its own instructions for this mode",
+            text: null,
           },
         ],
       };

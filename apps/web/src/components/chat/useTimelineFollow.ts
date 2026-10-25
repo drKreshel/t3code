@@ -28,6 +28,7 @@ import { type ChatComposerHandle } from "./ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./pageScrollController";
 import { createUpwardScrollDetector, isTimelineScrollTarget } from "./timelineScrollTarget";
 import { resolveTimelineIsAtEnd } from "./MessagesTimeline.logic";
+import { measuredEndOffset, settleListScroll } from "./useTimelinePositionRestore";
 import { shouldReleaseTimelineAnchorForToolActivity } from "../ChatView.logic";
 import { releaseChatTimelineAnchor } from "../ChatView.logic";
 import type { Dispatch, RefObject } from "react";
@@ -132,13 +133,8 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       anchorScrollRestoreFrameRef.current = null;
     }
     if (wasProgrammaticScrollMode) {
-      // While following or anchoring, our scrollToEnd/scrollToOffset calls can
-      // sit in LegendList's pending-imperative-scroll queue (it defers them
-      // while layout settles) and fire seconds later with stale targets,
-      // yanking the view away after the user scrolled. Starting a new
-      // imperative scroll cancels everything queued; targeting an item that
-      // is not in the data makes the new request itself resolve without ever
-      // scrolling, so this is a pure cancel.
+      // LegendList may run queued scrolls after user navigation. A new imperative
+      // scroll cancels that queue; a missing item cancels without moving the view.
       void legendListRef.current?.scrollToItem({
         item: TIMELINE_SCROLL_CANCEL_SENTINEL,
         animated: false,
@@ -270,22 +266,29 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     setShowScrollToBottom(false);
     setTimelineAnchor(releaseChatTimelineAnchor);
     // The anchored end space must be gone before the scroll measures, or the
-    // list lands short of the real end (#6519).
+    // list lands short of the real end.
     requestAnimationFrame(() => {
-      void legendListRef.current?.scrollToEnd?.({
-        animated: animated && !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-      });
+      const list = legendListRef.current;
+      if (!list) return;
+      void Promise.resolve(
+        list.scrollToEnd?.({
+          animated: animated && !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        }),
+      ).then(() =>
+        settleListScroll(
+          list,
+          measuredEndOffset,
+          () => timelineScrollModeRef.current !== "following-end" || legendListRef.current !== list,
+        ),
+      );
     });
   };
   const scrollToEndStable = useStableCallback(scrollToEnd);
   useEffect(() => {
     const composer = composerRef;
-    // The list only exists while the thread has rows, so its scroll node can
-    // appear long after this effect runs (a loading thread, a new chat) and
-    // remount later. Listening at the document and resolving the node per
-    // event keeps the opt-out working for whichever node is current; listeners
-    // bound to a node that was missing or replaced leave live-follow
-    // impossible to escape for the whole thread.
+    // The scroll node can appear after this effect runs and remount later, so
+    // listen at the document and resolve the node per event; listeners bound
+    // to a missing or replaced node leave live-follow impossible to escape.
     const currentScrollNode = (): HTMLElement | null =>
       legendListRef.current?.getScrollableNode() ?? null;
     const timelineEventNode = (event: Event) => {
@@ -297,11 +300,9 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     const handleManualNavigation = () => {
       cancelTimelineLiveFollowForUserNavigationRef.current();
     };
-    // The gestures below must only break follow when they can actually
-    // move the viewport away from the live edge (#5566): a spurious break
-    // while pinned at the end produces no scroll event, never re-arms,
-    // and streaming silently stops following. Underflowing content can't
-    // scroll at all, so nothing there should break follow.
+    // Only break follow for gestures that can move away from the live edge.
+    // A spurious break emits no scroll event to re-arm follow, so streaming stops
+    // following. Underflowing content cannot scroll and must keep following.
     const contentScrollsUp = () => timelineRealContentOverflowsViewportStable();
     // The follow re-arm band, not the strict flag: streaming growth makes
     // isAtEnd flicker false for a frame before the follow scroll catches
@@ -412,7 +413,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       }
     };
     // Input inside an embedded frame reaches none of the listeners above,
-    // but its scroll still chains out to the timeline (#17056).
+    // but its scroll still chains out to the timeline.
     const createScrollTracker = (node: HTMLElement) => ({
       node,
       scrolledUp: createUpwardScrollDetector({ top: node.scrollTop, height: node.scrollHeight }),

@@ -374,9 +374,7 @@ const expectTypedFailure = (exit: Exit.Exit<unknown, unknown>, expected: object)
   expect(reason.error).toMatchObject(expected);
 };
 
-// Resolves the service once from the harness layer; used by tests that must
-// make several calls against the SAME instance (the in-flight guard lives in
-// the layer's closure, so a fresh layer per call would never see it).
+// Resolve once so calls share the in-flight guard.
 const resolveService = (harness: ReturnType<typeof makeHarness>) =>
   Effect.gen(function* () {
     return yield* WorktreeMcpService.WorktreeMcpService;
@@ -400,7 +398,6 @@ const runStatus = (
     return yield* service.status(harness.scope, input);
   }).pipe(Effect.provide(harness.layer));
 
-// Decodes tool arguments the way the MCP tool does before calling the service.
 const decodeHandoffInput = Schema.decodeUnknownEffect(WorktreeMcpHandoffInput);
 
 describe("t3_worktree_handoff", () => {

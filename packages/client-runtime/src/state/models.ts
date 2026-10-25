@@ -157,6 +157,8 @@ export interface EnvironmentThreadShell {
   readonly hasPendingUserInput: boolean;
   readonly blockingReason?: string;
   readonly pendingSubagentRequest?: PendingSubagentRequest | null;
+  /** Guest messages waiting for the owner to send or dismiss. */
+  readonly pendingGuestMessageCount?: number;
   readonly hasActionableProposedPlan: boolean;
   readonly pendingBackgroundTasks: ReadonlyArray<
     NonNullable<OrchestrationV2ThreadShell["pendingBackgroundTasks"]>[number]
@@ -212,10 +214,10 @@ function terminalRunStatus(status: OrchestrationV2RunStatus): boolean {
   );
 }
 
-// Only work that wakes the agent holds it: commands it left running, such as a
-// dev server, present the run's own status (#14872). The server suppresses the
-// roster while an interruptible activity run exists, so a remaining roster is
-// stronger than checkpoint-oriented waiting.
+// Only work the agent waits on holds it: commands and monitors it left running
+// unmarked, such as a dev server, present the run's own status. The
+// server suppresses the roster while an interruptible activity run exists, so a
+// remaining roster is stronger than checkpoint-oriented waiting.
 function shellRuntime(thread: OrchestrationV2ThreadShell): ThreadRuntimeSummary | null {
   const parkAtIdle =
     backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) &&
@@ -318,6 +320,7 @@ export function presentThreadShell(
           blockingReason: thread.pendingRuntimeRequest.blockingReason,
         }),
     pendingSubagentRequest,
+    pendingGuestMessageCount: thread.pendingGuestMessageCount ?? 0,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],
     providerInstanceHistory: thread.providerInstanceHistory ?? [],

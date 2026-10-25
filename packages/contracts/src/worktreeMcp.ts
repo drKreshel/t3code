@@ -3,13 +3,9 @@ import * as Schema from "effect/Schema";
 import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
- * Input for the `t3_worktree_handoff` MCP tool.
- *
- * Creates a git worktree for a thread, or with `attach` binds one of the
- * project's existing checkouts, and re-points the thread at it. Omitting
- * `threadId` targets the calling thread. Changing a workspace detaches that
- * thread's live provider session; a continuation can resume it in the target
- * checkout.
+ * Input for the `t3_worktree_handoff` MCP tool: creates a worktree, or with `attach` binds an
+ * existing project checkout, for this or another thread. Changing a workspace detaches that
+ * thread's live provider session; a continuation can resume it in the target checkout.
  */
 export const WorktreeMcpHandoffInput = Schema.Struct({
   threadId: Schema.optional(

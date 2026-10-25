@@ -89,9 +89,7 @@ const make = Effect.gen(function* () {
   const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
 
-  // Serializes handoffs per thread: two concurrent calls could otherwise both
-  // pass the worktreePath === null check and each create a worktree, leaving
-  // one untracked on disk.
+  // Serialize handoffs per thread to avoid creating two worktrees and orphaning one.
   const handoffThreadsInFlight = new Set<string>();
 
   // Worktree tools require a live T3 caller, but may target another thread.
@@ -181,12 +179,9 @@ const make = Effect.gen(function* () {
       );
     }
 
-    // Fail fast with an actionable message when the branch already exists:
-    // the git driver deliberately keeps stderr out of its errors, so letting
-    // `git worktree add` fail would surface only an opaque failure. The
-    // existence check uses the complete local branch list (exact match); the
-    // paginated substring search only enriches the message with the checkout
-    // location when available.
+    // Fail fast on an existing branch: the git driver keeps stderr out of its
+    // errors, so `git worktree add` would fail opaquely. Existence uses the full
+    // local branch list; the paginated search only adds the checkout location.
     const localBranchNames = yield* gitWorkflow
       .listLocalBranchNames(projectCwd)
       .pipe(asOperationFailed("Unable to list branches"));
@@ -353,14 +348,7 @@ const make = Effect.gen(function* () {
 
     const ids = yield* handoffIds(scope);
 
-    // uninterruptibleMask: only the potentially slow worktree creation itself
-    // stays interruptible (restore). From the moment it succeeds, through the
-    // binding, continuation queue, setup script launch, and result
-    // construction, there is no interruptible gap: a client cancel can
-    // therefore neither orphan the created worktree before the rollback is
-    // armed, nor skip setting up a worktree the thread was just bound to
-    // (once the binding commits, the scheduled session detach can sever this
-    // request's connection and interrupt the fiber).
+    // Mask interruption after worktree creation through setup; binding can detach and interrupt the caller.
     return yield* Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         const checkout =
@@ -412,10 +400,7 @@ const make = Effect.gen(function* () {
         ).pipe(Effect.ignoreCause({ log: true }));
 
         const recheckAndBind = Effect.gen(function* () {
-          // The projection was read before the potentially slow git work
-          // above; a concurrent binding (for example from the UI) could have
-          // attached the thread in the meantime. Re-check before committing so
-          // the race cannot leave a second, untracked worktree.
+          // A concurrent UI binding may have landed during git work; do not orphan a second worktree.
           const recheck = yield* loadThread(targetThreadId);
           if (recheck.thread.worktreePath !== previousWorktreePath) {
             return yield* workspaceChanged(recheck.thread.worktreePath);
@@ -450,14 +435,9 @@ const make = Effect.gen(function* () {
               ),
             );
         }).pipe(
-          // onError: the worktree was already created, so any failure between
-          // here and the committed binding (recheck read, recheck race,
-          // dispatch typed failure or defect) must remove it again so a failed
-          // handoff leaves nothing behind on disk. Interrupt-only causes skip
-          // the removal: the binding may have committed, and force-deleting a
-          // worktree the thread now points at would be worse than leaking one.
-          // An attached checkout belongs to whoever created it and is never
-          // removed: a failed attach leaves the thread on its prior checkout.
+          // Any failure after creating the worktree removes it again, except interruption alone: the
+          // binding may already have committed. An attached checkout belongs to whoever created it
+          // and is never removed; a failed attach leaves the thread on its prior checkout.
           Effect.onError((cause) =>
             plan.kind === "attach" || Cause.hasInterruptsOnly(cause)
               ? Effect.void
@@ -465,14 +445,8 @@ const make = Effect.gen(function* () {
           ),
         );
 
-        // Queue the continuation right after the binding commits: the detach
-        // that the metadata update schedules will terminate the target
-        // session, and a durably queued message is what guarantees the thread
-        // re-launches inside the checkout. When the dying run reaches a
-        // terminal state the orchestrator promotes the queued run, which
-        // derives its cwd from the updated projection.
-        // suspend: build the send effect only when the binding has succeeded,
-        // so a failed dispatch never even constructs the continuation call.
+        // Queue continuation immediately after binding; detachment terminates the target session, so
+        // relaunch needs a durable message. suspend builds the send only once the binding succeeded.
         const queueContinuation: Effect.Effect<WorktreeMcpContinuationStatus, WorktreeMcpFailure> =
           Effect.suspend(() =>
             input.continuationPrompt === undefined
@@ -564,11 +538,7 @@ const make = Effect.gen(function* () {
       yield* requireCapability(callerScope);
       const scope = yield* requireThreadScope(callerScope);
       const targetThreadId = input.threadId ?? scope.thread.threadId;
-      // uninterruptibleMask: the guard acquisition and the registration of the
-      // releasing finalizer happen with no interruptible gap in between. An
-      // interrupt landing between a bare add() and the start of an ensured
-      // effect would otherwise leak the guard entry and block every future
-      // handoff for the target thread until restart.
+      // Acquire and register cleanup atomically so cancellation cannot strand the guard until restart.
       return yield* Effect.uninterruptibleMask((restore) =>
         Effect.suspend(() => {
           if (handoffThreadsInFlight.has(targetThreadId)) {
