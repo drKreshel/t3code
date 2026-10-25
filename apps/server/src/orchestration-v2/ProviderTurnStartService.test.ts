@@ -144,7 +144,11 @@ function startWithMissingWorktree(
                 ),
         } as never),
         layerWorktreeLocation(),
-        Layer.mock(GitWorkflow.GitWorkflowService)({ pruneWorktrees, createWorktree }),
+        Layer.mock(GitWorkflow.GitWorkflowService)({
+          pruneWorktrees,
+          createWorktree,
+          localStatus: () => Effect.succeed({ refName: "main" } as never),
+        }),
         Layer.mock(ProjectService.ProjectService)({
           getById: () =>
             Effect.succeed(
@@ -177,7 +181,9 @@ function startWithMissingWorktree(
             );
           },
         }),
-        Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),
+        Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({
+          isLive: () => Effect.succeed(false),
+        }),
         Layer.mock(ProviderAuthService.ProviderAuthService)({
           tryHandlePromptCommand: () => Effect.succeed(false),
         }),
@@ -697,6 +703,7 @@ function makeLocalCommandHarness(input: {
         Layer.mock(GitWorkflow.GitWorkflowService)({
           pruneWorktrees: () => Effect.void,
           createWorktree,
+          localStatus: () => Effect.succeed({ refName: "main" } as never),
         }),
         Layer.mock(ProjectService.ProjectService)({
           getById: () =>
@@ -734,6 +741,7 @@ function makeLocalCommandHarness(input: {
                     interruptTurn,
                   } as unknown as ProviderAdapter.ProviderAdapterV2SessionRuntime),
             ),
+          isLive: () => Effect.succeed(false),
         }),
         Layer.mock(ProviderAuthService.ProviderAuthService)({ tryHandlePromptCommand }),
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
@@ -872,6 +880,68 @@ effectIt.effect("does not resume a continuation stopped while recovery was in fl
     expect(harness.projection().runs.at(-1)?.status).toBe("interrupted");
     expect(harness.open).not.toHaveBeenCalled();
   }),
+);
+
+effectIt.effect.each([
+  { label: "outside the managed folder", managed: false },
+  { label: "whose branch can no longer be checked out", managed: true },
+])("continues in the project checkout when a removed worktree $label cannot be restored", (input) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const workspaceRoot = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-start-" });
+    const worktreePath = input.managed
+      ? path.join(workspaceRoot, "project", "worktree")
+      : path.join(workspaceRoot, "repo", "worktrees", "salon-69");
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      worktreePath,
+      worktreesDir: workspaceRoot,
+      fileSystem,
+      failReadsAfterRunning: true,
+    });
+    harness.createWorktree.mockImplementation(() =>
+      Effect.die("fatal: invalid reference: feature/restore"),
+    );
+    const { thread } = harness.projection();
+    const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
+    // The rebind persists the whole thread row, so the fixture needs one.
+    harness.setProjection({
+      ...harness.projection(),
+      thread: {
+        ...thread,
+        createdBy: "user",
+        creationSource: "web",
+        title: "Removed worktree",
+        providerInstanceId: harness.newInstanceId,
+        modelSelection: { instanceId: harness.newInstanceId, model: "gpt-5.4" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: thread.id },
+        forkedFrom: null,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      },
+    });
+
+    yield* harness.start;
+
+    expect(harness.createWorktree).toHaveBeenCalledTimes(input.managed ? 1 : 0);
+    expect(harness.projection().thread).toMatchObject({ worktreePath: null, branch: "main" });
+    expect(harness.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimePolicy: expect.objectContaining({ cwd: "/tmp/native-account-command" }),
+      }),
+    );
+    expect(harness.startRootRun).toHaveBeenCalledWith(
+      expect.objectContaining({ appThread: expect.objectContaining({ worktreePath: null }) }),
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 effectIt.effect.each(["cleanup-first", "startup-first"])(

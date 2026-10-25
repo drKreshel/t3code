@@ -248,7 +248,7 @@ export const layer: Layer.Layer<
       readonly willRetry?: boolean;
     }) {
       const { runId } = input;
-      const projection = yield* projectionStore.getTurnStartContext(input.threadId, runId);
+      let projection = yield* projectionStore.getTurnStartContext(input.threadId, runId);
       const run = projection.runs.find((candidate) => candidate.id === runId);
       if (run === undefined) {
         return yield* new ProviderTurnStartError({ runId, cause: `Run ${runId} was not found.` });
@@ -486,39 +486,84 @@ export const layer: Layer.Layer<
         }
       }
       const { worktreePath, branch } = projection.thread;
-      if (worktreePath !== null && branch !== null) {
-        const exists = yield* fileSystem
-          .exists(worktreePath)
-          .pipe(Effect.orElseSucceed(() => true));
-        if (!exists && (yield* isManagedWorktreePath(worktreePath))) {
-          const project = yield* projects.getById(projection.thread.projectId).pipe(
-            Effect.map(Option.getOrUndefined),
-            Effect.orElseSucceed(() => undefined),
+      const worktreeExists = (target: string) =>
+        fileSystem.exists(target).pipe(Effect.orElseSucceed(() => true));
+      if (worktreePath !== null && !(yield* worktreeExists(worktreePath))) {
+        const project = yield* projects.getById(projection.thread.projectId).pipe(
+          Effect.map(Option.getOrUndefined),
+          Effect.orElseSucceed(() => undefined),
+        );
+        if (
+          project !== undefined &&
+          branch !== null &&
+          (yield* isManagedWorktreePath(worktreePath))
+        ) {
+          yield* Effect.logWarning("provider turn start recreating missing worktree", {
+            threadId: projection.thread.id,
+            worktreePath,
+            branch,
+          });
+          yield* gitWorkflow.pruneWorktrees({ cwd: project.workspaceRoot }).pipe(
+            Effect.andThen(
+              gitWorkflow.createWorktree({
+                cwd: project.workspaceRoot,
+                refName: branch,
+                path: worktreePath,
+              }),
+            ),
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.failCause(cause)
+                : Effect.logWarning("provider turn start failed to recreate worktree", {
+                    threadId: projection.thread.id,
+                    worktreePath,
+                    cause: Cause.pretty(cause),
+                  }),
+            ),
           );
-          if (project !== undefined) {
-            yield* Effect.logWarning("provider turn start recreating missing worktree", {
-              threadId: projection.thread.id,
-              worktreePath,
-              branch,
-            });
-            yield* gitWorkflow.pruneWorktrees({ cwd: project.workspaceRoot }).pipe(
-              Effect.andThen(
-                gitWorkflow.createWorktree({
-                  cwd: project.workspaceRoot,
-                  refName: branch,
-                  path: worktreePath,
-                }),
-              ),
-              Effect.catchCause((cause) =>
-                Cause.hasInterruptsOnly(cause)
-                  ? Effect.failCause(cause)
-                  : Effect.logWarning("provider turn start failed to recreate worktree", {
-                      threadId: projection.thread.id,
-                      worktreePath,
-                      cause: Cause.pretty(cause),
-                    }),
-              ),
-            );
+        }
+        // A worktree removed outside T3 (or whose branch is gone) would fail
+        // every send; continue in the main checkout instead.
+        if (project !== undefined && !(yield* worktreeExists(worktreePath))) {
+          const rootBranch = yield* gitWorkflow.localStatus({ cwd: project.workspaceRoot }).pipe(
+            Effect.map((status) => status.refName),
+            Effect.orElseSucceed(() => null),
+          );
+          const now = yield* DateTime.now;
+          const thread = {
+            ...projection.thread,
+            worktreePath: null,
+            branch: rootBranch,
+            updatedAt: now,
+          };
+          yield* Effect.logWarning("provider turn start moved thread to the project checkout", {
+            threadId: thread.id,
+            worktreePath,
+            branch: rootBranch,
+          });
+          const { committed } = yield* eventSink.writeIfRunCurrent({
+            threadId: thread.id,
+            runId,
+            activeAttemptId: attempt.id,
+            expectedStatus: "starting",
+            events: [
+              {
+                type: "thread.metadata-updated",
+                id: yield* idAllocator.allocate.event({ threadId: thread.id }),
+                threadId: thread.id,
+                runId,
+                occurredAt: now,
+                payload: thread,
+              },
+            ],
+          });
+          if (!committed) return;
+          projection = { ...projection, thread };
+          // A session still alive from before the removal runs in the old folder.
+          if (yield* providerSessions.isLive(providerThread.providerSessionId)) {
+            yield* providerSessions
+              .close(providerThread.providerSessionId)
+              .pipe(Effect.ignoreCause({ log: true }));
           }
         }
       }
