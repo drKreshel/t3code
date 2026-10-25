@@ -201,6 +201,30 @@ describe("sidebar thread lineage helpers", () => {
     const loopB = subagentOf("thread-loop-b", loopA.id);
     expect(resolveSidebarRowThreadId(loopA.id, environmentId, [loopA, loopB])).toBe(loopA.id);
   });
+
+  it("keeps a subagent that has its own row, such as one filed in a folder", () => {
+    const environmentId = EnvironmentId.make("environment-row");
+    const root = makeThreadFixture({ id: ThreadId.make("thread-root"), environmentId });
+    const subagentOf = (id: string, parentId: ThreadId) =>
+      makeThreadFixture({
+        id: ThreadId.make(id),
+        environmentId,
+        lineage: {
+          rootThreadId: root.id,
+          parentThreadId: parentId,
+          relationshipToParent: "subagent",
+        },
+      });
+    const filed = subagentOf("thread-delegated-task:command%3Amcp%3Aa", root.id);
+    const filedChild = subagentOf("thread-filed-child", filed.id);
+    const threads = [root, filed, filedChild];
+    const hasOwnRow = (thread: { id: ThreadId }) => thread.id === filed.id;
+
+    expect(resolveSidebarRowThreadId(filed.id, environmentId, threads, hasOwnRow)).toBe(filed.id);
+    expect(resolveSidebarRowThreadId(filedChild.id, environmentId, threads, hasOwnRow)).toBe(
+      filed.id,
+    );
+  });
 });
 
 function makeLatestRun(overrides?: {

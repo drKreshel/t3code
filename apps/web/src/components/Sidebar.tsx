@@ -387,6 +387,8 @@ function useSidebarThreads(input: {
   const { projectScopeKey, scopedProjectKeys, serverConfigs, optimisticDrop, routeThreadRef } =
     input;
   const threads = useQuietThreadShells();
+  const folderLayout = useSidebarFolderLayout();
+  const filedThreadKeys = useFiledSidebarThreadKeys(folderLayout, threads);
   const routeRowThreadKey =
     routeThreadRef === null
       ? null
@@ -397,11 +399,10 @@ function useSidebarThreads(input: {
               routeThreadRef.threadId,
               routeThreadRef.environmentId,
               threads,
+              (thread) => filedThreadKeys.has(threadShellKey(thread)),
             ),
           ),
         );
-  const folderLayout = useSidebarFolderLayout();
-  const filedThreadKeys = useFiledSidebarThreadKeys(folderLayout, threads);
   const workingShelfEnabled = useClientSettings((s) => s.sidebarWorkingShelfEnabled);
   const nowMinute = useNowMinute();
   // Snooze wake times are second-precise, so classifying with the quantized
