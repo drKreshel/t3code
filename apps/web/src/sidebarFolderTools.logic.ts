@@ -157,27 +157,27 @@ export function executeSidebarFolderAction(
 }
 
 /** Claims before reading or changing the layout, so expired queued calls cannot mutate it. */
-export function executeClaimedSidebarFolderAction<E, R, R2 = never>(
+export const executeClaimedSidebarFolderAction = Effect.fn(
+  "sidebarFolderTools.executeClaimedSidebarFolderAction",
+)(function* <E, R, R2 = never>(
   claim: Effect.Effect<boolean, E, R>,
   readStore: () => FolderStore,
   action: SidebarFolderAction,
   isExistingThread: (threadKey: string) => boolean,
   settleThreads?: (threadKeys: readonly string[]) => Effect.Effect<boolean, never, R2>,
 ) {
-  return Effect.gen(function* () {
-    if (!(yield* claim)) return null;
-    const store = readStore();
-    if (
-      action.type === "set-settled" &&
-      action.settled &&
-      settleThreads !== undefined &&
-      store.folders.some((folder) => folder.id === action.folderId)
-    ) {
-      const threadKeys = folderSubtreeThreadKeys(store, action.folderId);
-      if (threadKeys.length > 0 && !(yield* settleThreads(threadKeys))) {
-        return { error: SidebarFoldersError.fromCode("thread-settlement-failed") };
-      }
+  if (!(yield* claim)) return null;
+  const store = readStore();
+  if (
+    action.type === "set-settled" &&
+    action.settled &&
+    settleThreads !== undefined &&
+    store.folders.some((folder) => folder.id === action.folderId)
+  ) {
+    const threadKeys = folderSubtreeThreadKeys(store, action.folderId);
+    if (threadKeys.length > 0 && !(yield* settleThreads(threadKeys))) {
+      return { error: SidebarFoldersError.fromCode("thread-settlement-failed") };
     }
-    return executeSidebarFolderAction(store, action, isExistingThread);
-  });
-}
+  }
+  return executeSidebarFolderAction(store, action, isExistingThread);
+});

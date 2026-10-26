@@ -258,7 +258,9 @@ const classifyResponseError = (
       return new PreviewAutomationTimeoutError({
         ...context,
         ...remoteDiagnostics,
-        ...(context.clientId === SERVER_BROWSER_AUTOMATION_CLIENT_ID
+        // Playwright's own "Timeout Nms exceeded" says no more than the budget does.
+        ...(context.clientId === SERVER_BROWSER_AUTOMATION_CLIENT_ID &&
+        !/Timeout \d+ms exceeded/.test(error.message)
           ? { reason: error.message.slice(0, MAX_REASON_CHARS) }
           : {}),
         ...(remoteTimeoutMs === undefined
@@ -650,14 +652,14 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
         input.updateCurrentTab === false ? timeoutMs : timeoutMs + HOST_RESPONSE_GRACE_MS;
       const result = yield* Deferred.await(deferred).pipe(Effect.timeoutOption(responseTimeoutMs));
       return yield* Option.match(result, {
-        onNone: () =>
-          Effect.gen(function* () {
-            // Never replay possibly applied actions; slow metadata reads must not evict the host.
-            if (input.updateCurrentTab !== false) {
-              yield* disconnect(connection.clientId, connection.queue, true);
-            }
-            return yield* new PreviewAutomationTimeoutError(requestContext);
-          }),
+        // The enclosing operation owns the span for this inline handler.
+        onNone: Effect.fnUntraced(function* () {
+          // Never replay possibly applied actions; slow metadata reads must not evict the host.
+          if (input.updateCurrentTab !== false) {
+            yield* disconnect(connection.clientId, connection.queue, true);
+          }
+          return yield* new PreviewAutomationTimeoutError(requestContext);
+        }),
         onSome: (value) => Effect.succeed(value as A),
       });
     });

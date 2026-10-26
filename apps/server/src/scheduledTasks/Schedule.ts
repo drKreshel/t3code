@@ -142,11 +142,9 @@ export function isSameSchedule(a: ScheduledTaskSchedule, b: ScheduledTaskSchedul
 const MISSED_FIXED_TIME_GRACE_MS = 60 * MINUTE_MS;
 
 /**
- * True when a due wall-clock run (fixed time, cron, or one-off) was missed by
- * more than the grace window and should be rescheduled to its next occurrence
- * instead of firing now; a missed one-off has none. Interval schedules are
- * never considered missed: an overdue interval task catching up with a single
- * run is the desired behaviour.
+ * True when a due wall-clock run (fixed time, cron, or one-off) is past the
+ * grace window and should skip to its next occurrence; a missed one-off has
+ * none. Overdue intervals are never missed: they catch up with one run.
  */
 export function isMissedFixedTimeRun(
   schedule: ScheduledTaskSchedule,
@@ -155,26 +153,4 @@ export function isMissedFixedTimeRun(
 ): boolean {
   if (schedule.type === "interval" || schedule.type === "webhook") return false;
   return DateTime.toEpochMillis(now) - DateTime.toEpochMillis(dueAt) > MISSED_FIXED_TIME_GRACE_MS;
-}
-
-function describeSchedule(schedule: ScheduledTaskSchedule): string {
-  if (schedule.type === "webhook") return "On webhook";
-  if (schedule.type === "interval") {
-    const minutes = schedule.everyMs / MINUTE_MS;
-    if (Number.isInteger(minutes)) {
-      return `Every ${minutes === 1 ? "minute" : `${minutes} minutes`}`;
-    }
-    return `Every ${Math.round(schedule.everyMs / 1000)} seconds`;
-  }
-  if (schedule.type === "cron") return `Cron ${schedule.expression}`;
-  if (schedule.type === "once") return `Once at ${schedule.at}`;
-
-  const weekdayCount = schedule.weekdays?.length ?? 0;
-  const days =
-    weekdayCount === 0
-      ? "day"
-      : weekdayCount === 5 && schedule.weekdays?.every((day) => day >= 1 && day <= 5)
-        ? "weekday"
-        : "selected day";
-  return `At ${schedule.timeOfDay} every ${days}`;
 }

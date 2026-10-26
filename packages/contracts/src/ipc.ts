@@ -321,6 +321,8 @@ export const DesktopCliCommandStateSchema = Schema.Struct({
   installedPath: Schema.NullOr(Schema.String),
   onPath: Schema.Boolean,
   shadowedBy: Schema.optionalKey(Schema.String),
+  /** The app's bundled `t3` launcher, which runs without Node or a PATH entry. */
+  launcherPath: Schema.NullOr(Schema.String),
 });
 export type DesktopCliCommandState = typeof DesktopCliCommandStateSchema.Type;
 
@@ -590,6 +592,8 @@ export interface DesktopPreviewTabState {
   /** Chromium reports playback even when audioMuted is true. */
   audible: boolean;
   controller: "human" | "agent" | "none";
+  /** A screenshot or stream of the guest is pending, so the client keeps it painting while hidden. */
+  capturing: boolean;
   favicon?: DesktopPreviewFavicon;
   updatedAt: string;
 }
@@ -608,18 +612,8 @@ export interface DesktopPreviewPointerEvent {
 }
 
 /**
- * The desktop's own server is capturing one of its tabs (`active`) or stopped.
- * Keyed by the server tab, not the runtime tab id.
- */
-export interface DesktopPreviewRenderRequest {
-  threadId: string;
-  tabId: string;
-  active: boolean;
-}
-
-/**
  * The agent is running commands in a tab of the desktop's own server that can
- * focus its page (`active`), or finished them. Keyed like a render request.
+ * focus its page (`active`), or finished them. Keyed by the server tab, not the runtime tab id.
  */
 export interface DesktopPreviewAgentInput {
   threadId: string;
@@ -1205,7 +1199,6 @@ export interface DesktopPreviewBridge {
   };
   onStateChange: (listener: (tabId: string, state: DesktopPreviewTabState) => void) => () => void;
   onPointerEvent: (listener: (event: DesktopPreviewPointerEvent) => void) => () => void;
-  onRenderRequest?: (listener: (request: DesktopPreviewRenderRequest) => void) => () => void;
   onAgentInput?: (listener: (input: DesktopPreviewAgentInput) => void) => () => void;
   onOpenLink: (listener: (event: DesktopPreviewOpenLinkEvent) => void) => () => void;
 }

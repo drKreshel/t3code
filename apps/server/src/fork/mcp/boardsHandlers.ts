@@ -118,16 +118,18 @@ const make = Effect.gen(function* () {
   };
 
   /** The named ticket, or the one this chat is linked to. */
-  const resolveTicket = (snapshot: BoardsSnapshot, ref: string | undefined) =>
-    Effect.gen(function* () {
-      if (ref !== undefined) return yield* unwrap(findTicket(snapshot, ref));
-      const { threadKey } = yield* caller;
-      const linked = snapshot.tickets.find((ticket) => ticket.threadKeys.includes(threadKey));
-      if (linked) return linked;
-      return yield* notFound(
-        "This chat is not linked to a ticket. Pass a ticket key, or link the chat with link_thread_to_ticket.",
-      );
-    });
+  const resolveTicket = Effect.fn("boardsHandlers.resolveTicket")(function* (
+    snapshot: BoardsSnapshot,
+    ref: string | undefined,
+  ) {
+    if (ref !== undefined) return yield* unwrap(findTicket(snapshot, ref));
+    const { threadKey } = yield* caller;
+    const linked = snapshot.tickets.find((ticket) => ticket.threadKeys.includes(threadKey));
+    if (linked) return linked;
+    return yield* notFound(
+      "This chat is not linked to a ticket. Pass a ticket key, or link the chat with link_thread_to_ticket.",
+    );
+  });
 
   const boardOf = (snapshot: BoardsSnapshot, ticket: Ticket) => {
     const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
@@ -135,49 +137,50 @@ const make = Effect.gen(function* () {
   };
 
   /** Re-reads the ticket after a write, for the reply. */
-  const changed = (ticketId: string) =>
-    Effect.gen(function* () {
-      const snapshot = yield* boards.snapshot;
-      const ticket = yield* unwrap(findTicket(snapshot, ticketId));
-      const board = yield* boardOf(snapshot, ticket);
-      const column = board.columns.find((candidate) => candidate.id === ticket.columnId);
-      return {
-        key: ticketKeyOf(board, ticket),
-        column: column?.name ?? "",
-        archived: ticket.archivedAt !== null,
-        path: ticketPath(board, ticket),
-      };
-    });
+  const changed = Effect.fn("boardsHandlers.changed")(function* (ticketId: string) {
+    const snapshot = yield* boards.snapshot;
+    const ticket = yield* unwrap(findTicket(snapshot, ticketId));
+    const board = yield* boardOf(snapshot, ticket);
+    const column = board.columns.find((candidate) => candidate.id === ticket.columnId);
+    return {
+      key: ticketKeyOf(board, ticket),
+      column: column?.name ?? "",
+      archived: ticket.archivedAt !== null,
+      path: ticketPath(board, ticket),
+    };
+  });
 
-  const summarizeBoard = (snapshot: BoardsSnapshot, board: Board) =>
-    Effect.gen(function* () {
-      const live = snapshot.tickets.filter(
-        (ticket) => ticket.boardId === board.id && ticket.archivedAt === null,
-      );
-      return {
-        key: board.key,
-        name: board.name,
-        icon: board.icon ?? null,
-        defaultProject: yield* projectTitle(board.defaultProjectKey),
-        newChatMessage: board.newChatMessage,
-        pinned: board.pinnedAt !== null,
-        archived: board.archivedAt !== null,
-        columns: board.columns
-          .toSorted((a, b) => a.position - b.position)
-          .map((column) => {
-            const target = board.columns.find((other) => other.id === column.autoMove?.toColumnId);
-            return {
-              name: column.name,
-              color: column.color,
-              tickets: live.filter((ticket) => ticket.columnId === column.id).length,
-              autoMove:
-                column.autoMove && target
-                  ? { afterDays: column.autoMove.afterDays, to: target.name }
-                  : null,
-            };
-          }),
-      } satisfies BoardSummary;
-    });
+  const summarizeBoard = Effect.fn("boardsHandlers.summarizeBoard")(function* (
+    snapshot: BoardsSnapshot,
+    board: Board,
+  ) {
+    const live = snapshot.tickets.filter(
+      (ticket) => ticket.boardId === board.id && ticket.archivedAt === null,
+    );
+    return {
+      key: board.key,
+      name: board.name,
+      icon: board.icon ?? null,
+      defaultProject: yield* projectTitle(board.defaultProjectKey),
+      newChatMessage: board.newChatMessage,
+      pinned: board.pinnedAt !== null,
+      archived: board.archivedAt !== null,
+      columns: board.columns
+        .toSorted((a, b) => a.position - b.position)
+        .map((column) => {
+          const target = board.columns.find((other) => other.id === column.autoMove?.toColumnId);
+          return {
+            name: column.name,
+            color: column.color,
+            tickets: live.filter((ticket) => ticket.columnId === column.id).length,
+            autoMove:
+              column.autoMove && target
+                ? { afterDays: column.autoMove.afterDays, to: target.name }
+                : null,
+          };
+        }),
+    } satisfies BoardSummary;
+  });
 
   const summarizeTicket = (snapshot: BoardsSnapshot, ticket: Ticket): TicketSummary => {
     const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);

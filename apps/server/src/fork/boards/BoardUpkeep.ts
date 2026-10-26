@@ -1,9 +1,7 @@
 /**
- * Keeps boards in step with chats and time: files a fork under its source
- * chat's ticket, unlinks deleted chats and drops their folders, hands legacy
- * ticket blockers to the chat that raised them, and moves tickets on from
- * columns that set `autoMove`. Other new chats join a ticket only when the
- * agent that starts them names one.
+ * Keeps boards in step with chats and time: files forks under their source's
+ * ticket, unlinks deleted chats, hands legacy blockers to their chat, and runs
+ * `autoMove` columns. Other chats join a ticket only when their agent names one.
  */
 import {
   CommandId,
@@ -64,131 +62,128 @@ export function dueAutoMoves(
   return moves;
 }
 
-const make = (options: { readonly background: boolean }) =>
-  Effect.gen(function* () {
-    const boards = yield* BoardsService;
-    const orchestration = yield* Orchestrator.OrchestratorV2;
-    const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
-    const folders = yield* Effect.serviceOption(TaskFolders);
-    const lock = yield* Semaphore.make(1);
-    const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) => lock.withPermits(1)(effect);
+const make = Effect.fn("BoardUpkeep.make")(function* (options: { readonly background: boolean }) {
+  const boards = yield* BoardsService;
+  const orchestration = yield* Orchestrator.OrchestratorV2;
+  const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
+  const folders = yield* Effect.serviceOption(TaskFolders);
+  const lock = yield* Semaphore.make(1);
+  const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) => lock.withPermits(1)(effect);
 
-    const logged = <A, E, R>(label: string, effect: Effect.Effect<A, E, R>) =>
-      effect.pipe(
-        Effect.asVoid,
-        Effect.catchCause((cause) => Effect.logWarning(`Board ${label} failed`, { cause })),
-      );
+  const logged = <A, E, R>(label: string, effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.asVoid,
+      Effect.catchCause((cause) => Effect.logWarning(`Board ${label} failed`, { cause })),
+    );
 
-    /** Carry ticket blockers into the chat that raised them. */
-    const moveTicketBlockers = Effect.gen(function* () {
-      for (const ticket of (yield* boards.snapshot).tickets) {
-        const flag = ticket.flag;
-        if (flag?.level !== "warning" || ticket.archivedAt !== null) continue;
-        if (flag.reason === "Workflow paused. Resume when ready.") {
-          yield* boards.dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, "system");
-          continue;
-        }
-        const key = flag.by.startsWith("thread:") ? flag.by.slice(7) : null;
-        if (!key?.startsWith(`${environmentId}:`)) continue;
-        const threadId = ThreadId.make(key.slice(key.indexOf(":") + 1));
-        const shell = yield* orchestration.getThreadShell(threadId);
-        if (!shell || shell.archivedAt !== null) continue;
-        yield* orchestration.dispatch({
-          type: "thread.request-human",
-          commandId: CommandId.make(`legacy-ticket-blocker:${ticket.id}:${flag.at}`),
-          threadId,
-          reason: flag.reason,
-        });
+  /** Carry ticket blockers into the chat that raised them. */
+  const moveTicketBlockers = Effect.gen(function* () {
+    for (const ticket of (yield* boards.snapshot).tickets) {
+      const flag = ticket.flag;
+      if (flag?.level !== "warning" || ticket.archivedAt !== null) continue;
+      if (flag.reason === "Workflow paused. Resume when ready.") {
         yield* boards.dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, "system");
+        continue;
       }
-    });
+      const key = flag.by.startsWith("thread:") ? flag.by.slice(7) : null;
+      if (!key?.startsWith(`${environmentId}:`)) continue;
+      const threadId = ThreadId.make(key.slice(key.indexOf(":") + 1));
+      const shell = yield* orchestration.getThreadShell(threadId);
+      if (!shell || shell.archivedAt !== null) continue;
+      yield* orchestration.dispatch({
+        type: "thread.request-human",
+        commandId: CommandId.make(`legacy-ticket-blocker:${ticket.id}:${flag.at}`),
+        threadId,
+        reason: flag.reason,
+      });
+      yield* boards.dispatch({ type: "ticket.resolveFlag", ticketId: ticket.id }, "system");
+    }
+  });
 
-    const autoMoveTickets = Effect.gen(function* () {
-      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-      for (const move of dueAutoMoves(yield* boards.snapshot, nowMs)) {
-        yield* boards.dispatch(
-          { type: "ticket.move", ticketId: move.ticketId, columnId: move.columnId },
-          BOARD_ACTOR,
-        );
-      }
-    });
+  const autoMoveTickets = Effect.gen(function* () {
+    const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+    for (const move of dueAutoMoves(yield* boards.snapshot, nowMs)) {
+      yield* boards.dispatch(
+        { type: "ticket.move", ticketId: move.ticketId, columnId: move.columnId },
+        BOARD_ACTOR,
+      );
+    }
+  });
 
-    const tick = logged(
-      "upkeep",
+  const tick = logged(
+    "upkeep",
+    serialized(
+      Effect.gen(function* () {
+        yield* moveTicketBlockers;
+        yield* autoMoveTickets;
+      }),
+    ),
+  );
+
+  /** Files a fork under its source chat's ticket. */
+  const linkToSourceTicket = (childThreadId: string, parentThreadId: string) => {
+    const parentKey = `${environmentId}:${parentThreadId}`;
+    const childKey = `${environmentId}:${childThreadId}`;
+    return logged(
+      "fork linking",
       serialized(
         Effect.gen(function* () {
-          yield* moveTicketBlockers;
-          yield* autoMoveTickets;
+          const snapshot = yield* boards.snapshot;
+          // A chat already on a ticket stays there.
+          if (snapshot.tickets.some((candidate) => candidate.threadKeys.includes(childKey))) return;
+          const ticket = snapshot.tickets.find((candidate) =>
+            candidate.threadKeys.includes(parentKey),
+          );
+          if (!ticket) return;
+          yield* boards.dispatch(
+            { type: "thread.link", ticketId: ticket.id, threadKey: childKey },
+            `thread:${parentKey}`,
+          );
         }),
       ),
     );
+  };
 
-    /** Files a fork under its source chat's ticket. */
-    const linkToSourceTicket = (childThreadId: string, parentThreadId: string) => {
-      const parentKey = `${environmentId}:${parentThreadId}`;
-      const childKey = `${environmentId}:${childThreadId}`;
-      return logged(
-        "fork linking",
-        serialized(
-          Effect.gen(function* () {
-            const snapshot = yield* boards.snapshot;
-            // A chat already on a ticket stays there.
-            if (snapshot.tickets.some((candidate) => candidate.threadKeys.includes(childKey)))
-              return;
-            const ticket = snapshot.tickets.find((candidate) =>
-              candidate.threadKeys.includes(parentKey),
-            );
-            if (!ticket) return;
-            yield* boards.dispatch(
-              { type: "thread.link", ticketId: ticket.id, threadKey: childKey },
-              `thread:${parentKey}`,
-            );
-          }),
-        ),
-      );
-    };
-
-    /** A deleted chat leaves its ticket and its folder. */
-    const forgetDeleted = (threadId: ThreadId) =>
-      Effect.gen(function* () {
-        const threadKey = `${environmentId}:${threadId}`;
-        const ticket = (yield* boards.snapshot).tickets.find((candidate) =>
-          candidate.threadKeys.includes(threadKey),
-        );
-        if (ticket) {
-          yield* boards.dispatch({ type: "thread.link", threadKey, ticketId: null }, "system");
-        }
-        if (Option.isSome(folders)) yield* folders.value.setChat({ threadId, folder: null });
-      });
-
-    const handleDomainEvent = (event: OrchestrationV2DomainEvent) => {
-      // A fork continues its source's work. Subagents, delegated tasks, and
-      // launched or messaged chats join a ticket only when their starter names it.
-      if (
-        event.type === "thread.created" &&
-        event.payload.lineage.relationshipToParent === "fork" &&
-        event.payload.lineage.parentThreadId !== null
-      ) {
-        return linkToSourceTicket(event.threadId, event.payload.lineage.parentThreadId);
-      }
-      if (event.type === "thread.deleted") {
-        return logged("chat deletion", serialized(forgetDeleted(event.threadId)));
-      }
-      return Effect.void;
-    };
-
-    if (options.background) {
-      const domainEvents = orchestration.streamDomainEvents;
-      yield* forkParked(
-        Effect.gen(function* () {
-          yield* Effect.forkScoped(tick.pipe(Effect.repeat(Schedule.spaced(UPKEEP_TICK))));
-          yield* Stream.runForEach(domainEvents, handleDomainEvent);
-        }),
-      );
+  /** A deleted chat leaves its ticket and its folder. */
+  const forgetDeleted = Effect.fn("BoardUpkeep.forgetDeleted")(function* (threadId: ThreadId) {
+    const threadKey = `${environmentId}:${threadId}`;
+    const ticket = (yield* boards.snapshot).tickets.find((candidate) =>
+      candidate.threadKeys.includes(threadKey),
+    );
+    if (ticket) {
+      yield* boards.dispatch({ type: "thread.link", threadKey, ticketId: null }, "system");
     }
-
-    return BoardUpkeep.of({ handleDomainEvent, tick });
+    if (Option.isSome(folders)) yield* folders.value.setChat({ threadId, folder: null });
   });
+
+  const handleDomainEvent = (event: OrchestrationV2DomainEvent) => {
+    // A fork continues its source's work. Subagents, delegated tasks, and
+    // launched or messaged chats join a ticket only when their starter names it.
+    if (
+      event.type === "thread.created" &&
+      event.payload.lineage.relationshipToParent === "fork" &&
+      event.payload.lineage.parentThreadId !== null
+    ) {
+      return linkToSourceTicket(event.threadId, event.payload.lineage.parentThreadId);
+    }
+    if (event.type === "thread.deleted") {
+      return logged("chat deletion", serialized(forgetDeleted(event.threadId)));
+    }
+    return Effect.void;
+  };
+
+  if (options.background) {
+    const domainEvents = orchestration.streamDomainEvents;
+    yield* forkParked(
+      Effect.gen(function* () {
+        yield* Effect.forkScoped(tick.pipe(Effect.repeat(Schedule.spaced(UPKEEP_TICK))));
+        yield* Stream.runForEach(domainEvents, handleDomainEvent);
+      }),
+    );
+  }
+
+  return BoardUpkeep.of({ handleDomainEvent, tick });
+});
 
 export const layer = Layer.effect(BoardUpkeep, make({ background: true }));
 

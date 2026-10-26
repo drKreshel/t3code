@@ -13,7 +13,6 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import * as McpInvocationContext from "../../mcp/McpInvocationContext.ts";
@@ -63,7 +62,7 @@ const makeHarness = (runtimeMode: RuntimeMode, scope = invocation) =>
         getThreadShell: () => Effect.succeed(thread),
       }),
       Layer.mock(ProjectService.ProjectService)({
-        getById: () => Effect.succeed(Option.some({ workspaceRoot: "/work/root" } as Project)),
+        getById: () => Effect.succeedSome({ workspaceRoot: "/work/root" } as Project),
       }),
       Layer.mock(TerminalManager.TerminalManager)({
         // The user's own terminal closed earlier; only its saved output is left.

@@ -63,12 +63,6 @@ export const installPreviewEventForwarding = Effect.fn(
     electronWindow.sendAll(IpcChannels.PREVIEW_OPEN_LINK_CHANNEL, event),
   );
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
-  yield* browserHost.renders.pipe(
-    Stream.runForEach((request) =>
-      electronWindow.sendAll(IpcChannels.PREVIEW_RENDER_REQUEST_CHANNEL, request),
-    ),
-    Effect.forkScoped,
-  );
   yield* browserHost.agentInputs.pipe(
     Stream.runForEach((input) =>
       electronWindow.sendAll(IpcChannels.PREVIEW_AGENT_INPUT_CHANNEL, input),

@@ -48,31 +48,30 @@ const settleFolderThreads = (threadKeys: readonly string[]) =>
 export const sidebarFolderRespond = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "fork:sidebar-folders:respond",
   tag: FORK_SIDEBAR_FOLDERS_WS_METHODS.respond,
-  execute: (
+  execute: Effect.fn("sidebarFolderRespond.execute")(function* (
     input: SidebarFolderReply & {
       readonly event: Extract<SidebarFolderStreamEvent, { type: "request" }>;
     },
-  ) =>
-    Effect.gen(function* () {
-      const ref = {
-        clientId: input.clientId,
-        connectionId: input.connectionId,
-        requestId: input.requestId,
-      };
-      const result = yield* executeClaimedSidebarFolderAction(
-        requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.claim, ref),
-        useSidebarFolderStore.getState,
-        input.event.action,
-        (key) => {
-          const ref = parseScopedThreadKey(key);
-          const shell = ref === null ? null : readThreadShell(ref);
-          return shell !== null && shell.archivedAt === null && shell.deletedAt === null;
-        },
-        settleFolderThreads,
-      );
-      if (result === null) return;
-      yield* requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.respond, { ...ref, ...result });
-    }),
+  ) {
+    const ref = {
+      clientId: input.clientId,
+      connectionId: input.connectionId,
+      requestId: input.requestId,
+    };
+    const result = yield* executeClaimedSidebarFolderAction(
+      requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.claim, ref),
+      useSidebarFolderStore.getState,
+      input.event.action,
+      (key) => {
+        const ref = parseScopedThreadKey(key);
+        const shell = ref === null ? null : readThreadShell(ref);
+        return shell !== null && shell.archivedAt === null && shell.deletedAt === null;
+      },
+      settleFolderThreads,
+    );
+    if (result === null) return;
+    yield* requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.respond, { ...ref, ...result });
+  }),
 });
 
 export const sidebarFolderClientAtom = Atom.family((environmentId: EnvironmentId) => {

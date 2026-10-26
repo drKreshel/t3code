@@ -98,31 +98,29 @@ const make = Effect.gen(function* () {
     Stream.changesWith((a, b) => JSON.stringify(a) === JSON.stringify(b)),
   );
 
-  const set = (input: SetTaskFolderInput) =>
-    Effect.gen(function* () {
-      if (input.folder === null) {
-        yield* sql`DELETE FROM fork_task_folders WHERE task_id = ${input.taskId}`;
-      } else {
-        yield* sql`
+  const set = Effect.fn("TaskFolders.set")(function* (input: SetTaskFolderInput) {
+    if (input.folder === null) {
+      yield* sql`DELETE FROM fork_task_folders WHERE task_id = ${input.taskId}`;
+    } else {
+      yield* sql`
           INSERT INTO fork_task_folders (task_id, folder) VALUES (${input.taskId}, ${input.folder})
           ON CONFLICT (task_id) DO UPDATE SET folder = excluded.folder
         `;
-      }
-      yield* PubSub.publish(changes, undefined);
-    }).pipe(Effect.mapError(asError));
+    }
+    yield* PubSub.publish(changes, undefined);
+  }, Effect.mapError(asError));
 
-  const setChat = (input: SetChatFolderInput) =>
-    Effect.gen(function* () {
-      if (input.folder === null) {
-        yield* sql`DELETE FROM fork_chat_folders WHERE thread_id = ${input.threadId}`;
-      } else {
-        yield* sql`
+  const setChat = Effect.fn("TaskFolders.setChat")(function* (input: SetChatFolderInput) {
+    if (input.folder === null) {
+      yield* sql`DELETE FROM fork_chat_folders WHERE thread_id = ${input.threadId}`;
+    } else {
+      yield* sql`
           INSERT INTO fork_chat_folders (thread_id, folder) VALUES (${input.threadId}, ${input.folder})
           ON CONFLICT (thread_id) DO UPDATE SET folder = excluded.folder
         `;
-      }
-      yield* PubSub.publish(changes, undefined);
-    }).pipe(Effect.mapError(asError));
+    }
+    yield* PubSub.publish(changes, undefined);
+  }, Effect.mapError(asError));
 
   return TaskFolders.of({ stream, set, setChat });
 });

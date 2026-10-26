@@ -113,7 +113,6 @@ export const PREVIEW_RECORDING_SAVE_CHANNEL = "desktop:preview-recording-save";
 export const PREVIEW_RECORDING_FRAME_CHANNEL = "desktop:preview-recording-frame";
 export const PREVIEW_STATE_CHANGE_CHANNEL = "desktop:preview-state-change";
 export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
-export const PREVIEW_RENDER_REQUEST_CHANNEL = "desktop:preview-render-request";
 export const PREVIEW_AGENT_INPUT_CHANNEL = "desktop:preview-agent-input";
 export const PREVIEW_OPEN_LINK_CHANNEL = "desktop:preview-open-link";
 

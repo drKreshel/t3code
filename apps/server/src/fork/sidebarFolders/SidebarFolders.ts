@@ -225,49 +225,40 @@ const make = Effect.gen(function* () {
     };
   });
 
+  const expectResult = <T extends SidebarFolderResult["type"]>(type: T) =>
+    Effect.filterOrFail<
+      SidebarFolderResult,
+      SidebarFoldersError,
+      Extract<SidebarFolderResult, { type: T }>
+    >(
+      (result): result is Extract<SidebarFolderResult, { type: T }> => result.type === type,
+      () => SidebarFoldersError.fromCode("invalid-response"),
+    );
+
   return SidebarFolders.of({
     list,
     connect,
-    create: (clientId, path) =>
-      invoke(clientId, { type: "create", path }).pipe(
-        Effect.flatMap((result) =>
-          result.type === "folder-created"
-            ? Effect.succeed(result)
-            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
-        ),
-      ),
-    delete: (clientId, folderId) =>
-      invoke(clientId, { type: "delete", folderId }).pipe(
-        Effect.flatMap((result) =>
-          result.type === "deleted"
-            ? Effect.succeed(result)
-            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
-        ),
-      ),
-    setSettled: (clientId, folderId, settled) =>
-      invoke(clientId, { type: "set-settled", folderId, settled }).pipe(
-        Effect.flatMap((result) =>
-          result.type === "folder-settled"
-            ? Effect.succeed(result)
-            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
-        ),
-      ),
-    setIcon: (clientId, folderId, icon) =>
-      invoke(clientId, { type: "set-icon", folderId, icon }).pipe(
-        Effect.flatMap((result) =>
-          result.type === "folder-icon-updated"
-            ? Effect.succeed(result)
-            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
-        ),
-      ),
-    moveThread: (clientId, thread, folderId) =>
-      invoke(clientId, { type: "move-thread", thread, folderId }).pipe(
-        Effect.flatMap((result) =>
-          result.type === "thread-moved"
-            ? Effect.succeed(result)
-            : Effect.fail(SidebarFoldersError.fromCode("invalid-response")),
-        ),
-      ),
+    create: Effect.fn("SidebarFolders.create")(function* (clientId, path) {
+      return yield* invoke(clientId, { type: "create", path }).pipe(expectResult("folder-created"));
+    }),
+    delete: Effect.fn("SidebarFolders.delete")(function* (clientId, folderId) {
+      return yield* invoke(clientId, { type: "delete", folderId }).pipe(expectResult("deleted"));
+    }),
+    setSettled: Effect.fn("SidebarFolders.setSettled")(function* (clientId, folderId, settled) {
+      return yield* invoke(clientId, { type: "set-settled", folderId, settled }).pipe(
+        expectResult("folder-settled"),
+      );
+    }),
+    setIcon: Effect.fn("SidebarFolders.setIcon")(function* (clientId, folderId, icon) {
+      return yield* invoke(clientId, { type: "set-icon", folderId, icon }).pipe(
+        expectResult("folder-icon-updated"),
+      );
+    }),
+    moveThread: Effect.fn("SidebarFolders.moveThread")(function* (clientId, thread, folderId) {
+      return yield* invoke(clientId, { type: "move-thread", thread, folderId }).pipe(
+        expectResult("thread-moved"),
+      );
+    }),
     respond,
     claim,
   });

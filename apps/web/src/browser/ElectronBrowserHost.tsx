@@ -3,7 +3,6 @@ import {
   AuthPreviewOperateScope,
   type DesktopPreviewAgentInput,
   type DesktopPreviewOpenLinkEvent,
-  type DesktopPreviewRenderRequest,
   type EnvironmentId,
   FILL_PREVIEW_VIEWPORT,
   ThreadId,
@@ -29,7 +28,6 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { readPreviewAnnotationTheme } from "./annotationTheme";
 import { useBrowserDefaults } from "./browserDefaults";
 import { useBrowserPointerStore } from "./browserPointerStore";
-import { acquireBrowserSurfaceActivity } from "./browserSurfaceStore";
 import { HostedBrowserWebview } from "./HostedBrowserWebview";
 import { openUrlInPreview } from "./openFileInPreview";
 import { holdPreviewHostFocus } from "./previewHostFocus";
@@ -124,37 +122,6 @@ export function ElectronBrowserHost() {
     return preview.onOpenLink(onOpenLink);
   }, []);
 
-  // The desktop's server captures its tabs through their webviews, which draw
-  // nothing while hidden offscreen. Keep a captured tab on screen until it ends.
-  const onRenderRequest = useEffectEvent(
-    (
-      { threadId, tabId, active }: DesktopPreviewRenderRequest,
-      releases: Map<string, () => void>,
-    ) => {
-      const key = `${threadId}\u0000${tabId}`;
-      releases.get(key)?.();
-      releases.delete(key);
-      if (!active) return;
-      const session = sessions.find(
-        (candidate) =>
-          candidate.threadRef.environmentId === primaryEnvironmentId &&
-          candidate.threadRef.threadId === threadId &&
-          candidate.snapshot.tabId === tabId,
-      );
-      if (session) releases.set(key, acquireBrowserSurfaceActivity(session.runtimeTabId));
-    },
-  );
-  useEffect(() => {
-    const preview = window.desktopBridge?.preview;
-    if (!preview?.onRenderRequest) return;
-    const releases = new Map<string, () => void>();
-    const unsubscribe = preview.onRenderRequest((request) => onRenderRequest(request, releases));
-    return () => {
-      unsubscribe();
-      for (const release of releases.values()) release();
-    };
-  }, []);
-
   const onAgentInput = useEffectEvent(
     ({ threadId, tabId, active }: DesktopPreviewAgentInput, releases: Map<string, () => void>) => {
       const key = `${threadId}\u0000${tabId}`;
@@ -170,6 +137,7 @@ export function ElectronBrowserHost() {
       if (session) releases.set(key, holdPreviewHostFocus(session.runtimeTabId));
     },
   );
+  // oxlint-disable-next-line t3code/react-effect-budget -- Subscribes to the desktop bridge's agent-input channel for this host's lifetime.
   useEffect(() => {
     const preview = window.desktopBridge?.preview;
     if (!preview?.onAgentInput) return;
@@ -233,11 +201,13 @@ function ElectronBrowserEventSync({ environmentId }: { readonly environmentId: E
     }),
   );
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- Mirrors the server's session list into the module-level preview store.
   useEffect(() => {
     if (!AsyncResult.isSuccess(listResult)) return;
     reconcilePreviewServerSessionIndex(environmentId, listResult.value);
   }, [environmentId, listResult]);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- Applies each streamed preview event to the module-level preview store once.
   useEffect(() => {
     if (!AsyncResult.isSuccess(eventResult)) return;
     applyPreviewServerEvent(

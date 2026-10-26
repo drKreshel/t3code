@@ -1,14 +1,7 @@
 /**
- * Ticket workspaces: one folder per ticket that every chat on the ticket runs
- * in. Knows only git: native worktrees on the ticket's branch, created when a
- * chat first needs them and reused after. Databases, ports, and other
- * environment setup stay with each project's own setup script, which runs in
- * a new workspace like it does for any T3 worktree.
- *
- * For a project folder holding several repos, the workspace mirrors that
- * folder: included repos become worktrees (or links to the main checkout for
- * `local`), and the folder's other top-level entries (agent instructions,
- * scripts, config) are linked in so the chat sees the project as it is.
+ * One folder per ticket, shared by its chats: git worktrees on the ticket's
+ * branch; other setup is left to the project's setup script. A multi-repo folder
+ * is mirrored, with its other top-level entries linked in.
  */
 import {
   type OrchestrationProjectShell,
@@ -150,65 +143,67 @@ const make = Effect.gen(function* () {
 
   // Lookups
 
-  const findProject = (projectKey: string) =>
-    Effect.gen(function* () {
-      const separator = projectKey.indexOf(":");
-      if (projectKey.slice(0, separator) !== environmentId) {
-        return yield* fail("invalid", "The project is on another environment.");
-      }
-      const project = yield* projects
-        .getShell(ProjectId.make(projectKey.slice(separator + 1)))
-        .pipe(Effect.mapError(() => fail("storage", "Could not read the project.")));
-      if (Option.isNone(project)) return yield* fail("not-found", "The project no longer exists.");
-      return project.value;
-    });
+  const findProject = Effect.fn("TicketWorkspaces.findProject")(function* (projectKey: string) {
+    const separator = projectKey.indexOf(":");
+    if (projectKey.slice(0, separator) !== environmentId) {
+      return yield* fail("invalid", "The project is on another environment.");
+    }
+    const project = yield* projects
+      .getShell(ProjectId.make(projectKey.slice(separator + 1)))
+      .pipe(Effect.mapError(() => fail("storage", "Could not read the project.")));
+    if (Option.isNone(project)) return yield* fail("not-found", "The project no longer exists.");
+    return project.value;
+  });
 
   /** The project's Workspace setting, resolved like a new chat's: project, environment, t3.json, built-in. */
-  const workspaceSetting = (project: OrchestrationProjectShell) =>
-    Effect.gen(function* () {
-      const settings = yield* serverSettings.getSettings.pipe(
-        Effect.mapError(() => fail("storage", "Could not read the settings.")),
-      );
-      const mode = resolveProjectSettings(settings, project.id, project).settings
-        .defaultThreadEnvMode;
-      if (mode !== null) return mode;
-      const file = yield* projectFiles.load(project.workspaceRoot);
-      return resolveProjectFileBackedSetting("defaultThreadEnvMode", null, Option.getOrNull(file))
-        .value;
-    });
+  const workspaceSetting = Effect.fn("TicketWorkspaces.workspaceSetting")(function* (
+    project: OrchestrationProjectShell,
+  ) {
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(() => fail("storage", "Could not read the settings.")),
+    );
+    const mode = resolveProjectSettings(settings, project.id, project).settings
+      .defaultThreadEnvMode;
+    if (mode !== null) return mode;
+    const file = yield* projectFiles.load(project.workspaceRoot);
+    return resolveProjectFileBackedSetting("defaultThreadEnvMode", null, Option.getOrNull(file))
+      .value;
+  });
 
-  const listReposAt = (project: OrchestrationProjectShell) =>
-    Effect.gen(function* () {
-      const root = project.workspaceRoot;
-      const workspace = yield* workspaceSetting(project);
-      if (yield* git.isRepository(root).pipe(Effect.orElseSucceed(() => false))) {
-        return { kind: "repo", repos: [], workspace } satisfies ProjectRepos;
+  const listReposAt = Effect.fn("TicketWorkspaces.listReposAt")(function* (
+    project: OrchestrationProjectShell,
+  ) {
+    const root = project.workspaceRoot;
+    const workspace = yield* workspaceSetting(project);
+    if (yield* git.isRepository(root).pipe(Effect.orElseSucceed(() => false))) {
+      return { kind: "repo", repos: [], workspace } satisfies ProjectRepos;
+    }
+    const entries = yield* fs
+      .readDirectory(root)
+      .pipe(Effect.mapError(fsError("Could not read the project folder")));
+    const repos: string[] = [];
+    for (const entry of entries.toSorted()) {
+      if (entry.startsWith(".")) continue;
+      if (
+        yield* fs.exists(path.join(root, entry, ".git")).pipe(Effect.orElseSucceed(() => false))
+      ) {
+        repos.push(entry);
       }
-      const entries = yield* fs
-        .readDirectory(root)
-        .pipe(Effect.mapError(fsError("Could not read the project folder")));
-      const repos: string[] = [];
-      for (const entry of entries.toSorted()) {
-        if (entry.startsWith(".")) continue;
-        if (
-          yield* fs.exists(path.join(root, entry, ".git")).pipe(Effect.orElseSucceed(() => false))
-        ) {
-          repos.push(entry);
-        }
-      }
-      return {
-        kind: repos.length > 0 ? "folder" : "none",
-        repos,
-        workspace,
-      } satisfies ProjectRepos;
-    });
+    }
+    return {
+      kind: repos.length > 0 ? "folder" : "none",
+      repos,
+      workspace,
+    } satisfies ProjectRepos;
+  });
 
   const listRepos = (projectKey: string) =>
     findProject(projectKey).pipe(Effect.flatMap(listReposAt));
 
   const rulesFor = (scope: string, scopeId: string | null) =>
     scopeId === null
-      ? Effect.succeed(undefined)
+      ? // @effect-diagnostics-next-line effectSucceedWithVoid:off - Callers read the rules as optional, not void.
+        Effect.succeed(undefined)
       : storage(
           sql<{ readonly rules_json: string }>`
             SELECT rules_json FROM fork_workspace_rules
@@ -226,89 +221,87 @@ const make = Effect.gen(function* () {
       Effect.map((row) => (row && row.removed_at === null ? toWorkspace(row) : null)),
     );
 
-  const ticketContext = (ticketId: string) =>
-    Effect.gen(function* () {
-      const snapshot = yield* boards.snapshot.pipe(
-        Effect.mapError((error) => fail("storage", error.message)),
+  const ticketContext = Effect.fn("TicketWorkspaces.ticketContext")(function* (ticketId: string) {
+    const snapshot = yield* boards.snapshot.pipe(
+      Effect.mapError((error) => fail("storage", error.message)),
+    );
+    const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
+    const board = snapshot.boards.find((candidate) => candidate.id === ticket?.boardId);
+    if (!ticket || !board) return yield* fail("not-found", "That ticket no longer exists.");
+    const projectKey = ticket.projectKey ?? board.defaultProjectKey;
+    if (projectKey === null) {
+      return yield* fail(
+        "invalid",
+        "The ticket has no project: set one on the ticket or a default on its board.",
       );
-      const ticket = snapshot.tickets.find((candidate) => candidate.id === ticketId);
-      const board = snapshot.boards.find((candidate) => candidate.id === ticket?.boardId);
-      if (!ticket || !board) return yield* fail("not-found", "That ticket no longer exists.");
-      const projectKey = ticket.projectKey ?? board.defaultProjectKey;
-      if (projectKey === null) {
-        return yield* fail(
-          "invalid",
-          "The ticket has no project: set one on the ticket or a default on its board.",
-        );
-      }
-      return { ticket, board, key: `${board.key}-${ticket.number}`, projectKey };
-    });
+    }
+    return { ticket, board, key: `${board.key}-${ticket.number}`, projectKey };
+  });
 
   // Creating
 
   /** The ref a new ticket branch starts from; bare names fall back to `origin/<name>`. */
-  const resolveStart = (repoRoot: string, startFrom: string | null) =>
-    Effect.gen(function* () {
-      const resolves = (refName: string) =>
-        git.hasCommit({ cwd: repoRoot, refName }).pipe(Effect.orElseSucceed(() => false));
-      // Fresh remote refs, so a ticket does not start from a stale branch.
-      yield* git.fetchRemote({ cwd: repoRoot, remoteName: "origin" }).pipe(Effect.ignore);
-      if (startFrom !== null) {
-        if (yield* resolves(startFrom)) return startFrom;
-        if (yield* resolves(`origin/${startFrom}`)) return `origin/${startFrom}`;
-        return yield* fail(
-          "git",
-          `${path.basename(repoRoot)} has no branch "${startFrom}" to start from.`,
-        );
-      }
-      if (yield* resolves("origin/HEAD")) return "origin/HEAD";
-      return "HEAD";
-    });
+  const resolveStart = Effect.fn("TicketWorkspaces.resolveStart")(function* (
+    repoRoot: string,
+    startFrom: string | null,
+  ) {
+    const resolves = (refName: string) =>
+      git.hasCommit({ cwd: repoRoot, refName }).pipe(Effect.orElseSucceed(() => false));
+    // Fresh remote refs, so a ticket does not start from a stale branch.
+    yield* git.fetchRemote({ cwd: repoRoot, remoteName: "origin" }).pipe(Effect.ignore);
+    if (startFrom !== null) {
+      if (yield* resolves(startFrom)) return startFrom;
+      if (yield* resolves(`origin/${startFrom}`)) return `origin/${startFrom}`;
+      return yield* fail(
+        "git",
+        `${path.basename(repoRoot)} has no branch "${startFrom}" to start from.`,
+      );
+    }
+    if (yield* resolves("origin/HEAD")) return "origin/HEAD";
+    return "HEAD";
+  });
 
   /** A worktree of `repoRoot` at `worktreePath` on the ticket's branch. */
-  const createWorktree = (
+  const createWorktree = Effect.fn("TicketWorkspaces.createWorktree")(function* (
     repoRoot: string,
     worktreePath: string,
     branch: string,
     startFrom: string | null,
-  ) =>
-    Effect.gen(function* () {
-      if (
-        yield* fs.exists(path.join(worktreePath, ".git")).pipe(Effect.orElseSucceed(() => false))
-      ) {
-        return; // Still there from before.
-      }
-      // Recreating after a removal: the branch kept the work.
-      const branchExists = yield* git
-        .hasCommit({ cwd: repoRoot, refName: `refs/heads/${branch}` })
-        .pipe(Effect.orElseSucceed(() => false));
-      if (branchExists) {
-        yield* git.pruneWorktrees({ cwd: repoRoot }).pipe(Effect.ignore);
-        yield* git
-          .createWorktree({ cwd: repoRoot, refName: branch, path: worktreePath })
-          .pipe(
-            Effect.mapError(
-              gitError(`Could not recreate the worktree of ${path.basename(repoRoot)}`),
-            ),
-          );
-        return;
-      }
-      const base = yield* resolveStart(repoRoot, startFrom);
+  ) {
+    if (yield* fs.exists(path.join(worktreePath, ".git")).pipe(Effect.orElseSucceed(() => false))) {
+      return; // Still there from before.
+    }
+    // Recreating after a removal: the branch kept the work.
+    const branchExists = yield* git
+      .hasCommit({ cwd: repoRoot, refName: `refs/heads/${branch}` })
+      .pipe(Effect.orElseSucceed(() => false));
+    if (branchExists) {
+      yield* git.pruneWorktrees({ cwd: repoRoot }).pipe(Effect.ignore);
       yield* git
-        .createWorktree({ cwd: repoRoot, refName: base, newRefName: branch, path: worktreePath })
+        .createWorktree({ cwd: repoRoot, refName: branch, path: worktreePath })
         .pipe(
-          Effect.mapError(gitError(`Could not create a worktree of ${path.basename(repoRoot)}`)),
+          Effect.mapError(
+            gitError(`Could not recreate the worktree of ${path.basename(repoRoot)}`),
+          ),
         );
-    });
+      return;
+    }
+    const base = yield* resolveStart(repoRoot, startFrom);
+    yield* git
+      .createWorktree({ cwd: repoRoot, refName: base, newRefName: branch, path: worktreePath })
+      .pipe(Effect.mapError(gitError(`Could not create a worktree of ${path.basename(repoRoot)}`)));
+  });
 
-  const linkIfMissing = (target: string, link: string) =>
-    Effect.gen(function* () {
-      if (yield* fs.exists(link).pipe(Effect.orElseSucceed(() => false))) return;
-      yield* fs.symlink(target, link).pipe(Effect.mapError(fsError(`Could not link ${link}`)));
-    });
+  const linkIfMissing = Effect.fn("TicketWorkspaces.linkIfMissing")(function* (
+    target: string,
+    link: string,
+  ) {
+    if (yield* fs.exists(link).pipe(Effect.orElseSucceed(() => false))) return;
+    yield* fs.symlink(target, link).pipe(Effect.mapError(fsError(`Could not link ${link}`)));
+  });
 
-  const runSetup = (threadId: string, projectId: string, workspacePath: string) =>
-    Effect.gen(function* () {
+  const runSetup = Effect.fn("TicketWorkspaces.runSetup")(
+    function* (threadId: string, projectId: string, workspacePath: string) {
       if (Option.isNone(setupRunner)) return;
       const result = yield* setupRunner.value.runForThread({
         threadId,
@@ -320,11 +313,11 @@ const make = Effect.gen(function* () {
       if (result.status === "started" && !result.async && result.completion) {
         yield* result.completion;
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Ticket workspace setup script failed", { cause }),
-      ),
-    );
+    },
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Ticket workspace setup script failed", { cause }),
+    ),
+  );
 
   const ensure = (ticketId: string) =>
     lock.withPermits(1)(
@@ -508,28 +501,29 @@ const make = Effect.gen(function* () {
 
   // Rules, snapshot, dispatch
 
-  const setRules = (rules: Pick<WorkspaceRules, "scope" | "scopeId" | "defaults" | "repos">) =>
-    Effect.gen(function* () {
-      const empty =
-        rules.repos.length === 0 &&
-        rules.defaults.checkout === undefined &&
-        rules.defaults.startFrom === undefined;
-      if (empty) {
-        yield* storage(sql`
+  const setRules = Effect.fn("TicketWorkspaces.setRules")(function* (
+    rules: Pick<WorkspaceRules, "scope" | "scopeId" | "defaults" | "repos">,
+  ) {
+    const empty =
+      rules.repos.length === 0 &&
+      rules.defaults.checkout === undefined &&
+      rules.defaults.startFrom === undefined;
+    if (empty) {
+      yield* storage(sql`
           DELETE FROM fork_workspace_rules WHERE scope = ${rules.scope} AND scope_id = ${rules.scopeId}
         `);
-      } else {
-        const json = encodeRules({ defaults: rules.defaults, repos: rules.repos });
-        const at = yield* nowIso;
-        yield* storage(sql`
+    } else {
+      const json = encodeRules({ defaults: rules.defaults, repos: rules.repos });
+      const at = yield* nowIso;
+      yield* storage(sql`
           INSERT INTO fork_workspace_rules (scope, scope_id, rules_json, updated_at)
           VALUES (${rules.scope}, ${rules.scopeId}, ${json}, ${at})
           ON CONFLICT (scope, scope_id) DO UPDATE SET rules_json = excluded.rules_json,
             updated_at = excluded.updated_at
         `);
-      }
-      yield* announce;
-    });
+    }
+    yield* announce;
+  });
 
   const snapshot = Effect.gen(function* () {
     const ruleRows = yield* storage(
@@ -570,26 +564,25 @@ const make = Effect.gen(function* () {
 
   const noResult: WorkspacesCommandResult = { path: null, branch: null, created: false };
 
-  const dispatch = (command: WorkspacesCommand) =>
-    Effect.gen(function* () {
-      switch (command.type) {
-        case "rules.set":
-          yield* setRules(command);
-          return noResult;
-        case "workspace.ensure":
-          return yield* ensure(command.ticketId);
-        case "workspace.setup": {
-          const workspace = yield* find(command.ticketId);
-          if (!workspace) return yield* fail("not-found", "The ticket has no workspace.");
-          const { id } = yield* findProject(workspace.projectKey);
-          yield* runSetup(command.threadId, id, workspace.path);
-          return noResult;
-        }
-        case "workspace.remove":
-          yield* remove(command.ticketId, command.force === true);
-          return noResult;
+  const dispatch = Effect.fn("TicketWorkspaces.dispatch")(function* (command: WorkspacesCommand) {
+    switch (command.type) {
+      case "rules.set":
+        yield* setRules(command);
+        return noResult;
+      case "workspace.ensure":
+        return yield* ensure(command.ticketId);
+      case "workspace.setup": {
+        const workspace = yield* find(command.ticketId);
+        if (!workspace) return yield* fail("not-found", "The ticket has no workspace.");
+        const { id } = yield* findProject(workspace.projectKey);
+        yield* runSetup(command.threadId, id, workspace.path);
+        return noResult;
       }
-    });
+      case "workspace.remove":
+        yield* remove(command.ticketId, command.force === true);
+        return noResult;
+    }
+  });
 
   return TicketWorkspaces.of({ snapshot, stream, listRepos, dispatch, find });
 });

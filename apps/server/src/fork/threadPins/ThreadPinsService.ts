@@ -57,91 +57,88 @@ const make = Effect.gen(function* () {
   const changes = yield* PubSub.unbounded<ThreadId>();
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
-  const load = (threadId: ThreadId) =>
-    Effect.gen(function* () {
-      const rows = yield* sql<{
-        readonly id: string;
-        readonly title: string;
-        readonly target: string | null;
-        readonly text: string | null;
-        readonly created_at: string;
-        readonly updated_at: string;
-      }>`SELECT id, title, target, text, created_at, updated_at FROM fork_thread_pins
+  const load = Effect.fn("ThreadPinsService.load")(function* (threadId: ThreadId) {
+    const rows = yield* sql<{
+      readonly id: string;
+      readonly title: string;
+      readonly target: string | null;
+      readonly text: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }>`SELECT id, title, target, text, created_at, updated_at FROM fork_thread_pins
         WHERE thread_id = ${threadId} ORDER BY rowid`;
-      return {
-        threadId,
-        pins: rows.map((row) => ({
-          id: row.id,
-          title: row.title,
-          target: row.target,
-          text: row.text,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        })),
-      } satisfies ThreadPins;
-    }).pipe(Effect.mapError(toPinsError));
+    return {
+      threadId,
+      pins: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        target: row.target,
+        text: row.text,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
+    } satisfies ThreadPins;
+  }, Effect.mapError(toPinsError));
 
-  const assertRoom = (threadId: ThreadId) =>
-    Effect.gen(function* () {
-      const [count] = yield* sql<{ readonly n: number }>`
+  const assertRoom = Effect.fn("ThreadPinsService.assertRoom")(function* (threadId: ThreadId) {
+    const [count] = yield* sql<{ readonly n: number }>`
         SELECT COUNT(*) AS n FROM fork_thread_pins WHERE thread_id = ${threadId}`;
-      if ((count?.n ?? 0) >= THREAD_PINS_MAX)
-        return yield* fail(
-          "invalid",
-          `A chat holds at most ${THREAD_PINS_MAX} pins. Unpin one first.`,
-        );
-    });
+    if ((count?.n ?? 0) >= THREAD_PINS_MAX)
+      return yield* fail(
+        "invalid",
+        `A chat holds at most ${THREAD_PINS_MAX} pins. Unpin one first.`,
+      );
+  });
 
-  const run = (command: ThreadPinsCommand) =>
-    Effect.gen(function* () {
-      const now = yield* nowIso;
-      switch (command.type) {
-        case "note.set": {
-          // A note keeps its place in the list when its text changes.
-          const existing = yield* sql<{ readonly id: string }>`
+  const run = Effect.fn("ThreadPinsService.run")(function* (command: ThreadPinsCommand) {
+    const now = yield* nowIso;
+    switch (command.type) {
+      case "note.set": {
+        // A note keeps its place in the list when its text changes.
+        const existing = yield* sql<{ readonly id: string }>`
             SELECT id FROM fork_thread_pins
             WHERE thread_id = ${command.threadId} AND target IS NULL AND title = ${command.title}`;
-          const id = existing[0]?.id;
-          if (id !== undefined) {
-            yield* sql`UPDATE fork_thread_pins SET text = ${command.text}, updated_at = ${now}
+        const id = existing[0]?.id;
+        if (id !== undefined) {
+          yield* sql`UPDATE fork_thread_pins SET text = ${command.text}, updated_at = ${now}
               WHERE id = ${id}`;
-            return;
-          }
-          yield* assertRoom(command.threadId);
-          yield* sql`
+          return;
+        }
+        yield* assertRoom(command.threadId);
+        yield* sql`
             INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
             VALUES (${yield* crypto.randomUUIDv4()}, ${command.threadId}, ${command.title}, NULL,
               ${command.text}, ${now}, ${now})`;
-          return;
-        }
-        case "pin.add": {
-          if (!isPinTarget(command.target))
-            return yield* fail("invalid", "Pin an absolute file path or an http(s) URL.");
-          const existing = yield* sql<{ readonly id: string }>`
+        return;
+      }
+      case "pin.add": {
+        if (!isPinTarget(command.target))
+          return yield* fail("invalid", "Pin an absolute file path or an http(s) URL.");
+        const existing = yield* sql<{ readonly id: string }>`
             SELECT id FROM fork_thread_pins
             WHERE thread_id = ${command.threadId} AND target = ${command.target}`;
-          const id = existing[0]?.id;
-          if (id !== undefined) {
-            yield* sql`UPDATE fork_thread_pins SET title = ${command.title}, updated_at = ${now}
+        const id = existing[0]?.id;
+        if (id !== undefined) {
+          yield* sql`UPDATE fork_thread_pins SET title = ${command.title}, updated_at = ${now}
               WHERE id = ${id}`;
-            return;
-          }
-          yield* assertRoom(command.threadId);
-          yield* sql`
+          return;
+        }
+        yield* assertRoom(command.threadId);
+        yield* sql`
             INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
             VALUES (${yield* crypto.randomUUIDv4()}, ${command.threadId}, ${command.title},
               ${command.target}, NULL, ${now}, ${now})`;
-          return;
-        }
-        case "pin.remove": {
-          const removed = yield* sql<{ readonly id: string }>`
+        return;
+      }
+      case "pin.remove": {
+        const removed = yield* sql<{ readonly id: string }>`
             DELETE FROM fork_thread_pins
             WHERE thread_id = ${command.threadId} AND id = ${command.pinId} RETURNING id`;
-          if (removed.length === 0) return yield* fail("not-found", "That pin no longer exists.");
-          return;
-        }
+        if (removed.length === 0) return yield* fail("not-found", "That pin no longer exists.");
+        return;
       }
-    });
+    }
+  });
 
   const dispatch = (command: ThreadPinsCommand) =>
     sql

@@ -9,33 +9,29 @@ import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
  */
 export const WorktreeMcpHandoffInput = Schema.Struct({
   threadId: Schema.optional(
-    ThreadId.annotate({
-      description:
-        "Thread to move. Defaults to the calling thread. The target may already be attached to another worktree.",
-    }),
+    ThreadId.annotate({ description: "Thread to move. Default: this thread." }),
   ),
   attach: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Attach the existing checkout at path instead of creating a worktree. The path must be the project's main checkout or one of its git worktrees, with a branch checked out. Passing the main checkout moves the thread back to the project root. T3 never removes the attached checkout or the thread's previous worktree. baseRef and startFromOrigin do not apply.",
+        "Attach the existing checkout at `path` (the project root or one of its worktrees) instead of creating one. Never removes a checkout.",
     }),
   ),
   branch: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
-        "Branch name to create for the worktree (e.g. 'feature/my-change'). Required unless attach is set; when attaching, it must match the worktree's checked-out branch.",
+        "New branch name. Required unless `attach`; when attaching, must match the checked-out branch.",
     }),
   ),
   baseRef: Schema.optional(
     TrimmedNonEmptyString.annotate({
-      description:
-        "Branch or ref the worktree branch starts from. Defaults to the branch currently checked out in the project workspace.",
+      description: "Default: checked-out branch.",
     }),
   ),
   startFromOrigin: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Fetch the remote baseRef belongs to and start the worktree branch from its remote-tracking commit instead of the local ref. Defaults to the server's 'new worktrees start from remote' setting.",
+        "True: fetch, start from the remote ref; check `startedFromOrigin`. Default: server setting.",
     }),
   ),
   path: Schema.optional(
@@ -46,14 +42,12 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   ),
   runSetupScript: Schema.optional(
     Schema.Boolean.annotate({
-      description:
-        "Run the project's configured setup script in the target checkout after handoff. Defaults to true when creating a worktree and false when attaching an existing checkout.",
+      description: "Default true for a new worktree, false when attaching.",
     }),
   ),
   continuationPrompt: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(120_000)).annotate({
-      description:
-        "Message queued as the target thread's next turn after the handoff. The handoff detaches that thread's current provider session, so pass the remaining work here to automatically resume in the target checkout; omit it to leave the thread idle until its next message.",
+      description: "Work to resume in the target checkout next turn. Omitted: thread waits.",
     }),
   ),
 });
@@ -118,16 +112,12 @@ export type WorktreeMcpStatusInput = typeof WorktreeMcpStatusInput.Type;
 
 export const WorktreeMcpStatusResult = Schema.Struct({
   threadId: ThreadId,
-  attached: Schema.Boolean.annotate({
-    description: "True when the target thread is attached to a git worktree.",
-  }),
+  attached: Schema.Boolean,
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   branch: Schema.NullOr(TrimmedNonEmptyString),
-  projectWorkspaceRoot: TrimmedNonEmptyString.annotate({
-    description: "Root of the project's main workspace checkout.",
-  }),
+  projectWorkspaceRoot: TrimmedNonEmptyString,
   defaultStartFromOrigin: Schema.Boolean.annotate({
-    description: "Server default used by t3_worktree_handoff when startFromOrigin is omitted.",
+    description: "`startFromOrigin` default for `t3_worktree_handoff`.",
   }),
 });
 export type WorktreeMcpStatusResult = typeof WorktreeMcpStatusResult.Type;

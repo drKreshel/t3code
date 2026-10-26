@@ -28,7 +28,7 @@ const WorktreeToolFailure = Schema.Union([WorktreeMcpFailure, OrchestratorMcpFai
 
 const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
   description:
-    "Needs an agent running inside a T3 thread. Move a thread to another checkout; omit threadId for this thread or pass another thread's ID. By default, creates a new worktree branch (optionally from the base branch's remote), re-points the target thread, and runs the project's setup script there. To use an existing checkout, pass attach:true with its absolute path; it must be the project's main checkout or one of its git worktrees (see t3_worktree_list). Passing the main checkout path moves the thread back to the project root. An already-bound thread can move between worktrees or back to root. When attaching, branch is optional and must match the checked-out branch, and the setup script runs only when runSetupScript is true. Moving a bound thread never removes its previous worktree; attaching never removes the target checkout or branch. Changing a workspace detaches the target thread's live provider session. When targeting this thread, call this as the last action of the turn. To resume the target automatically, pass continuationPrompt; it is queued as that thread's next message and starts a new turn in the target checkout. Without it the target stays idle until its next message. To launch a separate new thread already bound to a checkout, use t3_thread_launch with workspaceStrategy instead.",
+    "Move this thread, or the one named by `threadId`, into a new git worktree on a new branch, running the setup script by default. `attach:true` with an absolute `path` moves it to an existing checkout instead (see `t3_worktree_list`); the project root moves it back. Never removes a checkout. A separate agent in a worktree: `t3_thread_launch` with `workspaceStrategy`. For this thread, call last in your turn. The move ends the target's live session. `continuationPrompt` resumes work there next turn. Without it, the thread waits.",
   parameters: WorktreeMcpHandoffInput,
   success: WorktreeMcpHandoffResult,
   failure: WorktreeToolFailure,
@@ -43,7 +43,7 @@ const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
 
 const WorktreeStatusTool = Tool.make("t3_worktree_status", {
   description:
-    "Needs an agent running inside a T3 thread. Report a thread's worktree binding: omit threadId for this thread or pass another thread's ID. Returns whether the target is attached to a git worktree, its worktree path and branch, the project's main checkout path, and the server default for t3_worktree_handoff's startFromOrigin.",
+    "Report a thread's worktree (omit `threadId` for this thread): attached or not, path, branch, project root, and the `startFromOrigin` default. Check before `t3_worktree_handoff`.",
   parameters: WorktreeMcpStatusInput,
   success: WorktreeMcpStatusResult,
   failure: WorktreeToolFailure,
@@ -58,7 +58,7 @@ const WorktreeStatusTool = Tool.make("t3_worktree_status", {
 
 const WorktreeListTool = Tool.make("t3_worktree_list", {
   description:
-    "List branch refs and their associated checkout paths for a thread's project (omit threadId for this thread) using the app's ref inventory. Detached worktrees without a branch are not included. Use t3_worktree_status for the thread binding and t3_worktree_handoff to create a worktree or move this or another thread to an existing checkout.",
+    "List branch refs and checkout paths for a thread's workspace. Omit `threadId` for this thread. Detached worktrees with no branch are left out.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     query: VcsListRefsInput.fields.query,

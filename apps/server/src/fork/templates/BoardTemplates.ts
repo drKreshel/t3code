@@ -85,43 +85,45 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const dispatch = (command: TemplatesCommand, actor: BoardsActor) =>
-    Effect.gen(function* () {
-      switch (command.type) {
-        case "board.create": {
-          const { templates } = yield* snapshot;
-          const template = templates.find((candidate) => candidate.id === command.templateId);
-          if (!template) return yield* fail("not-found", "That template no longer exists.");
-          return yield* boards.dispatch(
-            {
-              type: "board.create",
-              name: command.name,
-              key: command.key,
-              ...(command.icon !== undefined ? { icon: command.icon } : {}),
-              ...(command.defaultProjectKey !== undefined
-                ? { defaultProjectKey: command.defaultProjectKey }
-                : {}),
-              columns: template.columns,
-            },
-            actor,
-          );
+  const dispatch = Effect.fn("BoardTemplates.dispatch")(function* (
+    command: TemplatesCommand,
+    actor: BoardsActor,
+  ) {
+    switch (command.type) {
+      case "board.create": {
+        const { templates } = yield* snapshot;
+        const template = templates.find((candidate) => candidate.id === command.templateId);
+        if (!template) return yield* fail("not-found", "That template no longer exists.");
+        return yield* boards.dispatch(
+          {
+            type: "board.create",
+            name: command.name,
+            key: command.key,
+            ...(command.icon !== undefined ? { icon: command.icon } : {}),
+            ...(command.defaultProjectKey !== undefined
+              ? { defaultProjectKey: command.defaultProjectKey }
+              : {}),
+            columns: template.columns,
+          },
+          actor,
+        );
+      }
+      case "template.save": {
+        if (BUILT_IN_TEMPLATES.some((template) => template.name === command.name)) {
+          return yield* fail("invalid", `"${command.name}" is a built-in template's name.`);
         }
-        case "template.save": {
-          if (BUILT_IN_TEMPLATES.some((template) => template.name === command.name)) {
-            return yield* fail("invalid", `"${command.name}" is a built-in template's name.`);
-          }
-          const board = (yield* boards.snapshot).boards.find(
-            (candidate) => candidate.id === command.boardId,
-          );
-          if (!board) return yield* fail("not-found", "That board no longer exists.");
-          const at = DateTime.formatIso(yield* DateTime.now);
-          const existing = yield* storage(
-            sql<{ readonly id: string }>`
+        const board = (yield* boards.snapshot).boards.find(
+          (candidate) => candidate.id === command.boardId,
+        );
+        if (!board) return yield* fail("not-found", "That board no longer exists.");
+        const at = DateTime.formatIso(yield* DateTime.now);
+        const existing = yield* storage(
+          sql<{ readonly id: string }>`
               SELECT id FROM fork_board_templates WHERE name = ${command.name}
             `,
-          );
-          const id = existing[0]?.id ?? (yield* storage(crypto.randomUUIDv4()));
-          yield* storage(sql`
+        );
+        const id = existing[0]?.id ?? (yield* storage(crypto.randomUUIDv4()));
+        yield* storage(sql`
             INSERT INTO fork_board_templates
               (id, name, description, columns_json, created_at, updated_at)
             VALUES (${id}, ${command.name}, ${command.description ?? ""},
@@ -131,19 +133,19 @@ const make = Effect.gen(function* () {
               columns_json = excluded.columns_json,
               updated_at = excluded.updated_at
           `);
-          yield* PubSub.publish(changes, undefined);
-          return { id };
-        }
-        case "template.delete": {
-          if (BUILT_IN_TEMPLATES.some((template) => template.id === command.templateId)) {
-            return yield* fail("invalid", "Built-in templates cannot be deleted.");
-          }
-          yield* storage(sql`DELETE FROM fork_board_templates WHERE id = ${command.templateId}`);
-          yield* PubSub.publish(changes, undefined);
-          return { id: null };
-        }
+        yield* PubSub.publish(changes, undefined);
+        return { id };
       }
-    });
+      case "template.delete": {
+        if (BUILT_IN_TEMPLATES.some((template) => template.id === command.templateId)) {
+          return yield* fail("invalid", "Built-in templates cannot be deleted.");
+        }
+        yield* storage(sql`DELETE FROM fork_board_templates WHERE id = ${command.templateId}`);
+        yield* PubSub.publish(changes, undefined);
+        return { id: null };
+      }
+    }
+  });
 
   // One-slot sliding mailbox per subscriber, as for boards: snapshots are whole states.
   const stream = Stream.callback<TemplatesSnapshot, BoardsCommandError>(

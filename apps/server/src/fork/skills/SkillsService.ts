@@ -79,19 +79,20 @@ export const make = Effect.gen(function* () {
     fileSystem.exists(filePath).pipe(Effect.orElseSucceed(() => false));
 
   /** `<name>` to `<source>/<name>/SKILL.md` for each skill folder in the source folder. */
-  const readSourceSkills = (directory: string | null) =>
-    Effect.gen(function* () {
-      const skills = new Map<string, string>();
-      if (directory === null) return skills;
-      const entries = yield* fileSystem
-        .readDirectory(directory)
-        .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
-      for (const entry of entries.toSorted()) {
-        const skillPath = path.join(directory, entry, "SKILL.md");
-        if (yield* exists(skillPath)) skills.set(entry, skillPath);
-      }
-      return skills;
-    });
+  const readSourceSkills = Effect.fn("SkillsService.readSourceSkills")(function* (
+    directory: string | null,
+  ) {
+    const skills = new Map<string, string>();
+    if (directory === null) return skills;
+    const entries = yield* fileSystem
+      .readDirectory(directory)
+      .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+    for (const entry of entries.toSorted()) {
+      const skillPath = path.join(directory, entry, "SKILL.md");
+      if (yield* exists(skillPath)) skills.set(entry, skillPath);
+    }
+    return skills;
+  });
 
   const list: SkillsService["Service"]["list"] = Effect.gen(function* () {
     const settings = yield* readSettings;
@@ -170,8 +171,8 @@ export const make = Effect.gen(function* () {
       ? Effect.succeed(path.resolve(filePath))
       : Effect.fail(invalid("Only SKILL.md files can be opened here."));
 
-  const read: SkillsService["Service"]["read"] = (filePath) =>
-    Effect.gen(function* () {
+  const read: SkillsService["Service"]["read"] = Effect.fn("SkillsService.read")(
+    function* (filePath) {
       const resolved = yield* skillFile(filePath);
       const content = yield* fileSystem
         .readFileString(resolved)
@@ -181,7 +182,8 @@ export const make = Effect.gen(function* () {
           ),
         );
       return { path: resolved, content };
-    });
+    },
+  );
 
   /** Re-scan skills everywhere they are cached, so composers pick up the edit. */
   const refreshProviderSkills = Effect.gen(function* () {
@@ -218,53 +220,53 @@ export const make = Effect.gen(function* () {
         Effect.catch((error) => Effect.succeed({ exitCode: null, output: error.message })),
       );
 
-  const save: SkillsService["Service"]["save"] = (file) =>
-    Effect.gen(function* () {
-      const resolved = yield* skillFile(file.path);
-      if (!(yield* exists(resolved)))
-        return yield* new SkillsError({
-          code: "not-found",
-          message: `${resolved} does not exist.`,
-        });
-      const settings = yield* readSettings;
-      const sourceDirectory = sourceDirectoryOf(settings);
-      const inSource =
-        sourceDirectory !== null && path.dirname(path.dirname(resolved)) === sourceDirectory;
-      const sourceCopy =
-        sourceDirectory === null
-          ? null
-          : path.join(sourceDirectory, path.basename(path.dirname(resolved)), "SKILL.md");
-      if (!inSource && sourceCopy !== null && (yield* exists(sourceCopy)))
-        return yield* invalid(
-          `This file is a synced copy and the next resync overwrites it. Edit the source at ${sourceCopy}.`,
-        );
-      yield* fileSystem
-        .writeFileString(resolved, file.content)
-        .pipe(Effect.mapError(storage(`Could not write ${resolved}.`)));
-      const resync =
-        inSource && settings.resyncCommand ? yield* runResync(settings.resyncCommand) : null;
-      yield* refreshProviderSkills.pipe(Effect.forkDetach);
-      return { path: resolved, resync };
-    });
+  const save: SkillsService["Service"]["save"] = Effect.fn("SkillsService.save")(function* (file) {
+    const resolved = yield* skillFile(file.path);
+    if (!(yield* exists(resolved)))
+      return yield* new SkillsError({
+        code: "not-found",
+        message: `${resolved} does not exist.`,
+      });
+    const settings = yield* readSettings;
+    const sourceDirectory = sourceDirectoryOf(settings);
+    const inSource =
+      sourceDirectory !== null && path.dirname(path.dirname(resolved)) === sourceDirectory;
+    const sourceCopy =
+      sourceDirectory === null
+        ? null
+        : path.join(sourceDirectory, path.basename(path.dirname(resolved)), "SKILL.md");
+    if (!inSource && sourceCopy !== null && (yield* exists(sourceCopy)))
+      return yield* invalid(
+        `This file is a synced copy and the next resync overwrites it. Edit the source at ${sourceCopy}.`,
+      );
+    yield* fileSystem
+      .writeFileString(resolved, file.content)
+      .pipe(Effect.mapError(storage(`Could not write ${resolved}.`)));
+    const resync =
+      inSource && settings.resyncCommand ? yield* runResync(settings.resyncCommand) : null;
+    yield* refreshProviderSkills.pipe(Effect.forkDetach);
+    return { path: resolved, resync };
+  });
 
-  const saveSettings: SkillsService["Service"]["saveSettings"] = (input) =>
-    Effect.gen(function* () {
-      const settings: SkillsSettings = {
-        sourceDirectory: input.sourceDirectory?.trim() || null,
-        resyncCommand: input.resyncCommand?.trim() || null,
-      };
-      const directory = sourceDirectoryOf(settings);
-      if (directory !== null) {
-        const stat = yield* fileSystem.stat(directory).pipe(Effect.option);
-        if (Option.isNone(stat) || stat.value.type !== "Directory")
-          return yield* invalid(`${directory} is not a folder.`);
-      }
-      yield* sql`
+  const saveSettings: SkillsService["Service"]["saveSettings"] = Effect.fn(
+    "SkillsService.saveSettings",
+  )(function* (input) {
+    const settings: SkillsSettings = {
+      sourceDirectory: input.sourceDirectory?.trim() || null,
+      resyncCommand: input.resyncCommand?.trim() || null,
+    };
+    const directory = sourceDirectoryOf(settings);
+    if (directory !== null) {
+      const stat = yield* fileSystem.stat(directory).pipe(Effect.option);
+      if (Option.isNone(stat) || stat.value.type !== "Directory")
+        return yield* invalid(`${directory} is not a folder.`);
+    }
+    yield* sql`
         INSERT INTO fork_settings (key, value_json) VALUES (${SETTINGS_KEY}, ${encodeSettings(settings)})
         ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json
       `.pipe(Effect.mapError(storage("Skills settings could not be saved.")));
-      return settings;
-    });
+    return settings;
+  });
 
   return SkillsService.of({ list, read, save, saveSettings });
 });

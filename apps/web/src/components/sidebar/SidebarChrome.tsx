@@ -31,7 +31,7 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
-import { useNavigateToMainApp } from "./mainAppLocation";
+import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -189,6 +189,9 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const { isMobile, setOpenMobile } = useSidebar();
   // Only the first path segment, so switching threads does not re-render the row.
   const page = useLocation({ select: (location) => location.pathname.split("/")[1] });
+  const isOnUtilityPage = useLocation({
+    select: (location) => isSidebarUtilityPage(location.pathname),
+  });
   const pullRequestsSupported = usePullRequestsSupported();
   const closeMobileSidebar = () => {
     if (isMobile) {
@@ -235,66 +238,68 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigateToMainApp();
   };
 
-  // Settings replaces the thread list, so it offers a way back instead.
-  if (page === "settings") {
-    return (
-      <SidebarMenu className="flex-row items-center">
+  return (
+    <SidebarMenu className="flex-row items-center">
+      {isOnUtilityPage ? (
         <SidebarMenuItem className="min-w-0 flex-1">
           <SidebarMenuButton onClick={handleBackClick}>
             <ArrowLeftIcon />
             <span>Back</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
-        <SidebarUpdatePill />
-      </SidebarMenu>
-    );
-  }
-
-  return (
-    <SidebarMenu className="flex-row items-center">
-      <SidebarUtilityItem icon={<SettingsIcon />} label="Settings" onClick={handleSettingsClick} />
-      {pullRequestsSupported ? (
-        <SidebarUtilityItem
-          icon={<PullRequestGlyph.pullRequest />}
-          label="Pull Requests"
-          isActive={page === "pull-requests"}
-          onClick={handlePullRequestsClick}
-        />
-      ) : null}
-      <SidebarUtilityItem
-        icon={<SquareKanbanIcon />}
-        label="Boards"
-        isActive={page === "boards"}
-        onClick={handleBoardsClick}
-        count={boardsNeedsYou}
-      />
-      <SidebarUtilityItem
-        icon={<CalendarClockIcon />}
-        label="Scheduled Tasks"
-        isActive={page === "scheduled"}
-        onClick={handleScheduledTasksClick}
-      />
-      <SidebarUtilityItem
-        icon={<SparklesIcon />}
-        label="Skills"
-        isActive={page === "skills"}
-        onClick={handleSkillsClick}
-      />
-      <SidebarUtilityItem
-        icon={<ChartNoAxesColumnIcon />}
-        label="Usage"
-        isActive={page === "usage"}
-        onClick={handleUsageClick}
-      />
+      ) : (
+        <>
+          <SidebarUtilityItem
+            icon={<SettingsIcon />}
+            label="Settings"
+            onClick={handleSettingsClick}
+          />
+          {pullRequestsSupported ? (
+            <SidebarUtilityItem
+              icon={<PullRequestGlyph.pullRequest />}
+              label="Pull requests"
+              onClick={handlePullRequestsClick}
+            />
+          ) : null}
+          <SidebarUtilityItem
+            icon={<SquareKanbanIcon />}
+            label="Boards"
+            isActive={page === "boards"}
+            onClick={handleBoardsClick}
+            count={boardsNeedsYou}
+          />
+          <SidebarUtilityItem
+            icon={<CalendarClockIcon />}
+            label="Scheduled Tasks"
+            isActive={page === "scheduled"}
+            onClick={handleScheduledTasksClick}
+          />
+          <SidebarUtilityItem
+            icon={<SparklesIcon />}
+            label="Skills"
+            isActive={page === "skills"}
+            onClick={handleSkillsClick}
+          />
+          <SidebarUtilityItem
+            icon={<ChartNoAxesColumnIcon />}
+            label="Usage"
+            onClick={handleUsageClick}
+          />
+        </>
+      )}
       <SidebarUpdatePill />
     </SidebarMenu>
   );
 });
 
-export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
+export const SidebarChromeFooter = memo(function SidebarChromeFooter({
+  showUndoNotice = false,
+}: {
+  showUndoNotice?: boolean;
+}) {
   return (
     <SidebarFooter>
-      <SidebarThreadUndoNotice />
+      {showUndoNotice ? <SidebarThreadUndoNotice /> : null}
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
       <SidebarUtilityMenu />

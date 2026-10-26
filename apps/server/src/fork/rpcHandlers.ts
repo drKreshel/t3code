@@ -74,105 +74,102 @@ export const unavailableBoards: BoardsService["Service"] = {
   dispatch: () => Effect.fail(unavailable),
 };
 
-export const makeForkRpcHandlers = () =>
-  Effect.gen(function* () {
-    // Optional so runtimes that do not provide fork services (upstream's own
-    // server tests) still build; there, fork methods report unavailability.
-    const sidebarFolders = yield* Effect.serviceOption(SidebarFolders.SidebarFolders);
-    const maybeBoards = yield* Effect.serviceOption(BoardsService);
-    const boards = Option.getOrElse(maybeBoards, () => unavailableBoards);
-    const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
-    const templates = yield* Effect.serviceOption(BoardTemplates);
-    const taskFolders = yield* Effect.serviceOption(TaskFolders);
-    const threadAgentContext = yield* makeThreadAgentContext;
-    const skills = yield* Effect.serviceOption(SkillsService);
-    const pins = yield* Effect.serviceOption(ThreadPinsService);
-    const withSkills = <A>(
-      run: (service: SkillsService["Service"]) => Effect.Effect<A, SkillsError>,
-    ): Effect.Effect<A, SkillsError> =>
-      Option.match(skills, {
-        onNone: () => Effect.fail(skillsUnavailable),
-        onSome: run,
-      });
-    return {
-      [FORK_SIDEBAR_FOLDERS_WS_METHODS.connect]: (input: SidebarFolderClient) =>
-        Option.match(sidebarFolders, {
-          onNone: () => Stream.fail(SidebarFoldersError.fromCode("unavailable")),
-          onSome: (service) => service.connect(input),
-        }),
-      [FORK_SIDEBAR_FOLDERS_WS_METHODS.claim]: (input: SidebarFolderRequestRef) =>
-        Option.match(sidebarFolders, {
-          onNone: () => Effect.fail(SidebarFoldersError.fromCode("unavailable")),
-          onSome: (service) => service.claim(input),
-        }),
-      [FORK_SIDEBAR_FOLDERS_WS_METHODS.respond]: (input: SidebarFolderReply) =>
-        Option.match(sidebarFolders, {
-          onNone: () => Effect.fail(SidebarFoldersError.fromCode("unavailable")),
-          onSome: (service) => service.respond(input),
-        }),
-      [FORK_SKILLS_WS_METHODS.list]: () => withSkills((service) => service.list),
-      [FORK_SKILLS_WS_METHODS.read]: (input: { readonly path: string }) =>
-        withSkills((service) => service.read(input.path)),
-      [FORK_SKILLS_WS_METHODS.save]: (file: SkillFile) =>
-        withSkills((service) => service.save(file)),
-      [FORK_SKILLS_WS_METHODS.saveSettings]: (settings: SkillsSettings) =>
-        withSkills((service) => service.saveSettings(settings)),
-      [FORK_AGENT_CONTEXT_WS_METHODS.thread]: (input: { readonly threadId: ThreadId }) =>
-        threadAgentContext(input.threadId),
-      [FORK_BOARDS_WS_METHODS.subscribe]: () => boards.stream,
-      [FORK_BOARDS_WS_METHODS.subscribeTicket]: (input: { readonly ticketId: string }) =>
-        boards.ticketDetailStream(input.ticketId),
-      [FORK_BOARDS_WS_METHODS.dispatch]: (command: BoardsCommand) =>
-        boards.dispatch(command, "user"),
-      [FORK_WORKSPACES_WS_METHODS.subscribe]: () =>
-        Option.match(workspaces, {
-          onNone: () => Stream.fail(workspacesUnavailable),
-          onSome: (service) => service.stream,
-        }),
-      [FORK_WORKSPACES_WS_METHODS.dispatch]: (command: WorkspacesCommand) =>
-        Option.match(workspaces, {
-          onNone: () => Effect.fail(workspacesUnavailable),
-          onSome: (service) => service.dispatch(command),
-        }),
-      [FORK_WORKSPACES_WS_METHODS.listRepos]: (input: { readonly projectKey: string }) =>
-        Option.match(workspaces, {
-          onNone: () => Effect.fail(workspacesUnavailable),
-          onSome: (service) => service.listRepos(input.projectKey),
-        }),
-      [FORK_THREAD_PINS_WS_METHODS.subscribe]: (input: { readonly threadId: ThreadId }) =>
-        Option.match(pins, {
-          onNone: () => Stream.fail(pinsUnavailable),
-          onSome: (service) => service.stream(input.threadId),
-        }),
-      [FORK_THREAD_PINS_WS_METHODS.dispatch]: (command: ThreadPinsCommand) =>
-        Option.match(pins, {
-          onNone: () => Effect.fail(pinsUnavailable),
-          onSome: (service) => service.dispatch(command),
-        }),
-      [FORK_TEMPLATES_WS_METHODS.subscribe]: () =>
-        Option.match(templates, {
-          onNone: () => Stream.fail(unavailable),
-          onSome: (service) => service.stream,
-        }),
-      [FORK_TEMPLATES_WS_METHODS.dispatch]: (command: TemplatesCommand) =>
-        Option.match(templates, {
-          onNone: () => Effect.fail(unavailable),
-          onSome: (service) => service.dispatch(command, "user"),
-        }),
-      [FORK_TASK_FOLDERS_WS_METHODS.subscribe]: () =>
-        Option.match(taskFolders, {
-          onNone: () => Stream.fail(taskFoldersUnavailable),
-          onSome: (service) => service.stream,
-        }),
-      [FORK_TASK_FOLDERS_WS_METHODS.set]: (input: SetTaskFolderInput) =>
-        Option.match(taskFolders, {
-          onNone: () => Effect.fail(taskFoldersUnavailable),
-          onSome: (service) => service.set(input),
-        }),
-      [FORK_TASK_FOLDERS_WS_METHODS.setChat]: (input: SetChatFolderInput) =>
-        Option.match(taskFolders, {
-          onNone: () => Effect.fail(taskFoldersUnavailable),
-          onSome: (service) => service.setChat(input),
-        }),
-    };
-  });
+export const makeForkRpcHandlers = Effect.fn("rpcHandlers.makeForkRpcHandlers")(function* () {
+  // Optional so runtimes that do not provide fork services (upstream's own
+  // server tests) still build; there, fork methods report unavailability.
+  const sidebarFolders = yield* Effect.serviceOption(SidebarFolders.SidebarFolders);
+  const maybeBoards = yield* Effect.serviceOption(BoardsService);
+  const boards = Option.getOrElse(maybeBoards, () => unavailableBoards);
+  const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
+  const templates = yield* Effect.serviceOption(BoardTemplates);
+  const taskFolders = yield* Effect.serviceOption(TaskFolders);
+  const threadAgentContext = yield* makeThreadAgentContext;
+  const skills = yield* Effect.serviceOption(SkillsService);
+  const pins = yield* Effect.serviceOption(ThreadPinsService);
+  const withSkills = <A>(
+    run: (service: SkillsService["Service"]) => Effect.Effect<A, SkillsError>,
+  ): Effect.Effect<A, SkillsError> =>
+    Option.match(skills, {
+      onNone: () => Effect.fail(skillsUnavailable),
+      onSome: run,
+    });
+  return {
+    [FORK_SIDEBAR_FOLDERS_WS_METHODS.connect]: (input: SidebarFolderClient) =>
+      Option.match(sidebarFolders, {
+        onNone: () => Stream.fail(SidebarFoldersError.fromCode("unavailable")),
+        onSome: (service) => service.connect(input),
+      }),
+    [FORK_SIDEBAR_FOLDERS_WS_METHODS.claim]: (input: SidebarFolderRequestRef) =>
+      Option.match(sidebarFolders, {
+        onNone: () => Effect.fail(SidebarFoldersError.fromCode("unavailable")),
+        onSome: (service) => service.claim(input),
+      }),
+    [FORK_SIDEBAR_FOLDERS_WS_METHODS.respond]: (input: SidebarFolderReply) =>
+      Option.match(sidebarFolders, {
+        onNone: () => Effect.fail(SidebarFoldersError.fromCode("unavailable")),
+        onSome: (service) => service.respond(input),
+      }),
+    [FORK_SKILLS_WS_METHODS.list]: () => withSkills((service) => service.list),
+    [FORK_SKILLS_WS_METHODS.read]: (input: { readonly path: string }) =>
+      withSkills((service) => service.read(input.path)),
+    [FORK_SKILLS_WS_METHODS.save]: (file: SkillFile) => withSkills((service) => service.save(file)),
+    [FORK_SKILLS_WS_METHODS.saveSettings]: (settings: SkillsSettings) =>
+      withSkills((service) => service.saveSettings(settings)),
+    [FORK_AGENT_CONTEXT_WS_METHODS.thread]: (input: { readonly threadId: ThreadId }) =>
+      threadAgentContext(input.threadId),
+    [FORK_BOARDS_WS_METHODS.subscribe]: () => boards.stream,
+    [FORK_BOARDS_WS_METHODS.subscribeTicket]: (input: { readonly ticketId: string }) =>
+      boards.ticketDetailStream(input.ticketId),
+    [FORK_BOARDS_WS_METHODS.dispatch]: (command: BoardsCommand) => boards.dispatch(command, "user"),
+    [FORK_WORKSPACES_WS_METHODS.subscribe]: () =>
+      Option.match(workspaces, {
+        onNone: () => Stream.fail(workspacesUnavailable),
+        onSome: (service) => service.stream,
+      }),
+    [FORK_WORKSPACES_WS_METHODS.dispatch]: (command: WorkspacesCommand) =>
+      Option.match(workspaces, {
+        onNone: () => Effect.fail(workspacesUnavailable),
+        onSome: (service) => service.dispatch(command),
+      }),
+    [FORK_WORKSPACES_WS_METHODS.listRepos]: (input: { readonly projectKey: string }) =>
+      Option.match(workspaces, {
+        onNone: () => Effect.fail(workspacesUnavailable),
+        onSome: (service) => service.listRepos(input.projectKey),
+      }),
+    [FORK_THREAD_PINS_WS_METHODS.subscribe]: (input: { readonly threadId: ThreadId }) =>
+      Option.match(pins, {
+        onNone: () => Stream.fail(pinsUnavailable),
+        onSome: (service) => service.stream(input.threadId),
+      }),
+    [FORK_THREAD_PINS_WS_METHODS.dispatch]: (command: ThreadPinsCommand) =>
+      Option.match(pins, {
+        onNone: () => Effect.fail(pinsUnavailable),
+        onSome: (service) => service.dispatch(command),
+      }),
+    [FORK_TEMPLATES_WS_METHODS.subscribe]: () =>
+      Option.match(templates, {
+        onNone: () => Stream.fail(unavailable),
+        onSome: (service) => service.stream,
+      }),
+    [FORK_TEMPLATES_WS_METHODS.dispatch]: (command: TemplatesCommand) =>
+      Option.match(templates, {
+        onNone: () => Effect.fail(unavailable),
+        onSome: (service) => service.dispatch(command, "user"),
+      }),
+    [FORK_TASK_FOLDERS_WS_METHODS.subscribe]: () =>
+      Option.match(taskFolders, {
+        onNone: () => Stream.fail(taskFoldersUnavailable),
+        onSome: (service) => service.stream,
+      }),
+    [FORK_TASK_FOLDERS_WS_METHODS.set]: (input: SetTaskFolderInput) =>
+      Option.match(taskFolders, {
+        onNone: () => Effect.fail(taskFoldersUnavailable),
+        onSome: (service) => service.set(input),
+      }),
+    [FORK_TASK_FOLDERS_WS_METHODS.setChat]: (input: SetChatFolderInput) =>
+      Option.match(taskFolders, {
+        onNone: () => Effect.fail(taskFoldersUnavailable),
+        onSome: (service) => service.setChat(input),
+      }),
+  };
+});

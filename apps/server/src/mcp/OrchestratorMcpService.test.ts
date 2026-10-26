@@ -24,7 +24,6 @@ import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
@@ -2583,18 +2582,16 @@ describe("OrchestratorMcpService provider resolution", () => {
                 ServerSettings.layerTest(),
                 Layer.mock(ProjectService.ProjectService)({
                   getById: () =>
-                    Effect.succeed(
-                      Option.some({
-                        id: projectId,
-                        title: "Scheduled destination",
-                        workspaceRoot: "/tmp/scheduled-destination",
-                        defaultModelSelection: saved.modelSelection,
-                        scripts: [],
-                        createdAt: saved.createdAt,
-                        updatedAt: saved.updatedAt,
-                        deletedAt: null,
-                      }),
-                    ),
+                    Effect.succeedSome({
+                      id: projectId,
+                      title: "Scheduled destination",
+                      workspaceRoot: "/tmp/scheduled-destination",
+                      defaultModelSelection: saved.modelSelection,
+                      scripts: [],
+                      createdAt: saved.createdAt,
+                      updatedAt: saved.updatedAt,
+                      deletedAt: null,
+                    }),
                 }),
                 Layer.mock(SecretRequests.SecretRequests)({}),
                 Layer.mock(GitVcsDriver.GitVcsDriver)({}),

@@ -25,6 +25,7 @@ import {
   layerMemory as boardsLayerMemory,
 } from "../../../fork/boards/BoardsService.ts";
 import { TaskFolders } from "../../../fork/taskFolders/TaskFolders.ts";
+import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ServerConfig from "../../../config.ts";
@@ -93,6 +94,7 @@ it.effect(
         Layer.mock(Project.ProjectService)({}),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
         Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        DocumentText.layer.pipe(Layer.provide(NodeServices.layer)),
         NodeServices.layer,
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-launch-placement-" }).pipe(
           Layer.provide(NodeServices.layer),
@@ -334,7 +336,7 @@ const clientLaunchHarness = (input: {
         ),
     }),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
-    NodeServices.layer,
+    DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer)),
   ).pipe(
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(VcsProcess.layer),
