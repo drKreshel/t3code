@@ -6,7 +6,6 @@ import type { EnvironmentId, ModelSelection, ScheduledTaskRunState } from "@t3to
 import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { Atom } from "effect/reactivity";
-import { useCallback } from "react";
 
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
@@ -62,23 +61,18 @@ export function useModelLabel(
     useAtomValue(
       environmentId ? serverEnvironment.providersValueAtom(environmentId) : NO_PROVIDERS_ATOM,
     ) ?? EMPTY_SERVER_PROVIDERS;
-  return useCallback(
-    (selection) => {
-      const provider = providers.find((entry) => entry.instanceId === selection.instanceId);
-      const models = provider?.models ?? [];
-      const slug = provider
-        ? resolveSelectableModel(provider.driver, selection.model, models)
-        : null;
-      const catalogModel = models.find((model) => model.slug === slug);
-      return {
-        model: catalogModel
-          ? getTriggerDisplayModelName(catalogModel)
-          : formatModelSlugName(selection.model),
-        effort: formatModelSelectionEffort(selection, models),
-      };
-    },
-    [providers],
-  );
+  return (selection) => {
+    const provider = providers.find((entry) => entry.instanceId === selection.instanceId);
+    const models = provider?.models ?? [];
+    const slug = provider ? resolveSelectableModel(provider.driver, selection.model, models) : null;
+    const catalogModel = models.find((model) => model.slug === slug);
+    return {
+      model: catalogModel
+        ? getTriggerDisplayModelName(catalogModel, provider?.driver)
+        : formatModelSlugName(selection.model),
+      effort: formatModelSelectionEffort(selection, models),
+    };
+  };
 }
 
 export const formatModelLabel = (label: ModelLabel) =>
