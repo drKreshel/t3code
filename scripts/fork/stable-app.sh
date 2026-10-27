@@ -33,7 +33,7 @@ LEGACY_PROFILE_DIR="$HOME/Library/Application Support/t3code"
 BACKUP_ROOT="$HOME/.t3/backups"
 PREVIOUS_APP_DIR="$BACKUP_ROOT/previous-app"
 INSTALLED_STAMP="$BACKUP_ROOT/INSTALLED"
-KEEP_BACKUPS=10
+KEEP_BACKUPS=1
 RESTART_LOG="$BACKUP_ROOT/restart.log"
 # Seconds a detached restart waits before quitting, so a chat that started it
 # can finish its reply.
