@@ -3,6 +3,7 @@ import type {
   OrchestrationV2ProviderThread,
 } from "@t3tools/contracts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import { ContextHandoffBudgetError } from "@t3tools/provider-core/server/failure";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {
@@ -69,11 +70,10 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
       omittedItems: pending.reduce((sum, handoff) => sum + (handoff.history?.omittedItems ?? 0), 0),
       budget,
     });
-    // The budget rations imported history, never the turn. When not even the
-    // marker fits, an ordinary turn still carries it alone: it is bounded above,
-    // and without it the provider cannot tell that it missed anything.
-    if (input.deferInline && historyCost(selected.messages, selected.context) > budget)
-      return { context: "", delivered: Effect.void, unsent: Effect.void };
+    if (historyCost(selected.messages, selected.context) > budget) {
+      if (input.deferInline) return { context: "", delivered: Effect.void, unsent: Effect.void };
+      return yield* new ContextHandoffBudgetError();
+    }
     const omittedItemIds = new Set(selected.omittedItemIds);
     const persist = (status: "pending" | "injected" | "inline") =>
       Effect.forEach(

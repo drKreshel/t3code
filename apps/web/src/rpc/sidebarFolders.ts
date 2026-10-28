@@ -18,12 +18,17 @@ import { connectionAtomRuntime } from "../connection/runtime";
 import { useSidebarFolderStore } from "../sidebarFolderStore";
 import { folderThreadSettlementTargets } from "../sidebarFolderSettlement.logic";
 import { executeClaimedSidebarFolderAction } from "../sidebarFolderTools.logic";
-import { readEnvironmentSupportsSettlement, readThreadShell } from "../state/entities";
+import { readThreadShell } from "../state/entities";
+import { environmentServerConfigsAtom } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { randomUUID } from "../lib/utils";
 import { appAtomRegistry } from "./atomRegistry";
 
 const clientId = randomUUID();
+
+const readEnvironmentSupportsSettlement = (environmentId: EnvironmentId) =>
+  appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+    .threadSettlement === true;
 
 const settleFolderThreads = (threadKeys: readonly string[]) =>
   Effect.promise(async () => {

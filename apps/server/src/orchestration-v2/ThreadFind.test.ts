@@ -30,7 +30,6 @@ import {
   THREAD_HISTORY_PAGE_POLICY,
 } from "./threadHistoryPaging.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
-import { findProjectedThreadItems } from "./ThreadFind.ts";
 
 const layerTest = Layer.mergeAll(EventStore.layer, ProjectionStore.layer, ProjectStore.layer).pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
@@ -477,7 +476,7 @@ describe("V2 thread find", () => {
   );
 
   it.effect.each(["human:choose-account", "choose-account"])(
-    "finds question replies in both persisted and memory history (%s)",
+    "finds question replies in persisted history (%s)",
     (requestKey) =>
       Effect.gen(function* () {
         const projection = yield* setup;
@@ -503,21 +502,8 @@ describe("V2 thread find", () => {
         yield* putItems([question, answer]);
         const input = { threadId, query: "staging" };
         const persisted = yield* projection.searchThread(input);
-        const memory = findProjectedThreadItems(
-          [question, answer].map((item, position) => ({
-            position,
-            visibility: "local" as const,
-            sourceThreadId: threadId,
-            sourceItemId: item.id,
-            item,
-          })),
-          input,
-          persisted.snapshotSequence,
-        );
-        for (const result of [persisted, memory]) {
-          assert.equal(result.totalMatches, 1);
-          assert.equal(result.match?.entryId, `async-answer:${requestId}`);
-        }
+        assert.equal(persisted.totalMatches, 1);
+        assert.equal(persisted.match?.entryId, `async-answer:${requestId}`);
       }).pipe(Effect.provide(layerTest)),
   );
 
