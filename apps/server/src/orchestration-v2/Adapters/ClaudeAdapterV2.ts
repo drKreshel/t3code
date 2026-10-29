@@ -6992,6 +6992,33 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           return { node, request, turnItem };
         });
 
+        // The SDK aborts a pending permission callback when the user steers mid-prompt.
+        const cancelAbortedRequest = Effect.fn("ClaudeAdapterV2.cancelAbortedRequest")(function* (
+          artifacts: Effect.Success<ReturnType<typeof buildApprovalRequestArtifacts>>,
+        ) {
+          const now = yield* DateTime.now;
+          yield* emitProviderEvent({
+            type: "node.updated",
+            driver: CLAUDE_PROVIDER,
+            node: { ...artifacts.node, status: "cancelled", completedAt: now },
+          });
+          yield* emitProviderEvent({
+            type: "turn_item.updated",
+            driver: CLAUDE_PROVIDER,
+            turnItem: {
+              ...artifacts.turnItem,
+              status: "cancelled",
+              completedAt: now,
+              updatedAt: now,
+            },
+          });
+          yield* emitProviderEvent({
+            type: "runtime_request.updated",
+            driver: CLAUDE_PROVIDER,
+            runtimeRequest: { ...artifacts.request, status: "cancelled", resolvedAt: now },
+          });
+        });
+
         const ensureReasoningBlock = Effect.fnUntraced(function* (
           context: ActiveClaudeTurnContext,
           itemId: string,
@@ -9439,6 +9466,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 }),
               ),
             );
+            if (!(yield* Deferred.isDone(answers))) {
+              yield* cancelAbortedRequest(artifacts);
+            }
             return callbackOptions.signal.aborted
               ? ({
                   behavior: "deny",
@@ -9555,6 +9585,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               }),
             ),
           );
+          if (!(yield* Deferred.isDone(decision))) {
+            yield* cancelAbortedRequest(artifacts);
+          }
 
           return permissionResultFromDecision({
             toolName,

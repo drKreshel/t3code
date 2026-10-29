@@ -1555,6 +1555,93 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
       }),
     );
 
+    it.effect("does not report a follow-up promoted to Steer as cancelled", () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const now = yield* DateTime.now;
+        const parentThreadId = ThreadId.make("thread:steered-followup-parent");
+        const projectId = ProjectId.make("project:steered-followup");
+        const parentRunId = RunId.make("run:steered-followup-parent");
+        const rootNodeId = NodeId.make("node:steered-followup-parent");
+        yield* seedParentWithTerminalTask({
+          threadId: parentThreadId,
+          projectId,
+          runId: parentRunId,
+          rootNodeId,
+          taskId: NodeId.make("node:steered-followup-seed"),
+          deliveryState: "acknowledged",
+          now,
+        });
+        const child = yield* seedRestartCancelledChild({
+          parentThreadId,
+          projectId,
+          parentRunId,
+          rootNodeId,
+          name: "steered-followup-child",
+          completionWake: "always",
+          continuationPending: false,
+          runStatus: "completed",
+          now,
+        });
+        yield* orchestrator.recoverDelegatedTasks;
+        for (const name of ["active", "queued"]) {
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`command:steered-followup:${name}`),
+            threadId: child.childThreadId,
+            messageId: MessageId.make(`message:steered-followup:${name}`),
+            text: name,
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+          });
+        }
+        const before = yield* orchestrator.getThreadProjection(child.childThreadId);
+        const active = before.runs.find((run) => run.ordinal === 2)!;
+        const queued = before.runs.find((run) => run.ordinal === 3)!;
+        const queuedMessage = before.messages.find((row) => row.id === queued.userMessageId)!;
+        assert.isDefined(queued.delegatedTaskId);
+
+        const afterSequence = yield* eventSink.latestSequence();
+        // What promote-to-steer commits: the message joins the active run, the queued run ends.
+        yield* eventSink.write({
+          events: [
+            {
+              id: EventId.make("event:steered-followup-message"),
+              type: "message.updated",
+              threadId: child.childThreadId,
+              runId: active.id,
+              occurredAt: now,
+              payload: { ...queuedMessage, runId: active.id, nodeId: active.rootNodeId },
+            },
+            {
+              id: EventId.make("event:steered-followup-cancelled"),
+              type: "run.updated",
+              threadId: child.childThreadId,
+              runId: queued.id,
+              occurredAt: now,
+              payload: { ...queued, status: "cancelled", queuePosition: null, completedAt: now },
+            },
+          ],
+        });
+        yield* eventSink.stream({ afterSequence, eventType: "subagent.updated" }).pipe(
+          Stream.filter(
+            (stored) =>
+              stored.event.type === "subagent.updated" &&
+              stored.event.payload.id === queued.delegatedTaskId &&
+              stored.event.payload.status === "cancelled",
+          ),
+          Stream.take(1),
+          Stream.runHead,
+        );
+        const parent = yield* orchestrator.getThreadProjection(parentThreadId);
+        const task = parent.subagents.find((row) => row.id === queued.delegatedTaskId);
+        assert.equal(task?.completionDelivery?.state, "disposed");
+      }),
+    );
+
     it.effect("delivers the run a background command's wake starts after the original result", () =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;

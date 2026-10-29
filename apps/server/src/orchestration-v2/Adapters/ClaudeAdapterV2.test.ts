@@ -3994,6 +3994,43 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         ),
     );
 
+    it.effect("cancels the approval request when the SDK aborts the tool call", () =>
+      Effect.gen(function* () {
+        const turn = yield* openPlanTurn("auto");
+        const controller = new AbortController();
+        const decision = yield* Effect.promise(() =>
+          turn.canUseTool(
+            "Bash",
+            { command: "echo after > target.txt" },
+            { signal: controller.signal, toolUseID: "tool-aborted", requestId: "request-aborted" },
+          ),
+        ).pipe(Effect.forkScoped);
+        const pending = yield* Queue.take(turn.runtimeRequestReceipts);
+        assert.equal(pending.runtimeRequest.status, "pending");
+
+        controller.abort();
+        assert.equal((yield* Fiber.join(decision))?.behavior, "deny");
+        const closed = yield* Queue.take(turn.runtimeRequestReceipts);
+        assert.equal(closed.runtimeRequest.id, pending.runtimeRequest.id);
+        assert.equal(closed.runtimeRequest.status, "cancelled");
+        const approvalItem = turn.events.findLast(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "approval_request" &&
+            event.turnItem.requestId === pending.runtimeRequest.id,
+        );
+        assert.equal(
+          approvalItem?.type === "turn_item.updated" ? approvalItem.turnItem.status : undefined,
+          "cancelled",
+        );
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    );
+
     it.effect("denies Plan writes without asking when approvals are never allowed", () =>
       Effect.gen(function* () {
         const turn = yield* openPlanTurn("full-access", "never");
