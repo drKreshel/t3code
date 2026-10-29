@@ -76,6 +76,7 @@ function createVisitScrollState(
       readonly offset: number;
     } | null,
     anchorScrollRestoreFrame: null as number | null,
+    lastReportedScroll: undefined as number | undefined,
   };
 }
 type VisitScrollState = ReturnType<typeof createVisitScrollState>;
@@ -489,9 +490,23 @@ export function useTimelineFollow(input: TimelineFollowInput) {
 
   const onIsAtEndChange = (isAtEnd: boolean) => {
     const scroll = visitScroll();
+    const offset = legendListRef.current?.getState().scroll;
+    const previousOffset = scroll.lastReportedScroll;
+    scroll.lastReportedScroll = offset;
     if (!isAtEnd && readFollow().mode === "following") {
       scroll.showScrollDebouncer.cancel();
       setShowScrollToBottom(false);
+      return;
+    }
+    // Content changing under a reader of history (rows re-keyed and laid out
+    // from estimates, rows removed) can bring the end to the viewport for a
+    // frame; only the reader scrolling toward the end re-arms follow.
+    if (
+      isAtEnd &&
+      offset !== undefined &&
+      previousOffset !== undefined &&
+      offset <= previousOffset
+    ) {
       return;
     }
     const { before, after } = followStore.dispatch(visit, {
