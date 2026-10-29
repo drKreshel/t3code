@@ -11885,6 +11885,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const parentTurnItem = parentProjection.turnItems.find(
         (candidate) => candidate.type === "subagent" && candidate.subagentId === task.id,
       );
+      // A queued follow-up promoted to Steer moved its message into a run that reports for it.
+      const steeredIntoAnotherRun =
+        childRun.status === "cancelled" &&
+        childControls.messages.some(
+          (message) => message.id === childRun.userMessageId && message.runId !== childRun.id,
+        );
       const updatedTask: OrchestrationV2Subagent = {
         ...task,
         providerThreadId: childRun.providerThreadId,
@@ -11892,6 +11898,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         result: result.text,
         completedAt: now,
         updatedAt: now,
+        ...(steeredIntoAnotherRun
+          ? { completionDelivery: { state: "disposed" as const, observedByRunId: null } }
+          : {}),
       };
       const completionPlan = yield* planDelegatedCompletionDelivery({
         parentProjection,
