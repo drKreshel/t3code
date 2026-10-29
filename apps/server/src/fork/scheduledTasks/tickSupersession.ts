@@ -58,7 +58,7 @@ export function isAutomaticTick(
  * Older automatic ticks of the task that have not started. Held runs are
  * included: cancelling one ends it without releasing the hold on the rest.
  */
-export function supersededTickRuns(
+function supersededTickRuns(
   projection: Pick<OrchestrationV2ThreadProjection, "runs" | "messages">,
   taskId: ScheduledTaskId,
   accepted: Pick<OrchestrationV2Run, "id" | "ordinal">,

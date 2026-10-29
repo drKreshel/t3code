@@ -24,7 +24,7 @@ const PROJECT_SCOPES = new Set(["project", "repo", "workspace", "local"]);
 const BUILTIN_SCOPES = new Set(["system", "admin", "plugin", "bundled", "builtin"]);
 
 /** A skill path that names its folder instead of the file is read as `<folder>/SKILL.md`. */
-export function skillFilePath(path: string): string {
+function skillFilePath(path: string): string {
   return /\.md$/i.test(path) ? path : `${path.replace(/[\\/]+$/, "")}/SKILL.md`;
 }
 

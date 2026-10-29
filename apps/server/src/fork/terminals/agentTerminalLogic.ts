@@ -6,12 +6,12 @@
  */
 import type { TerminalSummary } from "@t3tools/contracts";
 
-export const AGENT_TERMINAL_PREFIX = "agent-";
-export const AGENT_TERMINAL_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const AGENT_TERMINAL_PREFIX = "agent-";
+const AGENT_TERMINAL_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const DEFAULT_READ_LINES = 200;
 export const MAX_READ_LINES = 2_000;
 
-export function agentTerminalId(name: string): string {
+function agentTerminalId(name: string): string {
   return `${AGENT_TERMINAL_PREFIX}${name}`;
 }
 
@@ -59,16 +59,12 @@ export function plainTerminalTail(
 ): { readonly output: string; readonly truncated: boolean } {
   const plain = history
     .replace(
-      // eslint-disable-next-line no-control-regex -- matching ANSI escape sequences is the point
       /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>]/g,
       "",
     )
     .split(/\r?\n/)
     .map((line) => (line.split("\r").findLast((segment) => segment.length > 0) ?? "").trimEnd())
-    .map((line) =>
-      // eslint-disable-next-line no-control-regex -- strips control characters from terminal output
-      line.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ""),
-    );
+    .map((line) => line.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, ""));
   while (plain.length > 0 && plain.at(-1) === "") plain.pop();
   const tail = plain.slice(-lines);
   return { output: tail.join("\n"), truncated: tail.length < plain.length };

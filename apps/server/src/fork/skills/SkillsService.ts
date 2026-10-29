@@ -48,7 +48,7 @@ const encodeSettings = Schema.encodeSync(Schema.fromJsonString(SkillsSettings));
 const storage = (message: string) => () => new SkillsError({ code: "storage", message });
 const invalid = (message: string) => new SkillsError({ code: "invalid", message });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;

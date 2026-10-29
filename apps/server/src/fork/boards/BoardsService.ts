@@ -57,7 +57,7 @@ export class BoardsService extends Context.Service<
 >()("t3/fork/boards/BoardsService") {}
 
 /** Columns a new board starts with. Names and colors only: columns never start work. */
-export const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
+const DEFAULT_BOARD_COLUMNS: ReadonlyArray<{
   readonly name: string;
   readonly color: string | null;
 }> = [

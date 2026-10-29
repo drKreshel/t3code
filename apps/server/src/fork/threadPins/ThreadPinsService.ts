@@ -35,7 +35,7 @@ export class ThreadPinsService extends Context.Service<
 >()("t3/fork/threadPins/ThreadPinsService") {}
 
 /** An absolute host path (POSIX or Windows) or an http(s) URL. */
-export const isPinTarget = (target: string) =>
+const isPinTarget = (target: string) =>
   target.startsWith("/") || /^[A-Za-z]:[\\/]/.test(target) || /^https?:\/\/\S+$/i.test(target);
 
 const fail = (code: ThreadPinsErrorCode, message: string) =>

@@ -1,11 +1,6 @@
 /**
- * The fork's own SQLite database, `<state dir>/fork.sqlite`.
- *
- * Fork features keep their tables out of `state.sqlite`: upstream numbers its
- * migrations sequentially, and fork migrations in that sequence would conflict
- * on most upstream merges. Fork services get this client through
- * `Layer.provide(ForkDatabase.layer)`, which keeps it private to them; the
- * main `SqlClient` in the runtime is untouched.
+ * The fork's own SQLite database, `<state dir>/fork.sqlite`. Fork tables stay out of
+ * `state.sqlite` so fork migrations never collide with upstream's sequential ones.
  */
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -402,7 +397,7 @@ const setup = Layer.effectDiscard(
   }),
 );
 
-export const makeForkDatabase = (filename: string) =>
+const makeForkDatabase = (filename: string) =>
   Layer.provideMerge(
     setup,
     NodeSqliteClient.layer({

@@ -19,7 +19,6 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback } from "react";
 
 import { toastManager } from "../components/ui/toast";
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -28,7 +27,7 @@ import { useAtomCommand } from "./use-atom-command";
 
 const scheduler = createAtomCommandScheduler();
 
-export const boardsEnvironment = {
+const boardsEnvironment = {
   snapshot: createEnvironmentRpcSubscriptionAtomFamily(connectionAtomRuntime, {
     label: "fork:boards:snapshot",
     tag: FORK_BOARDS_WS_METHODS.subscribe,
@@ -109,26 +108,23 @@ export function useBoardsDispatch(): (
 ) => Promise<string | null | undefined> {
   const environmentId = usePrimaryEnvironmentId();
   const dispatch = useAtomCommand(boardsEnvironment.dispatch, { reportFailure: false });
-  return useCallback(
-    async (command: BoardsCommand) => {
-      if (environmentId === null) return undefined;
-      const result = await dispatch({ environmentId, input: command });
-      if (result._tag === "Success") return result.value.id;
-      if (!isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Board change failed",
-          description:
-            typeof error === "object" && error !== null && "message" in error
-              ? String((error as { readonly message: unknown }).message)
-              : "An error occurred.",
-        });
-      }
-      return undefined;
-    },
-    [dispatch, environmentId],
-  );
+  return async (command: BoardsCommand) => {
+    if (environmentId === null) return undefined;
+    const result = await dispatch({ environmentId, input: command });
+    if (result._tag === "Success") return result.value.id;
+    if (!isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "Board change failed",
+        description:
+          typeof error === "object" && error !== null && "message" in error
+            ? String((error as { readonly message: unknown }).message)
+            : "An error occurred.",
+      });
+    }
+    return undefined;
+  };
 }
 
 const EMPTY_TICKET_KEYS: ReadonlyMap<string, string> = new Map();

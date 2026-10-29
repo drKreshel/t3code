@@ -40,7 +40,7 @@ export class BoardUpkeep extends Context.Service<
 >()("t3/fork/boards/BoardUpkeep") {}
 
 /** Tickets due to move on: unchanged in an `autoMove` column for its days. */
-export function dueAutoMoves(
+function dueAutoMoves(
   snapshot: BoardsSnapshot,
   nowMs: number,
 ): ReadonlyArray<{ readonly ticketId: string; readonly columnId: string }> {

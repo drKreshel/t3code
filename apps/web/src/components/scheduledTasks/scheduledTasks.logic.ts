@@ -17,7 +17,7 @@ export function toggleSort<Key extends string>(
 }
 
 /** Every word of the query appears somewhere in the haystack, ignoring case. */
-export function matchesQuery(query: string, haystack: ReadonlyArray<string>): boolean {
+function matchesQuery(query: string, haystack: ReadonlyArray<string>): boolean {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
   const text = haystack.join("\n").toLowerCase();
