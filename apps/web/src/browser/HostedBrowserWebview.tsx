@@ -61,6 +61,8 @@ export function HostedBrowserWebview(props: {
   readonly serverRendering?: {
     readonly colorScheme: DesktopPreviewColorScheme;
     readonly zoomFactor: number;
+    /** Unset leaves the tab's mute to the user. */
+    readonly audioMuted: boolean | undefined;
   };
 }) {
   const {
@@ -105,6 +107,7 @@ export function HostedBrowserWebview(props: {
 
   const serverColorScheme = serverRendering?.colorScheme;
   const serverZoomFactor = serverRendering?.zoomFactor;
+  const serverAudioMuted = serverRendering?.audioMuted;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- leases the desktop preview tab for this webview and releases it on cleanup
   useEffect(() => {
@@ -133,6 +136,12 @@ export function HostedBrowserWebview(props: {
     if (!bridge || serverZoomFactor === undefined) return;
     withDesktopTab(runtimeTabId, () => bridge.setZoomFactor(runtimeTabId, serverZoomFactor));
   }, [runtimeTabId, serverZoomFactor]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- applies the agent's mute request to the desktop preview tab through the desktop bridge
+  useEffect(() => {
+    const bridge = window.desktopBridge?.preview;
+    if (!bridge || serverAudioMuted === undefined) return;
+    withDesktopTab(runtimeTabId, () => bridge.setAudioMuted(runtimeTabId, serverAudioMuted));
+  }, [runtimeTabId, serverAudioMuted]);
 
   const [webviewGeneration, setWebviewGeneration] = useState(0);
   const [recoverySrc, setRecoverySrc] = useState(initialSrc);

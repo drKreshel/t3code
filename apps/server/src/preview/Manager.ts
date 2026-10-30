@@ -193,6 +193,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
           ? { automationOwner: input.automationOwner }
           : {}),
         ...(input.reveal === undefined ? {} : { reveal: input.reveal }),
+        ...(input.audioMuted === undefined ? {} : { audioMuted: input.audioMuted }),
         updatedAt,
       };
       yield* SynchronizedRef.modifyEffect(stateRef, (state) =>
@@ -337,6 +338,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
             ...session.snapshot,
             ...(input.colorScheme === undefined ? {} : { colorScheme: input.colorScheme }),
             ...(input.zoomFactor === undefined ? {} : { zoomFactor: input.zoomFactor }),
+            ...(input.audioMuted === undefined ? {} : { audioMuted: input.audioMuted }),
             updatedAt,
           };
           const request =

@@ -159,6 +159,11 @@ export const PreviewAutomationOpenInput = Schema.Struct({
   profileId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(64))).annotate({
     description: PROFILE_GUIDANCE,
   }),
+  muted: Schema.optional(
+    Schema.Boolean.annotate({
+      description: "Silence the tab's sound, including a reused tab. False unmutes it.",
+    }),
+  ),
 }).check(
   Schema.makeFilter(
     (input) =>

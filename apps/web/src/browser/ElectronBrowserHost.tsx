@@ -152,7 +152,7 @@ export function ElectronBrowserHost() {
       if (session) releases.set(key, holdPreviewHostFocus(session.runtimeTabId));
     },
   );
-  // oxlint-disable-next-line t3code/react-effect-budget -- Subscribes to the desktop bridge's agent-input channel for this host's lifetime.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes to the desktop bridge's agent-input channel for this host's lifetime.
   useEffect(() => {
     const preview = window.desktopBridge?.preview;
     if (!preview?.onAgentInput) return;
@@ -186,6 +186,7 @@ export function ElectronBrowserHost() {
                     serverRendering: {
                       colorScheme: snapshot.colorScheme ?? "system",
                       zoomFactor: snapshot.zoomFactor ?? 1,
+                      audioMuted: snapshot.audioMuted,
                     },
                   }
                 : {})}
@@ -216,13 +217,13 @@ function ElectronBrowserEventSync({ environmentId }: { readonly environmentId: E
     }),
   );
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Mirrors the server's session list into the module-level preview store.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Mirrors the server's session list into the module-level preview store.
   useEffect(() => {
     if (!AsyncResult.isSuccess(listResult)) return;
     reconcilePreviewServerSessionIndex(environmentId, listResult.value);
   }, [environmentId, listResult]);
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Applies each streamed preview event to the module-level preview store once.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Applies each streamed preview event to the module-level preview store once.
   useEffect(() => {
     if (!AsyncResult.isSuccess(eventResult)) return;
     applyPreviewServerEvent(

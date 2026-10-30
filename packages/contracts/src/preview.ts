@@ -165,6 +165,7 @@ export const PreviewSessionSnapshot = Schema.Struct({
   automationOwner: Schema.optional(Schema.String),
   reveal: Schema.optional(Schema.Boolean),
   revealRequest: Schema.optional(Schema.Struct({ id: Schema.String, force: Schema.Boolean })),
+  audioMuted: Schema.optional(Schema.Boolean),
   updatedAt: Schema.String,
 });
 export type PreviewSessionSnapshot = typeof PreviewSessionSnapshot.Type;
@@ -176,6 +177,7 @@ export const PreviewOpenInput = Schema.Struct({
   profileId: Schema.optional(BrowserProfileId),
   runtime: Schema.optional(PreviewRuntime),
   reveal: Schema.optional(Schema.Boolean),
+  audioMuted: Schema.optional(Schema.Boolean),
 });
 export type PreviewOpenInput = typeof PreviewOpenInput.Type;
 
@@ -201,6 +203,7 @@ export const PreviewAdjustInput = Schema.Struct({
   tabId: PreviewTabId,
   colorScheme: Schema.optional(PreviewAppearancePreference),
   zoomFactor: Schema.optional(PreviewZoomFactor),
+  audioMuted: Schema.optional(Schema.Boolean),
   hardReload: Schema.optional(Schema.Boolean),
   clear: Schema.optional(Schema.Literals(["cookies", "cache"])),
 });

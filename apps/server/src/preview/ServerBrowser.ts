@@ -1851,6 +1851,7 @@ const make = Effect.gen(function* () {
                 runtime: "server",
                 reveal: false,
                 automationOwner: request.agentSessionId,
+                ...(open.muted === undefined ? {} : { audioMuted: open.muted }),
               }),
             ),
           ));
@@ -1868,6 +1869,15 @@ const make = Effect.gen(function* () {
                 "dialogPending",
               );
             if (existing) {
+              if (open.muted !== undefined) {
+                await runPromise(
+                  manager.adjust({
+                    threadId: tab.threadId,
+                    tabId: tab.tabId,
+                    audioMuted: open.muted,
+                  }),
+                );
+              }
               if (url) await navigate(tab, url, "load", navigationTimeout);
             } else {
               await tab.initialNavigation;
