@@ -1,12 +1,16 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { EnvironmentShellState } from "@t3tools/client-runtime/state/shell";
 import {
   SidebarFoldersError,
+  type EnvironmentId,
+  type ScopedThreadRef,
   type OrganizingIconOverride,
   type SidebarFolderAction,
   type SidebarFolderReply,
   type SidebarFolderSummary,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import {
   flattenSidebarFolders,
@@ -34,6 +38,31 @@ type FolderStore = SidebarFolderLayout &
       target: { readonly folderId: string; readonly position: "end" } | null,
     ) => void;
   };
+
+/**
+ * Whether a filed chat still exists. A shell that leaves older settled chats out
+ * never loads them, so an unloaded chat there counts unless this session saw it removed.
+ */
+export function filedThreadExists(
+  readShell: (
+    ref: ScopedThreadRef,
+  ) => { readonly archivedAt: string | null; readonly deletedAt: string | null } | null,
+  readShellState: (environmentId: EnvironmentId) =>
+    | (Pick<EnvironmentShellState, "removedAt"> & {
+        readonly snapshot: Option.Option<{ readonly olderSettled?: unknown }>;
+      })
+    | null,
+): (threadKey: string) => boolean {
+  return (threadKey) => {
+    const ref = parseScopedThreadKey(threadKey);
+    if (ref === null) return false;
+    const shell = readShell(ref);
+    if (shell !== null) return shell.archivedAt === null && shell.deletedAt === null;
+    const state = readShellState(ref.environmentId);
+    if (state === null || state.removedAt.has(ref.threadId)) return false;
+    return Option.getOrNull(state.snapshot)?.olderSettled !== undefined;
+  };
+}
 
 export function listSidebarFolderSummaries(
   layout: SidebarFolderLayout & TicketFolderRoutingState,

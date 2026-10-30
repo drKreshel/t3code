@@ -10,9 +10,11 @@ import { useSidebarFolderStore } from "./sidebarFolderStore";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import {
   executeClaimedSidebarFolderAction,
   executeSidebarFolderAction,
+  filedThreadExists,
   listSidebarFolderSummaries,
 } from "./sidebarFolderTools.logic";
 
@@ -120,6 +122,34 @@ describe("sidebar folder agent actions", () => {
       },
       { id: "empty", path: "Empty", threadCount: 0, subtreeThreadCount: 0, settled: true },
     ]);
+  });
+
+  it("counts filed chats a shell leaves out as older settled, but not removed ones", () => {
+    const layout = createSidebarFolder(EMPTY_SIDEBAR_FOLDER_LAYOUT, {
+      id: "ticket",
+      name: "SALON-61",
+      parentId: null,
+    });
+    const exists = filedThreadExists(
+      (ref) => (ref.threadId === "loaded" ? { archivedAt: null, deletedAt: null } : null),
+      (environmentId) =>
+        environmentId === "offline"
+          ? null
+          : {
+              snapshot: Option.some(environmentId === "cut" ? { olderSettled: {} } : {}),
+              removedAt: new Map([[ThreadId.make("archived"), 3]]),
+            },
+    );
+    const [summary] = listSidebarFolderSummaries(
+      {
+        ...layout,
+        threadKeysByFolderId: {
+          ticket: ["cut:loaded", "cut:older", "cut:archived", "whole:gone", "offline:older"],
+        },
+      },
+      exists,
+    );
+    expect(summary).toMatchObject({ threadCount: 2, subtreeThreadCount: 2 });
   });
 
   it("deletes an empty leftover after its ticket stops filing there", () => {
