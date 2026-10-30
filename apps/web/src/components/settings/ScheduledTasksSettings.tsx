@@ -46,6 +46,7 @@ import {
 
 import { formatRelativeTime } from "../../timestampFormat";
 import { describeCron } from "@t3tools/shared/cronDescription";
+import { createModelSelection } from "@t3tools/shared/model";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import { providerInstanceEntriesFor } from "../../providerInstances";
@@ -92,6 +93,7 @@ import { Menu, MenuTrigger, MenuPopup, MenuItem, MenuSeparator } from "../ui/men
 import { ToggleGroup, Toggle } from "../ui/toggle-group";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyMedia } from "../ui/empty";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { TraitsPicker } from "../chat/TraitsPicker";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
@@ -1187,6 +1189,15 @@ function ScheduledTaskEditorForm({
   const activeInstanceId =
     activeSelection?.instanceId ?? firstInstance?.instanceId ?? ("" as ProviderInstanceId);
   const activeModel = activeSelection?.model ?? "";
+  // The task's effort and other model options last while its model stays the same.
+  const activeModelSelection =
+    activeSelection !== null &&
+    draft.baseModelSelection !== null &&
+    draft.baseModelSelection.instanceId === activeSelection.instanceId &&
+    draft.baseModelSelection.model === activeSelection.model
+      ? draft.baseModelSelection
+      : activeSelection;
+  const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
   const modelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
     providers,
@@ -1214,7 +1225,7 @@ function ScheduledTaskEditorForm({
       tasksQuery.data === null
     )
       return;
-    const selection = activeSelection;
+    const selection = activeModelSelection;
     if (
       !draft.title.trim() ||
       !draft.prompt.trim() ||
@@ -1255,12 +1266,6 @@ function ScheduledTaskEditorForm({
       reportFailure("Checkout path is required", "Enter the path of the checkout to run in.");
       return;
     }
-    const modelSelection =
-      draft.baseModelSelection !== null &&
-      draft.baseModelSelection.instanceId === selection.instanceId &&
-      draft.baseModelSelection.model === selection.model
-        ? draft.baseModelSelection
-        : selection;
     const workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy =
       draft.workspaceMode === "root"
         ? { type: "root" }
@@ -1280,7 +1285,7 @@ function ScheduledTaskEditorForm({
       projectId: selectedProjectId as ProjectId,
       threadId: draft.threadId ? (draft.threadId as ThreadId) : null,
       workspaceStrategy,
-      modelSelection,
+      modelSelection: selection,
       runtimeMode: draft.runtimeMode,
       interactionMode: draft.interactionMode,
       creationSource: "web",
@@ -1494,7 +1499,7 @@ function ScheduledTaskEditorForm({
           </Field>
 
           <Field label="Model">
-            <div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <ProviderModelPicker
                 environmentId={environmentId}
                 disabled={saving || !connected}
@@ -1509,6 +1514,29 @@ function ScheduledTaskEditorForm({
                   setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
                 }
               />
+              {activeModelSelection !== null && activeEntry ? (
+                <TraitsPicker
+                  provider={activeEntry.driverKind}
+                  models={activeEntry.models}
+                  model={activeModelSelection.model}
+                  modelOptions={activeModelSelection.options ?? []}
+                  allowPromptInjectedEffort={false}
+                  planModeEnabled={settings.planModeEnabled}
+                  triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                  disabled={saving || !connected}
+                  onModelOptionsChange={(options) =>
+                    setDraft((current) => ({
+                      ...current,
+                      modelKey: `${activeModelSelection.instanceId}:${activeModelSelection.model}`,
+                      baseModelSelection: createModelSelection(
+                        activeModelSelection.instanceId,
+                        activeModelSelection.model,
+                        options,
+                      ),
+                    }))
+                  }
+                />
+              ) : null}
             </div>
           </Field>
 
