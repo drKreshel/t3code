@@ -1355,6 +1355,43 @@ it.live("preview_open reuses an agent tab created before the automation host sta
   ).pipe(Effect.provide(layer)),
 );
 
+it.live("preview_open mutes a new tab, and mutes or unmutes a reused one", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const broker = yield* Broker.PreviewAutomationBroker;
+      const manager = yield* Manager.PreviewManager;
+      yield* ServerBrowser.ServerBrowser;
+      yield* Effect.yieldNow;
+      const open = (input: Record<string, unknown>, tabId?: string | null) =>
+        broker.invoke<PreviewAutomationStatus>({
+          scope,
+          operation: "open",
+          input,
+          ...(tabId ? { tabId: PreviewTabId.make(tabId) } : {}),
+        });
+      const audioMuted = (tabId: string | null) =>
+        manager
+          .list({ threadId: scope.thread.threadId })
+          .pipe(
+            Effect.map(
+              ({ sessions }) => sessions.find((session) => session.tabId === tabId)?.audioMuted,
+            ),
+          );
+
+      const quiet = yield* open({ reuseExistingTab: false, show: false, muted: true });
+      expect(yield* audioMuted(quiet.tabId)).toBe(true);
+
+      yield* open({ show: false, muted: false }, quiet.tabId);
+      expect(yield* audioMuted(quiet.tabId)).toBe(false);
+
+      const loud = yield* open({ reuseExistingTab: false, show: false });
+      expect(yield* audioMuted(loud.tabId)).toBeUndefined();
+      yield* open({ show: false, muted: true }, loud.tabId);
+      expect(yield* audioMuted(loud.tabId)).toBe(true);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live("a session's own tab stays its default while other sessions' tabs are listed", () =>
   Effect.scoped(
     Effect.gen(function* () {
