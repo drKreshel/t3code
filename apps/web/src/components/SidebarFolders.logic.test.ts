@@ -414,7 +414,7 @@ describe("buildSidebarFolderTree", () => {
     expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s2"]);
   });
 
-  it("keeps the open chat visible inside collapsed nested folders", () => {
+  it("hides the open chat inside collapsed folders", () => {
     const collapsed = toggleSidebarFolderCollapsed(
       toggleSidebarFolderCollapsed(
         layoutWith(
@@ -436,9 +436,8 @@ describe("buildSidebarFolderTree", () => {
       hideEmptyFolders: false,
       routeThreadKey: "t3",
     });
-    expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t3"]);
-    expect(tree.roots[0]).toMatchObject({ collapsed: true, rows: [] });
-    expect(tree.roots[0]!.children.map((node) => node.folder.id)).toEqual(["a1"]);
+    expect(tree.renderedThreads).toEqual([]);
+    expect(tree.roots[0]).toMatchObject({ collapsed: true, children: [], rows: [] });
     expect(tree.roots[1]).toMatchObject({ collapsed: true, children: [], rows: [] });
   });
 
