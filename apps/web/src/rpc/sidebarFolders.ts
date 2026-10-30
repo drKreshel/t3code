@@ -1,4 +1,3 @@
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { requestGuarded } from "@t3tools/client-runtime/rpc";
 import {
   createEnvironmentRpcCommand,
@@ -12,14 +11,15 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { useSidebarFolderStore } from "../sidebarFolderStore";
 import { folderThreadSettlementTargets } from "../sidebarFolderSettlement.logic";
-import { executeClaimedSidebarFolderAction } from "../sidebarFolderTools.logic";
+import { executeClaimedSidebarFolderAction, filedThreadExists } from "../sidebarFolderTools.logic";
 import { readThreadShell } from "../state/entities";
 import { environmentServerConfigsAtom } from "../state/server";
+import { environmentShell } from "../state/shell";
 import { threadEnvironment } from "../state/threads";
 import { randomUUID } from "../lib/utils";
 import { appAtomRegistry } from "./atomRegistry";
@@ -67,11 +67,12 @@ export const sidebarFolderRespond = createEnvironmentRpcCommand(connectionAtomRu
       requestGuarded(FORK_SIDEBAR_FOLDERS_WS_METHODS.claim, ref),
       useSidebarFolderStore.getState,
       input.event.action,
-      (key) => {
-        const ref = parseScopedThreadKey(key);
-        const shell = ref === null ? null : readThreadShell(ref);
-        return shell !== null && shell.archivedAt === null && shell.deletedAt === null;
-      },
+      filedThreadExists(readThreadShell, (environmentId) =>
+        AsyncResult.getOrElse(
+          appAtomRegistry.get(environmentShell.stateAtom(environmentId)),
+          () => null,
+        ),
+      ),
       settleFolderThreads,
     );
     if (result === null) return;
