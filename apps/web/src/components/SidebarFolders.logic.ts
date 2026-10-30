@@ -52,6 +52,33 @@ export function hasSidebarThreadFolderOverride(
   return Object.hasOwn(layout.threadFolderOverrides ?? {}, threadKey);
 }
 
+/** Chats filed in open folders, whose ancestors are all open too, that `include` selects. */
+export function openFolderThreadKeys(
+  layout: SidebarFolderLayout,
+  include: (threadKey: string) => boolean,
+): string[] {
+  const collapsed = new Set(layout.collapsedFolderIds);
+  const byId = new Map(layout.folders.map((folder) => [folder.id, folder]));
+  const isOpen = (folderId: string): boolean => {
+    const seen = new Set<string>();
+    let folder = byId.get(folderId);
+    while (folder !== undefined && !seen.has(folder.id)) {
+      if (collapsed.has(folder.id)) return false;
+      seen.add(folder.id);
+      folder = folder.parentId === null ? undefined : byId.get(folder.parentId);
+    }
+    return true;
+  };
+  const keys = new Set<string>();
+  for (const folder of layout.folders) {
+    if (!isOpen(folder.id)) continue;
+    for (const key of layout.threadKeysByFolderId[folder.id] ?? []) {
+      if (include(key)) keys.add(key);
+    }
+  }
+  return [...keys];
+}
+
 /** The folder and every folder nested beneath it. */
 export function folderSubtreeIds(layout: SidebarFolderLayout, folderId: string): Set<string> {
   const subtree = new Set([folderId]);
