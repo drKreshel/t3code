@@ -76,4 +76,5 @@ export * from "./forkSidebarFolders.ts";
 export * from "./forkOrganizingIcon.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
+export * from "./secretReference.ts";
 export * from "./clientRpcPermissions.ts";
