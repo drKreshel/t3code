@@ -844,6 +844,52 @@ it.live("reports a pending dialog without evaluating the page and resolves it ex
   ).pipe(Effect.provide(layer)),
 );
 
+it.live("a dialog the browser closed on its own stops blocking the tab", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { broker, tabId } = yield* ready;
+      const page = contexts[0]!.page;
+      const session = contexts[0]!.sessions[0]!;
+      yield* broker.invoke({
+        scope,
+        tabId,
+        operation: "navigate",
+        input: { url: "http://localhost:5173" },
+      });
+      const dialog = () => ({
+        type: () => "beforeunload",
+        message: () => "",
+        defaultValue: () => "",
+        accept: vi.fn(async () => {
+          throw new Error("Protocol error (Page.handleJavaScriptDialog): No dialog is showing");
+        }),
+        dismiss: vi.fn(async () => {}),
+      });
+      const status = () =>
+        broker.invoke<PreviewAutomationStatus>({ scope, tabId, operation: "status", input: {} });
+
+      page.emit("dialog", dialog());
+      session.emit("Page.javascriptDialogClosed");
+      expect((yield* status()).dialog).toBeNull();
+
+      page.emit("dialog", dialog());
+      const failed = yield* broker
+        .invoke<void>({ scope, tabId, operation: "dialog", input: { accept: true } })
+        .pipe(Effect.flip);
+      expect(String(failed)).toContain("No dialog is showing");
+      expect((yield* status()).dialog).toBeNull();
+      expect(
+        yield* broker.invoke({
+          scope,
+          tabId,
+          operation: "evaluate",
+          input: { expression: "1" },
+        }),
+      ).toBe("evaluated");
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live("a tab opened to a file the browser cannot show reports the file to download", () =>
   Effect.scoped(
     Effect.gen(function* () {
