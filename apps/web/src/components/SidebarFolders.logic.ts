@@ -52,10 +52,14 @@ export function hasSidebarThreadFolderOverride(
   return Object.hasOwn(layout.threadFolderOverrides ?? {}, threadKey);
 }
 
-/** Chats filed in open folders, whose ancestors are all open too, that `include` selects. */
+/**
+ * Chats filed in open folders, whose ancestors are all open too, that the shell leaves out.
+ * Only shell rows decide: a read adds its rows to the thread list, so deciding from that list
+ * would release the read again and loop.
+ */
 export function openFolderThreadKeys(
   layout: SidebarFolderLayout,
-  include: (threadKey: string) => boolean,
+  shellThreadKeys: ReadonlySet<string>,
 ): string[] {
   const collapsed = new Set(layout.collapsedFolderIds);
   const byId = new Map(layout.folders.map((folder) => [folder.id, folder]));
@@ -73,7 +77,7 @@ export function openFolderThreadKeys(
   for (const folder of layout.folders) {
     if (!isOpen(folder.id)) continue;
     for (const key of layout.threadKeysByFolderId[folder.id] ?? []) {
-      if (include(key)) keys.add(key);
+      if (!shellThreadKeys.has(key)) keys.add(key);
     }
   }
   return [...keys];

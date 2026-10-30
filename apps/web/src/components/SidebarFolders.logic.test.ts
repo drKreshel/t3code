@@ -428,7 +428,7 @@ describe("buildSidebarFolderTree", () => {
       ),
       "b",
     );
-    expect(openFolderThreadKeys(layout, (key) => key !== "t2")).toEqual(["t1", "t3"]);
+    expect(openFolderThreadKeys(layout, new Set(["t2"]))).toEqual(["t1", "t3"]);
   });
 
   it("hides the open chat inside collapsed folders", () => {
