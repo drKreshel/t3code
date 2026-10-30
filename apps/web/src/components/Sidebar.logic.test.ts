@@ -550,21 +550,25 @@ describe("resolveThreadStatusPill", () => {
   });
 
   it("shows completed when there is an unseen completion and no active blocker", () => {
+    const thread = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      latestRun: makeLatestRun(),
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      runtime: {
+        ...baseThread.runtime,
+        status: "completed" as const,
+        activeRunId: null,
+      },
+    };
+    expect(resolveThreadStatusPill({ thread })).toMatchObject({
+      label: "Completed",
+      pulse: false,
+    });
+    // Settling a chat counts as seeing it.
     expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
-          interactionMode: "default",
-          latestRun: makeLatestRun(),
-          lastVisitedAt: "2026-03-09T10:04:00.000Z",
-          runtime: {
-            ...baseThread.runtime,
-            status: "completed",
-            activeRunId: null,
-          },
-        },
-      }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+      resolveThreadStatusPill({ thread: { ...thread, settledOverride: "settled" } }),
+    ).toBeNull();
   });
 
   it("shows failed, not completed, when the unseen run failed", () => {

@@ -13,6 +13,7 @@ import {
   moveSidebarFolder,
   moveThreadToSidebarFolder,
   moveThreadToSidebarFolderManually,
+  openFolderThreadKeys,
   planSidebarFolderDrop,
   renderedSidebarFolderThreads,
   resolveSidebarFolderDefaultProject,
@@ -412,6 +413,22 @@ describe("buildSidebarFolderTree", () => {
     });
     expect(tree.roots[0]).toMatchObject({ settledCount: 2, settledExpanded: false });
     expect(tree.renderedThreads.map((thread) => thread.key)).toEqual(["t1", "s2"]);
+  });
+
+  it("reads chats only in folders whose whole path is open", () => {
+    const layout = toggleSidebarFolderCollapsed(
+      layoutWith(
+        [
+          ["a", null],
+          ["a1", "a"],
+          ["b", null],
+          ["b1", "b"],
+        ],
+        { a: ["t1", "t2"], a1: ["t3"], b: ["t4"], b1: ["t5"] },
+      ),
+      "b",
+    );
+    expect(openFolderThreadKeys(layout, (key) => key !== "t2")).toEqual(["t1", "t3"]);
   });
 
   it("hides the open chat inside collapsed folders", () => {

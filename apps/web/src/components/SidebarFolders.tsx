@@ -13,11 +13,18 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  parseScopedThreadKey,
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import type { ContextMenuItem, LocalApi, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
+import {
+  isOlderSettledThreadShell,
+  type ContextMenuItem,
+  type LocalApi,
+  type ScopedProjectRef,
+  type ThreadId,
+} from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
@@ -37,8 +44,10 @@ import {
 import { cn } from "~/lib/utils";
 import { openCommandPalette } from "../commandPaletteBus";
 import { readLocalApi } from "../localApi";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useSidebarFolderStore, useSidebarFolderUiStore } from "../sidebarFolderStore";
 import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "../state/entities";
+import { olderSettledThreads, threadFamilies } from "../state/threads";
 import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
 import type { SidebarThreadSummary } from "../types";
 import { useUiStateStore } from "../uiStateStore";
@@ -71,6 +80,7 @@ import {
   type SidebarFolderThreadSection,
   type SidebarFolderTree,
   type SidebarFolderTreeNode,
+  openFolderThreadKeys,
 } from "./SidebarFolders.logic";
 import { OrganizingIcon } from "./OrganizingIcon";
 import { folderRouteSourcesIn } from "./boards/ticketFolders.logic";
@@ -162,6 +172,36 @@ export function useFiledSidebarThreadKeys(
   return useMemo(() => filedSidebarThreadKeys(layout, threads, threadKeyOf), [layout, threads]);
 }
 
+/**
+ * Reads the chats filed in open folders that the shell leaves out (older settled ones), and
+ * keeps them in the thread list until their folder closes.
+ */
+function useOpenFolderThreads(
+  layout: SidebarFolderLayout,
+  threads: readonly EnvironmentThreadShell[],
+): void {
+  const byKey = new Map(threads.map((thread) => [threadKeyOf(thread), thread]));
+  // Read rows stay selected once loaded, so loading them does not release them again.
+  const readKeys = openFolderThreadKeys(layout, (key) => {
+    const thread = byKey.get(key);
+    if (thread === undefined) return true;
+    const cut = appAtomRegistry.get(olderSettledThreads.olderSettledAtom(thread.environmentId));
+    return cut !== null && isOlderSettledThreadShell(thread.source, cut.beforeMs);
+  }).join("\n");
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mounts open folders' omitted chats into the thread family registry while their folder is open
+  useEffect(() => {
+    const releases = readKeys.split("\n").flatMap((key) => {
+      const ref = parseScopedThreadKey(key);
+      return ref === null
+        ? []
+        : [threadFamilies.mount(appAtomRegistry, ref.environmentId, ref.threadId)];
+    });
+    return () => {
+      for (const release of releases) release();
+    };
+  }, [readKeys]);
+}
+
 type ThreadCapabilities = { readonly threadSettlement?: boolean; readonly threadSnooze?: boolean };
 
 export function useSidebarFolderTree(input: {
@@ -187,6 +227,7 @@ export function useSidebarFolderTree(input: {
     now,
     routeThreadKey,
   } = input;
+  useOpenFolderThreads(layout, threads);
   return useMemo(() => {
     const threadByKey = new Map<string, EnvironmentThreadShell>();
     for (const thread of threads) {

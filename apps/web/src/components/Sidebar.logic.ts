@@ -663,6 +663,8 @@ type ThreadStatusInput = Pick<
   | "latestRun"
   | "runtime"
 > & {
+  /** Settling a chat counts as seeing it. */
+  settledOverride?: SidebarThreadSummary["settledOverride"] | undefined;
   lastVisitedAt?: string | null | undefined;
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
   blockedOnThreadWait?: boolean | undefined;
@@ -1149,7 +1151,8 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (hasUnseenFailure(thread)) {
+  const seen = thread.settledOverride === "settled";
+  if (!seen && hasUnseenFailure(thread)) {
     return {
       label: "Failed",
       colorClass: "text-red-600 dark:text-red-300/90",
@@ -1172,7 +1175,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (hasUnseenCompletion(thread)) {
+  if (!seen && hasUnseenCompletion(thread)) {
     return {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
