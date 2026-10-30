@@ -18,13 +18,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import {
-  isOlderSettledThreadShell,
-  type ContextMenuItem,
-  type LocalApi,
-  type ScopedProjectRef,
-  type ThreadId,
-} from "@t3tools/contracts";
+import type { ContextMenuItem, LocalApi, ScopedProjectRef, ThreadId } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
@@ -47,7 +41,8 @@ import { readLocalApi } from "../localApi";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useSidebarFolderStore, useSidebarFolderUiStore } from "../sidebarFolderStore";
 import { useAllEnvironmentShellsBootstrapped, useThreadShells } from "../state/entities";
-import { olderSettledThreads, threadFamilies } from "../state/threads";
+import { environmentSnapshotAtom } from "../state/shell";
+import { threadFamilies } from "../state/threads";
 import type { SidebarProjectSnapshot } from "../sidebarProjectGrouping";
 import type { SidebarThreadSummary } from "../types";
 import { useUiStateStore } from "../uiStateStore";
@@ -173,21 +168,22 @@ export function useFiledSidebarThreadKeys(
 }
 
 /**
- * Reads the chats filed in open folders that the shell leaves out (older settled ones), and
- * keeps them in the thread list until their folder closes.
+ * Reads the chats filed in open folders that the shell leaves out (older settled chats, idle
+ * subagents), and keeps them in the thread list until their folder closes.
  */
 function useOpenFolderThreads(
   layout: SidebarFolderLayout,
   threads: readonly EnvironmentThreadShell[],
 ): void {
-  const byKey = new Map(threads.map((thread) => [threadKeyOf(thread), thread]));
-  // Read rows stay selected once loaded, so loading them does not release them again.
-  const readKeys = openFolderThreadKeys(layout, (key) => {
-    const thread = byKey.get(key);
-    if (thread === undefined) return true;
-    const cut = appAtomRegistry.get(olderSettledThreads.olderSettledAtom(thread.environmentId));
-    return cut !== null && isOlderSettledThreadShell(thread.source, cut.beforeMs);
-  }).join("\n");
+  // `threads` changes whenever a shell does, which re-renders this with fresh shell rows.
+  const shellThreadKeys = new Set<string>();
+  for (const environmentId of new Set(threads.map((thread) => thread.environmentId))) {
+    const snapshot = appAtomRegistry.get(environmentSnapshotAtom(environmentId));
+    for (const thread of snapshot?.threads ?? []) {
+      shellThreadKeys.add(scopedThreadKey(scopeThreadRef(environmentId, thread.id)));
+    }
+  }
+  const readKeys = openFolderThreadKeys(layout, shellThreadKeys).join("\n");
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mounts open folders' omitted chats into the thread family registry while their folder is open
   useEffect(() => {
     const releases = readKeys.split("\n").flatMap((key) => {
