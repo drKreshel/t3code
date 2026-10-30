@@ -1097,7 +1097,12 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
     return true;
   }
-  if (input.phase === "connecting" || derivePhase(input.runtime ?? null) === "connecting") {
+  // While a run is active, the shell reports a follow-up queued behind it as "queued" until that
+  // run ends, which can be a minute-long compaction; the running checks below decide those.
+  if (
+    input.phase === "connecting" ||
+    (input.phase !== "running" && derivePhase(input.runtime ?? null) === "connecting")
+  ) {
     return false;
   }
 

@@ -221,7 +221,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     ).toBe(true);
   });
 
-  it("acknowledges a steering message projected onto the current running run", () => {
+  it("acknowledges a follow-up steered into the running run or queued behind it", () => {
     const runningRun = {
       ...completedTurn,
       status: "running" as const,
@@ -244,6 +244,19 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         latestRun: runningRun,
         latestUserMessageId: MessageId.make("message-steer"),
         runtime: runningRuntime,
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(true);
+    // The shell reports the queued run until the running one, such as a compaction, ends.
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch,
+        phase: "running",
+        latestRun: { ...runningRun, runId: RunId.make("turn-queued"), status: "queued" },
+        latestUserMessageId: MessageId.make("message-queued"),
+        runtime: { ...runningRuntime, status: "queued" },
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: null,
