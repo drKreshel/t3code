@@ -545,8 +545,19 @@ const make = Effect.gen(function* () {
   const resolveDialog = async (tab: ServerTab, input: PreviewAutomationDialogInput) => {
     const dialog = tab.dialog;
     if (!dialog) throw new Error("No dialog is pending.");
-    if (input.accept) await dialog.accept(input.promptText);
-    else await dialog.dismiss();
+    try {
+      if (input.accept) await dialog.accept(input.promptText);
+      else await dialog.dismiss();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(`${message} The tab is no longer waiting on this dialog.`, { cause });
+    } finally {
+      // Playwright marks a dialog handled before asking the browser, so a failed answer can never be retried.
+      clearDialog(tab, dialog);
+    }
+  };
+
+  const clearDialog = (tab: ServerTab, dialog: Dialog) => {
     if (tab.dialog === dialog) tab.dialog = null;
     ServerBrowserPage.invalidateRefs(tab.page);
     broadcastControl(tab);
@@ -899,6 +910,10 @@ const make = Effect.gen(function* () {
     page.on("dialog", (dialog) => {
       tab.dialog = dialog;
       broadcastControl(tab);
+    });
+    // The browser can close a dialog itself, such as a beforeunload that cancels its navigation.
+    cdp.on("Page.javascriptDialogClosed", () => {
+      if (tab.dialog) clearDialog(tab, tab.dialog);
     });
     page.on("download", (download) => void saveDownload(tab, download));
     updateFileChooserInterception(tab);
