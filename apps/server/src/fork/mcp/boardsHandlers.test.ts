@@ -188,6 +188,37 @@ describe("boards toolkit handlers", () => {
       expect(next.key).toBe("EI-2912");
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
+  it.effect("files sub-tickets under a parent and reads both sides", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", { name: "Salon", key: "SALON" });
+      yield* call("create_ticket", { board: "SALON", title: "Checkout" });
+      yield* call("create_ticket", { board: "SALON", title: "Payment form", parent: "SALON-1" });
+      yield* call("create_ticket", { board: "SALON", title: "Receipts" });
+      yield* call("update_ticket", { ticket: "SALON-3", parent: "SALON-1" });
+
+      const parent = yield* call("get_ticket", { ticket: "SALON-1" });
+      expect(parent.parent).toBeNull();
+      expect(parent.subTickets.map((child) => child.key)).toEqual(["SALON-2", "SALON-3"]);
+      expect((yield* call("get_ticket", { ticket: "SALON-2" })).parent).toMatchObject({
+        key: "SALON-1",
+        title: "Checkout",
+      });
+      const listed = yield* call("list_tickets", { parent: "SALON-1" });
+      expect(listed.tickets.map((ticket) => [ticket.key, ticket.parent])).toEqual([
+        ["SALON-2", "SALON-1"],
+        ["SALON-3", "SALON-1"],
+      ]);
+
+      yield* call("update_ticket", { ticket: "SALON-3", parent: null });
+      const all = yield* call("list_tickets", { board: "SALON" });
+      expect(all.tickets.map((ticket) => [ticket.key, ticket.parent, ticket.subTickets])).toEqual([
+        ["SALON-1", null, 1],
+        ["SALON-2", "SALON-1", 0],
+        ["SALON-3", null, 0],
+      ]);
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
   it.effect("creates a board and a linked ticket the chat can then read without a key", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

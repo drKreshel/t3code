@@ -133,6 +133,8 @@ export const Ticket = Schema.Struct({
    * and agents read the required tickets' columns and decide.
    */
   requires: Schema.Array(TrimmedNonEmptyString),
+  /** The parent ticket on the same board; one level, so a parent never has a parent. */
+  parentId: Schema.NullOr(TrimmedNonEmptyString),
   criteria: Schema.Array(TicketCriterion),
   /** Scoped thread keys (`environmentId:threadId`) linked to this ticket. */
   threadKeys: Schema.Array(Schema.String),
@@ -229,6 +231,7 @@ export const BoardsCommand = Schema.Union([
     projectKey: Schema.optional(Schema.NullOr(Schema.String)),
     criteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     requires: Schema.optional(Schema.Array(Id)),
+    parentId: Schema.optional(Id),
   }),
   command("ticket.update", {
     ticketId: Id,
@@ -255,6 +258,8 @@ export const BoardsCommand = Schema.Union([
   }),
   command("ticket.resolveFlag", { ticketId: Id }),
   command("ticket.archive", { ticketId: Id, archived: Schema.Boolean }),
+  /** Makes the ticket a sub-ticket of a parent on its board; null makes it top-level again. */
+  command("ticket.setParent", { ticketId: Id, parentId: Schema.NullOr(Id) }),
   command("criterion.add", { ticketId: Id, text: TrimmedNonEmptyString }),
   command("criterion.update", {
     criterionId: Id,

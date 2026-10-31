@@ -93,6 +93,8 @@ export const TicketSummary = Schema.Struct({
   }),
   flag: FlagSummary,
   linkedChats: Schema.Int,
+  parent: Schema.NullOr(Schema.String).annotate({ description: "The parent ticket's key." }),
+  subTickets: Schema.Int,
 });
 export type TicketSummary = typeof TicketSummary.Type;
 
@@ -123,6 +125,12 @@ export const TicketDetailResult = Schema.Struct({
     description:
       "Tickets this one depends on, with the column each sits in. Judge from those columns whether they are finished.",
   }),
+  parent: Schema.NullOr(
+    Schema.Struct({ key: Schema.String, title: Schema.String, column: Schema.String }),
+  ),
+  subTickets: Schema.Array(
+    Schema.Struct({ key: Schema.String, title: Schema.String, column: Schema.String }),
+  ).annotate({ description: "This parent's sub-tickets, with the column each sits in." }),
   latestHandoff: Schema.NullOr(Schema.String),
   comments: Schema.Array(
     Schema.Struct({
@@ -186,10 +194,11 @@ const ListBoardsTool = Tool.make("list_boards", {
 
 const ListTicketsTool = Tool.make("list_tickets", {
   description:
-    "List tickets, optionally filtered by board key, column, and text in the title or description.",
+    "List tickets, optionally filtered by board key, column, parent, and text in the title or description.",
   parameters: Schema.Struct({
     board: Schema.optional(TrimmedNonEmptyString.annotate({ description: "Board key like WEB." })),
     column: Schema.optional(ColumnRef),
+    parent: Schema.optional(TicketRef.annotate({ description: "Only this ticket's sub-tickets." })),
     query: Schema.optional(TrimmedNonEmptyString),
     includeArchived: Schema.optional(Schema.Boolean),
   }),
@@ -205,7 +214,7 @@ const ListTicketsTool = Tool.make("list_tickets", {
 
 const GetTicketTool = Tool.make("get_ticket", {
   description:
-    "Read a ticket: description, acceptance criteria (numbered), requirements, comments, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
+    "Read a ticket: description, acceptance criteria (numbered), requirements, parent and sub-tickets, comments, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
   parameters: Schema.Struct({ ticket: OptionalTicketRef }),
   success: TicketDetailResult,
   failure,
@@ -376,6 +385,12 @@ const CreateTicketTool = Tool.make("create_ticket", {
         description: "Keys of tickets that must be done before this one can start.",
       }),
     ),
+    parent: Schema.optional(
+      TicketRef.annotate({
+        description:
+          "Key of a ticket on the same board to file this one under as a sub-ticket. A sub-ticket cannot have its own.",
+      }),
+    ),
     useThisChatsProject: Schema.optional(
       Schema.Boolean.annotate({
         description: "Set this chat's project as the ticket's project.",
@@ -397,7 +412,7 @@ const CreateTicketTool = Tool.make("create_ticket", {
 
 const UpdateTicketTool = Tool.make("update_ticket", {
   description:
-    "Change a ticket's number, title, description, priority, or archived state; add or remove required tickets; and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
+    "Change a ticket's number, title, description, priority, parent, or archived state; add or remove required tickets; and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     number: Schema.optional(
@@ -418,6 +433,12 @@ const UpdateTicketTool = Tool.make("update_ticket", {
     removeCriteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     addRequires: Schema.optional(Schema.Array(TicketRef)),
     removeRequires: Schema.optional(Schema.Array(TicketRef)),
+    parent: Schema.optional(
+      Schema.NullOr(TicketRef).annotate({
+        description:
+          "Key of a ticket on the same board to make this a sub-ticket of; null makes it top-level again.",
+      }),
+    ),
   }),
   success: TicketChanged,
   failure,

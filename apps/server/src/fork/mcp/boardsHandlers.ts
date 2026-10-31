@@ -62,6 +62,18 @@ function requiredTickets(snapshot: BoardsSnapshot, ticket: Ticket): Ticket[] {
   });
 }
 
+function parentOf(snapshot: BoardsSnapshot, ticket: Ticket): Ticket | undefined {
+  return ticket.parentId === null
+    ? undefined
+    : snapshot.tickets.find((candidate) => candidate.id === ticket.parentId);
+}
+
+function subTicketsOf(snapshot: BoardsSnapshot, ticket: Ticket): Ticket[] {
+  return snapshot.tickets.filter(
+    (candidate) => candidate.parentId === ticket.id && candidate.archivedAt === null,
+  );
+}
+
 function labelOf(snapshot: BoardsSnapshot, ticket: Ticket): string {
   const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
   return board ? ticketKeyOf(board, ticket) : `#${ticket.number}`;
@@ -183,6 +195,7 @@ const make = Effect.gen(function* () {
   const summarizeTicket = (snapshot: BoardsSnapshot, ticket: Ticket): TicketSummary => {
     const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
     const column = board?.columns.find((candidate) => candidate.id === ticket.columnId);
+    const parent = parentOf(snapshot, ticket);
     return {
       key: labelOf(snapshot, ticket),
       title: ticket.title,
@@ -196,6 +209,8 @@ const make = Effect.gen(function* () {
       ),
       flag: ticket.flag ? { level: ticket.flag.level, reason: ticket.flag.reason } : null,
       linkedChats: ticket.threadKeys.length,
+      parent: parent ? labelOf(snapshot, parent) : null,
+      subTickets: subTicketsOf(snapshot, ticket).length,
     };
   };
 
@@ -226,10 +241,15 @@ const make = Effect.gen(function* () {
           input.column === undefined || board === undefined
             ? undefined
             : yield* unwrap(findColumn(board, input.column));
+        const parent =
+          input.parent === undefined
+            ? undefined
+            : yield* unwrap(findTicket(snapshot, input.parent));
         return {
           tickets: filterTickets(snapshot, {
             board,
             column,
+            parent,
             query: input.query,
             includeArchived: input.includeArchived,
           }).map((ticket) => summarizeTicket(snapshot, ticket)),
@@ -290,6 +310,21 @@ const make = Effect.gen(function* () {
             key: labelOf(snapshot, required),
             title: required.title,
             column: columnNameOf(snapshot, required),
+          })),
+          parent: (() => {
+            const parent = parentOf(snapshot, ticket);
+            return parent
+              ? {
+                  key: labelOf(snapshot, parent),
+                  title: parent.title,
+                  column: columnNameOf(snapshot, parent),
+                }
+              : null;
+          })(),
+          subTickets: subTicketsOf(snapshot, ticket).map((child) => ({
+            key: labelOf(snapshot, child),
+            title: child.title,
+            column: columnNameOf(snapshot, child),
           })),
           latestHandoff: comments.toReversed().find((comment) => comment.isHandoff)?.body ?? null,
           comments: comments.map((comment) => ({
@@ -489,6 +524,10 @@ const make = Effect.gen(function* () {
           unwrap(findTicket(snapshot, ref)).pipe(Effect.map((ticket) => ticket.id)),
         );
         const projectKey = input.useThisChatsProject === true ? yield* callerProjectKey : undefined;
+        const parent =
+          input.parent === undefined
+            ? undefined
+            : yield* unwrap(findTicket(snapshot, input.parent));
         const result = yield* dispatch({
           type: "ticket.create",
           boardId: board.id,
@@ -499,6 +538,7 @@ const make = Effect.gen(function* () {
           ...(projectKey !== undefined ? { projectKey } : {}),
           ...(input.criteria ? { criteria: input.criteria } : {}),
           ...(requires.length > 0 ? { requires } : {}),
+          ...(parent ? { parentId: parent.id } : {}),
         });
         const ticketId = result.id;
         if (ticketId === null) {
@@ -546,6 +586,10 @@ const make = Effect.gen(function* () {
         const removeRequires = yield* Effect.forEach(input.removeRequires ?? [], (ref) =>
           unwrap(findTicket(snapshot, ref)),
         );
+        const parent =
+          input.parent === undefined || input.parent === null
+            ? input.parent
+            : yield* unwrap(findTicket(snapshot, input.parent));
         for (const criterion of check) {
           yield* dispatch({ type: "criterion.update", criterionId: criterion.id, checked: true });
         }
@@ -570,6 +614,13 @@ const make = Effect.gen(function* () {
             type: "requirement.remove",
             ticketId: ticket.id,
             requiresTicketId: required.id,
+          });
+        }
+        if (parent !== undefined) {
+          yield* dispatch({
+            type: "ticket.setParent",
+            ticketId: ticket.id,
+            parentId: parent?.id ?? null,
           });
         }
         if (input.archived !== undefined && input.archived !== (ticket.archivedAt !== null)) {

@@ -9,6 +9,7 @@ import {
   suggestBoardKey,
   ticketAttention,
   threadAttention,
+  subTicketProgress,
   ticketsByColumn,
   ticketRequirements,
   ticketsNewlyFlagged,
@@ -45,6 +46,7 @@ const ticket = (id: string, overrides: Partial<Ticket> = {}): Ticket => ({
   position: 1,
   flag: null,
   requires: [],
+  parentId: null,
   criteria: [],
   threadKeys: [],
   createdAt: "",
@@ -143,6 +145,33 @@ describe("ticketsByColumn", () => {
     ]);
     expect(grouped.get("todo")!.map((t) => t.id)).toEqual(["a", "b"]);
     expect(grouped.get("done")).toEqual([]);
+  });
+
+  it("hides sub-tickets of a live parent unless asked to show them", () => {
+    const tickets = [
+      ticket("parent"),
+      ticket("child", { parentId: "parent", position: 2 }),
+      ticket("archived-parent", { archivedAt: "x" }),
+      ticket("orphan", { parentId: "archived-parent", position: 3 }),
+    ];
+    const ids = (show: boolean) =>
+      ticketsByColumn(board, tickets, show)
+        .get("todo")!
+        .map((t) => t.id);
+    expect(ids(false)).toEqual(["parent", "orphan"]);
+    expect(ids(true)).toEqual(["parent", "child", "orphan"]);
+  });
+});
+
+describe("subTicketProgress", () => {
+  it("counts sub-tickets in the board's last column", () => {
+    expect(
+      subTicketProgress(board, [
+        ticket("a", { columnId: "done" }),
+        ticket("b", { columnId: "review" }),
+      ]),
+    ).toEqual({ done: 1, total: 2, columnName: "Done" });
+    expect(subTicketProgress(board, [])).toBeNull();
   });
 });
 

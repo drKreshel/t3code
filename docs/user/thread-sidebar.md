@@ -208,6 +208,16 @@ select a column header to sort. Select a task to open its page, which lists all
 its runs, with the model and effort each one used, to search, filter by status,
 and sort; select a run to open its chat.
 
+## Group tickets under a parent
+
+Give a ticket a **Parent** on its page, or use **Add sub-ticket** on the parent, to
+group work that belongs together. Sub-tickets stay off the board so it shows one card
+per piece of work; the parent's card counts how many reached the board's last column.
+Choose **Show sub-tickets** in the board's menu to see them all. A sub-ticket cannot
+have sub-tickets of its own. Remove the parent to put a ticket back on the board, and
+archiving a parent shows its sub-tickets again. Agents can set a parent when they
+create or update a ticket, so one chat can drive a parent and delegate each sub-ticket.
+
 ## Pin a board
 
 Choose **Pin to sidebar** in a board's menu, or the pin on its card in Boards,

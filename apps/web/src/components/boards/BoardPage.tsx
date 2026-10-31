@@ -26,12 +26,13 @@ import {
   EllipsisIcon,
   FolderIcon,
   LinkIcon,
+  ListTreeIcon,
   PinIcon,
   PinOffIcon,
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
-import { useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { cn } from "../../lib/utils";
 import { useBoardsDispatch } from "../../state/boards";
@@ -40,7 +41,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
-import { positionBetween, ticketsByColumn } from "./boards.logic";
+import { positionBetween, subTicketProgress, ticketKey, ticketsByColumn } from "./boards.logic";
 import { BoardSettingsDialog } from "./BoardSettingsDialog";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { columnDotClass, PRIORITY_LABEL } from "./boardsPresentation";
@@ -85,17 +86,12 @@ function BoardView({
   const defaultProject = lookupProject(board.defaultProjectKey);
   const [addingColumnId, setAddingColumnId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const columns = useMemo(
-    () => board.columns.toSorted((a, b) => a.position - b.position),
-    [board.columns],
-  );
-  const byColumn = useMemo(
-    () =>
-      ticketsByColumn(
-        board,
-        [...viewById.values()].map((view) => view.ticket),
-      ),
-    [board, viewById],
+  const [showSubTickets, setShowSubTickets] = useState(false);
+  const columns = board.columns.toSorted((a, b) => a.position - b.position);
+  const tickets = [...viewById.values()].map((view) => view.ticket);
+  const byColumn = ticketsByColumn(board, tickets, showSubTickets);
+  const hasSubTickets = tickets.some(
+    (ticket) => ticket.boardId === board.id && ticket.parentId !== null,
   );
   const needsYou = [...viewById.values()].filter(
     (view) => view.board.id === board.id && view.attention !== null,
@@ -269,6 +265,12 @@ function BoardView({
                 {board.pinnedAt === null ? <PinIcon /> : <PinOffIcon />}
                 {board.pinnedAt === null ? "Pin to sidebar" : "Unpin from sidebar"}
               </MenuItem>
+              {hasSubTickets ? (
+                <MenuItem onClick={() => setShowSubTickets((shown) => !shown)}>
+                  <ListTreeIcon />
+                  {showSubTickets ? "Hide sub-tickets" : "Show sub-tickets"}
+                </MenuItem>
+              ) : null}
               <MenuItem onClick={() => setSettingsOpen(true)}>
                 <SettingsIcon />
                 Board settings
@@ -500,6 +502,8 @@ function TicketCard({
   const requirementsText = view.requirements
     .map((requirement) => `${requirement.label} · ${requirement.columnName}`)
     .join(", ");
+  const progress = subTicketProgress(view.board, view.subTickets);
+  const parentLabel = view.parent ? ticketKey(view.board, view.parent) : null;
   return (
     <article
       className={cn(
@@ -513,7 +517,7 @@ function TicketCard({
           params={{ boardKey: view.board.key, ticketNumber: String(ticket.number) }}
           aria-label={`Open ticket ${view.label}: ${ticket.title}`}
           draggable={false}
-          className="absolute inset-0 rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute inset-0 rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           onClick={(event) => {
             if (justDraggedRef?.current) event.preventDefault();
           }}
@@ -521,6 +525,7 @@ function TicketCard({
       ) : null}
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="font-mono">{view.label}</span>
+        {parentLabel ? <span className="font-mono">↳ {parentLabel}</span> : null}
         {status ? (
           <span className={cn("size-1.5 shrink-0 rounded-full", status.dotClass)}>
             <span className="sr-only">{status.label}</span>
@@ -535,8 +540,20 @@ function TicketCard({
         ) : null}
       </div>
       <p className="line-clamp-3 text-foreground">{ticket.title}</p>
-      {view.requirements.length > 0 || ticket.criteria.length > 0 || project ? (
+      {view.requirements.length > 0 || ticket.criteria.length > 0 || project || progress ? (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          {progress ? (
+            <Badge
+              variant="outline"
+              size="sm"
+              title={`${progress.done} of ${progress.total} sub-tickets in ${progress.columnName}`}
+            >
+              <ListTreeIcon />
+              <span className="tabular-nums">
+                {progress.done}/{progress.total} {progress.columnName}
+              </span>
+            </Badge>
+          ) : null}
           {view.requirements.length > 0 ? (
             <Badge variant="outline" size="sm" className="min-w-0 max-w-full shrink">
               <LinkIcon />
@@ -578,7 +595,7 @@ function TicketCard({
                   title={thread.blockingReason ?? thread.title}
                   draggable={false}
                   tabIndex={overlay ? -1 : undefined}
-                  className="pointer-events-auto flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-1 text-xs hover:bg-accent/50 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  className="pointer-events-auto flex min-w-0 items-center gap-1.5 rounded-sm px-1 py-1 text-xs hover:bg-accent/50 outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     if (justDraggedRef?.current) event.preventDefault();

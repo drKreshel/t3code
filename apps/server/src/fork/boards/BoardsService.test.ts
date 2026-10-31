@@ -3,7 +3,9 @@ import { assert, it } from "@effect/vitest";
 import type { BoardsCommand, BoardsSnapshot, OrganizingIconOverride } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Stream from "effect/Stream";
 
 import { ForkDatabaseMemory } from "../ForkDatabase.ts";
 import { BoardsService, layerMemory } from "./BoardsService.ts";
@@ -194,6 +196,63 @@ it.layer(TestLayer)("BoardsService", (it) => {
         dispatch({ type: "requirement.add", ticketId: a, requiresTicketId: c }),
       );
       assert.equal(error.code, "cycle");
+    }),
+  );
+
+  it.effect("files sub-tickets one level deep under a parent on the same board", () =>
+    Effect.gen(function* () {
+      const boardId = yield* createdId({ type: "board.create", name: "Epics", key: "EPIC" });
+      const otherBoardId = yield* createdId({ type: "board.create", name: "Other", key: "OTH" });
+      const parent = yield* createdId({ type: "ticket.create", boardId, title: "Checkout" });
+      const child = yield* createdId({
+        type: "ticket.create",
+        boardId,
+        title: "Payment form",
+        parentId: parent,
+      });
+      const loose = yield* createdId({ type: "ticket.create", boardId, title: "Receipts" });
+      const elsewhere = yield* createdId({
+        type: "ticket.create",
+        boardId: otherBoardId,
+        title: "Elsewhere",
+      });
+      const parentOf = (id: string) =>
+        Effect.map(snapshot, (next) => next.tickets.find((ticket) => ticket.id === id)!.parentId);
+      assert.equal(yield* parentOf(child), parent);
+
+      yield* dispatch({ type: "ticket.setParent", ticketId: loose, parentId: parent });
+      assert.equal(yield* parentOf(loose), parent);
+      for (const command of [
+        { type: "ticket.setParent", ticketId: parent, parentId: parent },
+        { type: "ticket.setParent", ticketId: elsewhere, parentId: parent },
+        { type: "ticket.setParent", ticketId: loose, parentId: child },
+        { type: "ticket.setParent", ticketId: parent, parentId: loose },
+      ] as const) {
+        assert.equal((yield* Effect.flip(dispatch(command))).code, "invalid");
+      }
+
+      yield* dispatch({ type: "ticket.setParent", ticketId: loose, parentId: null });
+      assert.equal(yield* parentOf(loose), null);
+      const boards = yield* BoardsService;
+      const events = (id: string) =>
+        Stream.runHead(boards.ticketDetailStream(id)).pipe(
+          Effect.map((detail) =>
+            Option.getOrThrow(detail)
+              .events.filter(
+                (event) => event.kind.startsWith("parent") || event.kind.startsWith("sub"),
+              )
+              .map((event) => [event.kind, event.payload.ticket]),
+          ),
+        );
+      assert.deepEqual(yield* events(parent), [
+        ["subticket.added", "EPIC-2"],
+        ["subticket.added", "EPIC-3"],
+        ["subticket.removed", "EPIC-3"],
+      ]);
+      assert.deepEqual(yield* events(loose), [
+        ["parent.set", "EPIC-1"],
+        ["parent.removed", "EPIC-1"],
+      ]);
     }),
   );
 
