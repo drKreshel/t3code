@@ -456,6 +456,15 @@ export interface ThreadManagementServiceShape {
     { readonly sequence: number } | { readonly settlesWhenTurnEnds: true },
     Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
   >;
+  /** From the thread's own agent mid-turn, waits for the turn to end first. */
+  readonly markThreadUnread: (input: {
+    readonly threadId: ThreadId;
+    readonly commandId: CommandId;
+    readonly byOwnAgent: boolean;
+  }) => Effect.Effect<
+    { readonly sequence: number } | { readonly marksUnreadWhenTurnEnds: true },
+    Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
+  >;
   readonly interruptThread: (
     input: ThreadManagementInterruptInput,
   ) => Effect.Effect<ThreadManagementInterruptResult, ThreadManagementFailure>;
@@ -1060,6 +1069,39 @@ const make = Effect.gen(function* () {
     return { sequence: result.sequence };
   });
 
+  const markThreadUnread: ThreadManagementServiceShape["markThreadUnread"] = Effect.fn(
+    "orchestrationV2.threadManagement.markThreadUnread",
+  )(function* (input) {
+    const shell = input.byOwnAgent ? yield* orchestrator.getThreadShell(input.threadId) : null;
+    if (shell != null && shell.activeRunId !== null) {
+      yield* waitForThread({
+        projectId: shell.projectId,
+        threadId: shell.id,
+        runId: shell.activeRunId,
+        timeoutMs: SETTLE_AFTER_RUN_WAIT_MS,
+      }).pipe(
+        Effect.flatMap(({ run }) =>
+          run !== null && isTerminalRunStatus(run.status)
+            ? dispatch({
+                type: "thread.mark-unread",
+                commandId: input.commandId,
+                threadId: input.threadId,
+              })
+            : Effect.void,
+        ),
+        Effect.ignoreCause({ log: true }),
+        Effect.forkIn(layerScope),
+      );
+      return { marksUnreadWhenTurnEnds: true } as const;
+    }
+    const result = yield* dispatch({
+      type: "thread.mark-unread",
+      commandId: input.commandId,
+      threadId: input.threadId,
+    });
+    return { sequence: result.sequence };
+  });
+
   const interruptThread: ThreadManagementServiceShape["interruptThread"] = Effect.fn(
     "ThreadManagementService.interruptThread",
   )(function* (input) {
@@ -1534,6 +1576,7 @@ const make = Effect.gen(function* () {
     waitForThread,
     settleAfterRun,
     settleThread,
+    markThreadUnread,
     interruptThread,
     stopDelegatedTasks,
     stopWorkflow,
