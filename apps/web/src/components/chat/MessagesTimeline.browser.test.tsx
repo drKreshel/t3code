@@ -641,6 +641,62 @@ describe("MessagesTimeline agent messages", () => {
   });
 });
 
+describe("MessagesTimeline turn folds", () => {
+  const FIRST_RUN = RunId.make("run-1");
+  const NEXT_RUN = RunId.make("run-2");
+  const settledTurn: ReadonlyArray<Entry> = [
+    message("Build it", {}, "user-1"),
+    message(
+      "Reading the deployment checklist",
+      { role: "assistant", runId: FIRST_RUN },
+      "assistant-first",
+    ),
+    message("Done", { role: "assistant", runId: FIRST_RUN }, "assistant-final"),
+  ];
+  const nextTurn = [
+    ...settledTurn,
+    message("Now ship it", { runId: NEXT_RUN }, "user-2"),
+  ] satisfies ReadonlyArray<Entry>;
+  const settledRun = {
+    runId: FIRST_RUN,
+    status: "completed",
+    startedAt: CREATED_AT,
+    completedAt: CREATED_AT,
+  } as const;
+  const runningRun = {
+    runId: NEXT_RUN,
+    status: "running",
+    startedAt: CREATED_AT,
+    completedAt: null,
+  } as const;
+
+  it.each([
+    { liveFollowEnabled: true, expanded: false },
+    { liveFollowEnabled: false, expanded: true },
+  ])(
+    "a new run closes the previous run's open fold only while following the end ($liveFollowEnabled)",
+    async ({ liveFollowEnabled, expanded }) => {
+      const props = { ...baseProps(), liveFollowEnabled };
+      const timeline = (entries: ReadonlyArray<Entry>, latestRun: TimelineProps["latestRun"]) => (
+        <MessagesTimeline
+          {...props}
+          timelineEntries={entries as Entry[]}
+          latestRun={latestRun}
+          isWorking={latestRun?.status === "running"}
+        />
+      );
+      await using screen = await renderElement(timeline(settledTurn, settledRun));
+      await click(screen.button(/^Worked/));
+      await expect.element(page.getByText("Reading the deployment checklist")).toBeVisible();
+
+      await screen.rerender(timeline(nextTurn, runningRun));
+
+      await expect.element(page.getByText("Now ship it")).toBeVisible();
+      expect(screen.button(/^Worked/).getAttribute("aria-expanded")).toBe(String(expanded));
+    },
+  );
+});
+
 describe("MessagesTimeline attachments", () => {
   it.each(["loadedmetadata", "loadeddata", "canplay"])(
     "plays audio with unknown duration after %s and updates the total later",

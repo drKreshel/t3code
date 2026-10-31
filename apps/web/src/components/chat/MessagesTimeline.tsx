@@ -536,7 +536,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     });
   };
 
-  // An interrupted run opens its fold; a newer run closes the previous run's.
+  // An interrupted run opens its fold; a newer run closes the previous run's while following
+  // the end. A reader up in history may be inside it, and closing it would pull the view down.
   const [observedLatestRun, setObservedLatestRun] = useState({
     identity: listIdentityKey,
     runId: latestRun?.runId,
@@ -562,7 +563,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
         if (observedLatestRun.status === "running" && latestRun.status === "interrupted") {
           setExpandedRunIds((existing) => new Set(existing).add(latestRun.runId));
         }
-      } else {
+      } else if (liveFollowEnabled) {
         setExpandedRunIds((existing) => {
           if (!existing.has(previousRunId)) return existing;
           const next = new Set(existing);
