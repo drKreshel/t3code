@@ -57,12 +57,24 @@ describe("thread workflows", () => {
         runs: [{ ...projection.runs[0]!, status: "running" }],
       }),
     ).toBe(false);
-    expect(
-      threadSupportsProviderHandoff({
-        ...projection,
-        providerThreads: [{ ...projection.providerThreads[0]!, nativeThreadRef: null }],
-      }),
-    ).toBe(false);
+    for (const status of ["completed", "failed"] as const) {
+      const runs = [{ ...projection.runs[0]!, status }];
+      expect(
+        threadSupportsProviderHandoff({
+          ...projection,
+          runs,
+          providerThreads: [{ ...projection.providerThreads[0]!, nativeThreadRef: null }],
+        }),
+      ).toBe(true);
+      expect(
+        threadSupportsProviderHandoff({
+          ...projection,
+          runs,
+          thread: { ...projection.thread, activeProviderThreadId: null },
+          providerThreads: [],
+        }),
+      ).toBe(true);
+    }
   });
 
   it("sorts queued messages and gates promotion from capabilities", () => {
