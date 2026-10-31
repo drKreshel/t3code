@@ -5076,7 +5076,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         });
       const end = (
         key: string,
-        status: "completed" | "failed",
+        status: "completed" | "failed" | "cancelled",
         revision = "",
         patch: Partial<OrchestrationV2Run> = {},
       ) =>
@@ -5263,6 +5263,47 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       yield* witness.end("active", "completed");
       assert.equal(yield* Queue.take(witness.startedRunIds), (yield* witness.runFor("queued")).id);
       assert.isTrue((yield* dispatcher.runFor("issue")).queueHeld);
+    }),
+  );
+
+  it.effect("starts a continuation queued by a handoff from a worktree to the project root", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("runtime-layer-handoff-to-project-root");
+      const { send, runFor, end } = yield* queueTestThread(threadId);
+      yield* send("active", "agent", true);
+      yield* send("continuation", "agent", false);
+      const { thread } = yield* orchestrator.getThreadProjection(threadId);
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make(`${threadId}:project-root`),
+            type: "thread.metadata-updated",
+            threadId,
+            occurredAt: yield* DateTime.now,
+            payload: { ...thread, worktreePath: null },
+          },
+        ],
+      });
+      const continuation = yield* runFor("continuation");
+      yield* end("active", "cancelled", "", {
+        workspacePreparation: { type: "worktree", baseRef: "main" },
+      });
+      // The ended worktree run would hold the queue as if its worktree setup had failed.
+      const decided = yield* eventSink
+        .stream({ threadId, afterSequence: 0, eventType: "run.updated" })
+        .pipe(
+          Stream.map((stored) =>
+            stored.event.type === "run.updated" ? stored.event.payload : null,
+          ),
+          Stream.filter(
+            (run) =>
+              run?.id === continuation.id && (run.queueHeld === true || run.status === "starting"),
+          ),
+          Stream.runHead,
+        );
+      assert.equal(Option.getOrThrow(decided)?.status, "starting");
     }),
   );
 
