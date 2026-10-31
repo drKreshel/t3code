@@ -429,7 +429,7 @@ function SnoozeMenuButton(props: {
   );
 }
 
-export type SortableThreadRowBag = Pick<
+type SortableThreadRowBag = Pick<
   ReturnType<typeof useSortable>,
   "listeners" | "setNodeRef" | "transform" | "transition" | "isDragging"
 >;
@@ -483,17 +483,6 @@ export function SortableThreadRow(
   return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }
 
-// Fork: folder rows bring their own drag bag from the folders DnD context.
-export function ThreadRowSlot({
-  folderBag,
-  ...props
-}: Parameters<typeof SortableThreadRow>[0] & {
-  folderBag: SortableThreadRowBag | undefined;
-}) {
-  if (!folderBag) return <SortableThreadRow {...props} />;
-  const { sortableId: _id, sortableDisabled: _disabled, contextDrag: _drag, ...rowProps } = props;
-  return <SidebarThreadRow key={rowProps.variant} {...rowProps} sortable={folderBag} />;
-}
 export type SidebarSweepAction = "settle" | "unsettle" | "unsnooze";
 const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   pin: (

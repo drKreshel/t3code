@@ -13,7 +13,6 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -21,7 +20,6 @@ import * as Stream from "effect/Stream";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../../serverActivation.ts";
-import { TaskFolders } from "../taskFolders/TaskFolders.ts";
 import { BoardsService } from "./BoardsService.ts";
 
 const UPKEEP_TICK = "20 seconds";
@@ -66,7 +64,6 @@ const make = Effect.fn("BoardUpkeep.make")(function* (options: { readonly backgr
   const boards = yield* BoardsService;
   const orchestration = yield* Orchestrator.OrchestratorV2;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
-  const folders = yield* Effect.serviceOption(TaskFolders);
   const lock = yield* Semaphore.make(1);
   const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) => lock.withPermits(1)(effect);
 
@@ -144,7 +141,7 @@ const make = Effect.fn("BoardUpkeep.make")(function* (options: { readonly backgr
     );
   };
 
-  /** A deleted chat leaves its ticket and its folder. */
+  /** A deleted chat leaves its ticket. */
   const forgetDeleted = Effect.fn("BoardUpkeep.forgetDeleted")(function* (threadId: ThreadId) {
     const threadKey = `${environmentId}:${threadId}`;
     const ticket = (yield* boards.snapshot).tickets.find((candidate) =>
@@ -153,7 +150,6 @@ const make = Effect.fn("BoardUpkeep.make")(function* (options: { readonly backgr
     if (ticket) {
       yield* boards.dispatch({ type: "thread.link", threadKey, ticketId: null }, "system");
     }
-    if (Option.isSome(folders)) yield* folders.value.setChat({ threadId, folder: null });
   });
 
   const handleDomainEvent = (event: OrchestrationV2DomainEvent) => {

@@ -30,7 +30,6 @@ import {
 import { SettingsScopeProvider } from "../settings/SettingsScopeContext";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "../ui/table";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { useProjects } from "../../state/entities";
@@ -38,7 +37,6 @@ import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
-import { useSetTaskFolder, useTaskFolders } from "../../state/taskFolders";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   DEFAULT_RUN_SORT,
@@ -197,15 +195,10 @@ function TaskDetails({
   readonly task: ScheduledTask;
 }) {
   const projects = useProjects();
-  const folders = useTaskFolders();
   const modelLabel = useModelLabel(environmentId);
   const project = projects.find(
     (candidate) => candidate.environmentId === environmentId && candidate.id === task.projectId,
   );
-  const folder =
-    folders.status === "ready"
-      ? (folders.routes.find((route) => route.taskId === task.id)?.folder ?? "")
-      : "";
   return (
     <section className="flex flex-col gap-4">
       <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
@@ -242,15 +235,6 @@ function TaskDetails({
         <Detail label="Model">
           <ModelText label={modelLabel(task.modelSelection)} />
         </Detail>
-        <Detail label="Put runs in folder">
-          {/* Remount when the stored folder changes, so the field shows what stuck. */}
-          <FolderField
-            key={`${task.id}:${folder}`}
-            taskId={task.id}
-            folder={folder}
-            disabled={folders.status !== "ready"}
-          />
-        </Detail>
       </dl>
       <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground">Prompt</summary>
@@ -268,51 +252,6 @@ function Detail({ label, children }: { readonly label: string; readonly children
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0">{children}</dd>
     </>
-  );
-}
-
-const FOLDER_PATH = /^(?=[^/]*[^\s/])[^/]+(?:\/(?=[^/]*[^\s/])[^/]+)*$/;
-
-/** Saves on Enter or blur; empty stops filing. Chats already filed stay put. */
-function FolderField({
-  taskId,
-  folder,
-  disabled,
-}: {
-  readonly taskId: ScheduledTask["id"];
-  readonly folder: string;
-  readonly disabled: boolean;
-}) {
-  const setFolder = useSetTaskFolder();
-  const [value, setValue] = useState(folder);
-  const save = () => {
-    const trimmed = value
-      .split("/")
-      .map((name) => name.trim())
-      .join("/");
-    if (trimmed === folder) return;
-    if (trimmed !== "" && !FOLDER_PATH.test(trimmed)) {
-      setValue(folder);
-      return;
-    }
-    void setFolder({ taskId, folder: trimmed === "" ? null : trimmed }).then((saved) => {
-      if (!saved) setValue(folder);
-    });
-  };
-  return (
-    <Input
-      size="compact"
-      aria-label="Folder for this task's runs"
-      placeholder="No folder, such as SERP/Adaptive checks"
-      className="w-72"
-      value={value}
-      disabled={disabled}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={save}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-    />
   );
 }
 
@@ -334,12 +273,14 @@ function RunsSection({
 
   // Each run start updates the task; a finishing run does not, so poll only while one is live.
   const refreshRuns = runsQuery.refresh;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refetches the runs query when the live task stream reports a new run
   useEffect(() => {
     if (tasksUpdatedAt > 0) refreshRuns();
   }, [refreshRuns, tasksUpdatedAt]);
   // Running runs' durations count up to the last refresh, not to every render.
   const nowMs = runsQuery.dataUpdatedAt;
   const live = runs.some((run) => run.state === "running" || run.state === "queued");
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls the runs query on a timer while a run is live
   useEffect(() => {
     if (!live) return;
     const timer = setInterval(refreshRuns, LIVE_RUNS_REFRESH_MS);

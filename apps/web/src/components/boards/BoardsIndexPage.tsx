@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import type { Board } from "@t3tools/contracts";
 import { OrganizingIcon } from "../OrganizingIcon";
 import { ArchiveRestoreIcon, PinIcon, SquareKanbanIcon, PlusIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useBoardsDispatch } from "../../state/boards";
@@ -24,14 +24,10 @@ import { useProjectLookup } from "./useTicketActions";
 export function BoardsIndexPage() {
   const model = useBoardsModel();
   const [creating, setCreating] = useState(false);
-  const takenKeys = useMemo(
-    () =>
-      new Set(
-        model.status === "ready"
-          ? [...model.boards, ...model.archivedBoards].map((board) => board.key)
-          : [],
-      ),
-    [model],
+  const takenKeys = new Set(
+    model.status === "ready"
+      ? [...model.boards, ...model.archivedBoards].map((board) => board.key)
+      : [],
   );
 
   return (
@@ -181,7 +177,7 @@ function BoardRow({
         params={{ boardKey: board.key }}
       >
         <div className="flex min-w-0 items-center gap-2">
-          <OrganizingIcon icon={board.icon} kind="board" />
+          <OrganizingIcon icon={board.icon} />
           <span className="min-w-0 truncate text-sm font-medium">{board.name}</span>
           <Badge variant="outline" size="sm">
             {board.key}
@@ -244,7 +240,7 @@ function ArchivedBoards({ boards }: { readonly boards: ReadonlyArray<Board> }) {
               to="/boards/$boardKey"
               params={{ boardKey: board.key }}
             >
-              <OrganizingIcon icon={board.icon} kind="board" />
+              <OrganizingIcon icon={board.icon} />
               {board.name}
             </Link>
             <Badge variant="outline" size="sm">

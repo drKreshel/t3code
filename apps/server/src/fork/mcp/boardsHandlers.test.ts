@@ -169,23 +169,6 @@ describe("boards toolkit handlers", () => {
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
 
-  it.effect("lets a skill assign, change, and clear a ticket folder through board tools", () =>
-    Effect.gen(function* () {
-      const { call } = yield* makeHarness;
-      yield* call("create_board", { name: "SalonesDeFiestas", key: "SALON" });
-      yield* call("create_ticket", {
-        board: "SALON",
-        title: "Kids venues",
-        folder: "SalonesDeFiestas/salones-infantiles",
-        linkThisChat: true,
-      });
-      expect((yield* call("get_ticket", {})).folder).toBe("SalonesDeFiestas/salones-infantiles");
-      yield* call("update_ticket", { folder: "SalonesDeFiestas/venues" });
-      expect((yield* call("get_ticket", {})).folder).toBe("SalonesDeFiestas/venues");
-      yield* call("update_ticket", { folder: null });
-      expect((yield* call("get_ticket", {})).folder).toBeNull();
-    }).pipe(Effect.provide(BoardsTestLayer)),
-  );
   it.effect("renumbers a ticket to match an outside key and keeps new numbers clear of it", () =>
     Effect.gen(function* () {
       const { call } = yield* makeHarness;

@@ -21,7 +21,6 @@ import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { BoardsService } from "../boards/BoardsService.ts";
 import { unavailableBoards } from "../rpcHandlers.ts";
 import { BoardTemplates } from "../templates/BoardTemplates.ts";
-import { TaskFolders } from "../taskFolders/TaskFolders.ts";
 import { TicketWorkspaces } from "../workspaces/TicketWorkspaces.ts";
 import {
   filterTickets,
@@ -78,7 +77,6 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const workspaces = yield* Effect.serviceOption(TicketWorkspaces);
   const templates = yield* Effect.serviceOption(BoardTemplates);
-  const taskFolders = yield* Effect.serviceOption(TaskFolders);
   const workspaceOf = (ticketId: string): Effect.Effect<TicketWorkspace | null> =>
     Option.match(workspaces, {
       onNone: () => Effect.succeed(null),
@@ -272,7 +270,6 @@ const make = Effect.gen(function* () {
           column: column?.name ?? "",
           priority: ticket.priority,
           project: yield* projectTitle(ticket.projectKey ?? board.defaultProjectKey),
-          folder: ticket.folder ?? null,
           history: Option.isSome(detail)
             ? detail.value.events.map(({ kind, payload, actor, createdAt }) => ({
                 kind,
@@ -500,7 +497,6 @@ const make = Effect.gen(function* () {
           ...(column ? { columnId: column.id } : {}),
           ...(input.priority !== undefined ? { priority: input.priority } : {}),
           ...(projectKey !== undefined ? { projectKey } : {}),
-          ...(input.folder !== undefined ? { folder: input.folder } : {}),
           ...(input.criteria ? { criteria: input.criteria } : {}),
           ...(requires.length > 0 ? { requires } : {}),
         });
@@ -523,8 +519,7 @@ const make = Effect.gen(function* () {
           input.number !== undefined ||
           input.title !== undefined ||
           input.description !== undefined ||
-          input.priority !== undefined ||
-          input.folder !== undefined
+          input.priority !== undefined
         ) {
           yield* dispatch({
             type: "ticket.update",
@@ -533,7 +528,6 @@ const make = Effect.gen(function* () {
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.priority !== undefined ? { priority: input.priority } : {}),
-            ...(input.folder !== undefined ? { folder: input.folder } : {}),
           });
         }
         // Resolve every criterion before writing, so a bad reference changes nothing.
@@ -644,55 +638,6 @@ const make = Effect.gen(function* () {
         yield* dispatch({ type: "thread.link", threadKey, ticketId: ticket.id });
         return { linkedTo: labelOf(snapshot, ticket) };
       }),
-    ),
-    file_scheduled_task_runs: McpToolAccess.writes(({ scheduledTaskId, folder }) =>
-      Effect.gen(function* () {
-        if (Option.isNone(taskFolders)) {
-          return yield* new BoardsCommandError({
-            code: "storage",
-            message: "Task folders are not available on this server.",
-          });
-        }
-        yield* taskFolders.value
-          .set({ taskId: scheduledTaskId, folder })
-          .pipe(
-            Effect.mapError(
-              (error) => new BoardsCommandError({ code: "storage", message: error.message }),
-            ),
-          );
-        return { scheduledTaskId, folder };
-      }),
-    ),
-    file_chat: McpToolAccess.writesThreads(
-      (input) => [input.threadId],
-      ({ threadId: target, folder }) =>
-        Effect.gen(function* () {
-          const scope = yield* McpInvocationContext.McpInvocationContext;
-          const threadId = target ?? scope.thread?.threadId;
-          if (threadId === undefined) {
-            return yield* invalid(
-              "threadId is required when this tool is called outside a T3 thread.",
-            );
-          }
-          if (Option.isNone(taskFolders)) {
-            return yield* new BoardsCommandError({
-              code: "storage",
-              message: "Chat folders are not available on this server.",
-            });
-          }
-          const thread = yield* threads
-            .getThreadShell(threadId)
-            .pipe(Effect.mapError(storage("Could not read the chat.")));
-          if (thread === null) return yield* notFound(`There is no chat ${threadId}.`);
-          yield* taskFolders.value
-            .setChat({ threadId, folder })
-            .pipe(
-              Effect.mapError(
-                (error) => new BoardsCommandError({ code: "storage", message: error.message }),
-              ),
-            );
-          return { threadId, folder };
-        }),
     ),
     remove_ticket_workspace: McpToolAccess.writes(({ ticket: ref, force }) =>
       Effect.gen(function* () {

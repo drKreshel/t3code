@@ -5,7 +5,6 @@ import {
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadShell,
-  type SetChatFolderInput,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -16,7 +15,6 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import { OrchestratorV2 } from "../../orchestration-v2/Orchestrator.ts";
-import { TaskFolders } from "../taskFolders/TaskFolders.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "./BoardsService.ts";
 import { BOARD_ACTOR, BoardUpkeep, layerManual } from "./BoardUpkeep.ts";
 
@@ -26,11 +24,7 @@ const ENVIRONMENT_ID = EnvironmentId.make("env-1");
 const makeHarness = (threads: ReadonlyArray<string> = []) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
-    const chatFolders = yield* Ref.make<ReadonlyArray<SetChatFolderInput>>([]);
     const fakes = Layer.mergeAll(
-      Layer.mock(TaskFolders)({
-        setChat: (input) => Ref.update(chatFolders, (list) => [...list, input]),
-      }),
       Layer.mock(OrchestratorV2)({
         dispatch: (command) =>
           Ref.update(commands, (list) => [...list, command]).pipe(
@@ -71,7 +65,7 @@ const makeHarness = (threads: ReadonlyArray<string> = []) =>
         "user",
       );
     const event = (value: unknown) => upkeep.handleDomainEvent(value as OrchestrationV2DomainEvent);
-    return { upkeep, boards, commands, chatFolders, column, ticket, linkChat, event };
+    return { upkeep, boards, commands, column, ticket, linkChat, event };
   });
 
 const TestLayer = boardsLayerMemory.pipe(Layer.provideMerge(NodeServices.layer));
@@ -152,14 +146,13 @@ describe("BoardUpkeep", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("unlinks a deleted chat from its ticket and drops its folder", () =>
+  it.effect("unlinks a deleted chat from its ticket", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
       const ticketId = yield* harness.ticket("Audit follow-up");
       yield* harness.linkChat(ticketId, "gone");
       yield* harness.event({ type: "thread.deleted", threadId: ThreadId.make("gone") });
       expect((yield* harness.boards.snapshot).tickets[0]?.threadKeys).toEqual([]);
-      expect(yield* Ref.get(harness.chatFolders)).toEqual([{ threadId: "gone", folder: null }]);
     }).pipe(Effect.provide(TestLayer)),
   );
 

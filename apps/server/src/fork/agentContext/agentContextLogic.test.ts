@@ -50,21 +50,7 @@ describe("t3Tools", () => {
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     expect(byName.size).toBe(tools.length);
     expect(byName.get("t3_terminal_start")?.enabled).toBe(true);
-    expect(byName.get("list_sidebar_folders")).toMatchObject({ enabled: true, readonly: true });
-    expect(byName.get("create_sidebar_folder")).toMatchObject({ enabled: true, readonly: false });
-    expect(byName.get("delete_sidebar_folder")).toMatchObject({ enabled: true, readonly: false });
-    expect(byName.get("set_sidebar_folder_icon")).toMatchObject({
-      enabled: true,
-      readonly: false,
-    });
-    expect(byName.get("settle_sidebar_folder")).toMatchObject({
-      enabled: true,
-      readonly: false,
-    });
-    expect(byName.get("move_thread_to_sidebar_folder")).toMatchObject({
-      enabled: true,
-      readonly: false,
-    });
+    expect(byName.get("list_boards")).toMatchObject({ enabled: true, readonly: true });
     expect(byName.get("create_board")).toMatchObject({ enabled: true, readonly: false });
     expect(byName.get("delete_board")).toMatchObject({ enabled: true, readonly: false });
     expect(byName.get("preview_snapshot")?.enabled).toBe(false);

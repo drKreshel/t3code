@@ -32,11 +32,6 @@ export type TicketFlag = typeof TicketFlag.Type;
 export const TicketPriority = Schema.Literals(["none", "low", "medium", "high", "urgent"]);
 export type TicketPriority = typeof TicketPriority.Type;
 
-/** Sidebar folder names separated by `/`, independent of filesystem paths. */
-export const TicketFolderPath = TrimmedNonEmptyString.check(
-  Schema.isPattern(/^(?=[^/]*[^\s/])[^/]+(?:\/(?=[^/]*[^\s/])[^/]+)*$/),
-);
-
 /** Two to five capital letters or digits, starting with a letter: `WEB`, `API2`. */
 export const BoardKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Z][A-Z0-9]{1,4}$/));
 
@@ -131,8 +126,6 @@ export const Ticket = Schema.Struct({
   priority: TicketPriority,
   /** Overrides the board's default project for new chats. */
   projectKey: Schema.NullOr(Schema.String),
-  /** Creates this folder hierarchy in each client and files linked chats there. */
-  folder: Schema.optional(Schema.NullOr(TicketFolderPath)),
   position: Schema.Number,
   flag: Schema.NullOr(TicketFlag),
   /**
@@ -234,7 +227,6 @@ export const BoardsCommand = Schema.Union([
     columnId: Schema.optional(Id),
     priority: Schema.optional(TicketPriority),
     projectKey: Schema.optional(Schema.NullOr(Schema.String)),
-    folder: Schema.optional(Schema.NullOr(TicketFolderPath)),
     criteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     requires: Schema.optional(Schema.Array(Id)),
   }),
@@ -246,7 +238,6 @@ export const BoardsCommand = Schema.Union([
     description: Schema.optional(Schema.String),
     priority: Schema.optional(TicketPriority),
     projectKey: Schema.optional(Schema.NullOr(Schema.String)),
-    folder: Schema.optional(Schema.NullOr(TicketFolderPath)),
   }),
   command("ticket.move", {
     ticketId: Id,

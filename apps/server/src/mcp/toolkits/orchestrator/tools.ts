@@ -87,10 +87,10 @@ const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
 
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Start one child agent with only `task`. No parent history. Separate checkout or PR per child: `isolation:'worktree'`. Keep `taskId` for `task_status` and `task_cancel`. `ticket` and `folder` file the child on a ticket or in a sidebar folder.",
+    "Start one child agent with only `task`. No parent history. Separate checkout or PR per child: `isolation:'worktree'`. Keep `taskId` for `task_status` and `task_cancel`. `ticket` files the child on a ticket.",
   parameters: Schema.Struct({
     ...OrchestratorMcpDelegateTaskInput.fields,
-    // Fork: ticket and folder.
+    // Fork: ticket.
     ...NewChatPlacementFields,
   }),
   success: OrchestratorMcpDelegateTaskResult,
@@ -215,10 +215,10 @@ const RequestSecretTool = Tool.make("request_secret", {
 
 const CreateThreadsTool = Tool.make("create_threads", {
   description:
-    "Create new top-level threads in this checkout. Not delegation. One thread or its own worktree: `t3_thread_launch`. Project, branch, and worktree inherit. Each entry may set `ticket` and `folder`.",
+    "Create new top-level threads in this checkout. Not delegation. One thread or its own worktree: `t3_thread_launch`. Project, branch, and worktree inherit. Each entry may set `ticket`.",
   parameters: Schema.Struct({
     ...OrchestratorMcpCreateThreadsInput.fields,
-    // Fork: ticket and folder per thread.
+    // Fork: ticket per thread.
     threads: Schema.Array(
       Schema.Struct({ ...OrchestratorMcpCreateThreadRequest.fields, ...NewChatPlacementFields }),
     ).check(Schema.isMinLength(1), Schema.isMaxLength(20)),

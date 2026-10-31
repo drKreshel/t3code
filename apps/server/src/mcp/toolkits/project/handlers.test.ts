@@ -29,7 +29,6 @@ import {
   BoardsService,
   layerMemory as boardsLayerMemory,
 } from "../../../fork/boards/BoardsService.ts";
-import { TaskFolders } from "../../../fork/taskFolders/TaskFolders.ts";
 import * as DocumentText from "../../../provider/DocumentText.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -45,101 +44,94 @@ import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as ProjectHandlers from "./handlers.ts";
 import { ProjectToolkit } from "./tools.ts";
 
-it.effect(
-  "a launch joins the ticket and folder it names, and a wrong ticket key creates nothing",
-  () =>
-    Effect.gen(function* () {
-      const sourceThreadId = ThreadId.make("source-thread");
-      const projectId = ProjectId.make("project");
-      const providerInstanceId = ProviderInstanceId.make("codex");
-      const modelSelection = { instanceId: providerInstanceId, model: "gpt-5" };
-      const caller = {
-        id: sourceThreadId,
-        projectId,
-        providerInstanceId,
-        modelSelection,
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        activeRunId: "active-run",
-        archivedAt: null,
-        deletedAt: null,
-      } as OrchestrationV2ThreadShell;
-      const launched: Array<ThreadId | undefined> = [];
-      const filed: Array<{ readonly threadId: ThreadId; readonly folder: string | null }> = [];
-      const layerDependencies = Layer.mergeAll(
-        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-        ServerSettings.layerTest(),
-        NodeCrypto.layer,
-        Layer.succeed(McpInvocationContext.McpInvocationContext, {
-          environmentId: EnvironmentId.make("environment"),
-          requestNamespace: "session",
-          thread: { threadId: sourceThreadId, providerSessionId: "session", providerInstanceId },
-          client: undefined,
-          issuedAt: 0,
-          capabilities: new Set(["orchestration" as const]),
-        }),
-        Layer.mock(ThreadManagement.ThreadManagementService)({
-          getThreadShell: () => Effect.succeed(caller),
-        }),
-        Layer.mock(ThreadLaunch.ThreadLaunchService)({
-          launch: (input) => {
-            launched.push(input.threadId);
-            return Effect.succeed({
-              threadId: input.threadId,
-              projection: {
-                thread: { id: input.threadId, title: input.title, projectId, modelSelection },
-                runs: [],
-              },
-              resumed: false,
-            } as unknown as ThreadLaunch.ThreadLaunchResult);
-          },
-        }),
-        Layer.mock(TaskFolders)({
-          setChat: (input) => Effect.sync(() => void filed.push(input)),
-        }),
-        boardsLayerMemory.pipe(Layer.provide(NodeServices.layer)),
-        Layer.mock(Project.ProjectService)({}),
-        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
-        Layer.mock(GitVcsDriver.GitVcsDriver)({}),
-        DocumentText.layer.pipe(Layer.provide(NodeServices.layer)),
-        NodeServices.layer,
-        ServerConfig.layerTest(process.cwd(), { prefix: "t3-launch-placement-" }).pipe(
-          Layer.provide(NodeServices.layer),
+it.effect("a launch joins the ticket it names, and a wrong ticket key creates nothing", () =>
+  Effect.gen(function* () {
+    const sourceThreadId = ThreadId.make("source-thread");
+    const projectId = ProjectId.make("project");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const modelSelection = { instanceId: providerInstanceId, model: "gpt-5" };
+    const caller = {
+      id: sourceThreadId,
+      projectId,
+      providerInstanceId,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      activeRunId: "active-run",
+      archivedAt: null,
+      deletedAt: null,
+    } as OrchestrationV2ThreadShell;
+    const launched: Array<ThreadId | undefined> = [];
+    const layerDependencies = Layer.mergeAll(
+      Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+      ServerSettings.layerTest(),
+      NodeCrypto.layer,
+      Layer.succeed(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment"),
+        requestNamespace: "session",
+        thread: { threadId: sourceThreadId, providerSessionId: "session", providerInstanceId },
+        client: undefined,
+        issuedAt: 0,
+        capabilities: new Set(["orchestration" as const]),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed(caller),
+      }),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({
+        launch: (input) => {
+          launched.push(input.threadId);
+          return Effect.succeed({
+            threadId: input.threadId,
+            projection: {
+              thread: { id: input.threadId, title: input.title, projectId, modelSelection },
+              runs: [],
+            },
+            resumed: false,
+          } as unknown as ThreadLaunch.ThreadLaunchResult);
+        },
+      }),
+      boardsLayerMemory.pipe(Layer.provide(NodeServices.layer)),
+      Layer.mock(Project.ProjectService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
+      Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+      DocumentText.layer.pipe(Layer.provide(NodeServices.layer)),
+      NodeServices.layer,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-launch-placement-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    );
+    const context = yield* Layer.build(layerDependencies);
+    const boards = Context.get(context, BoardsService);
+    const boardId = (yield* boards.dispatch(
+      { type: "board.create", name: "Salon", key: "SALON" },
+      "user",
+    )).id!;
+    yield* boards.dispatch({ type: "ticket.create", boardId, title: "Sign-in dead end" }, "user");
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(Layer.succeedContext(context)),
         ),
-      );
-      const context = yield* Layer.build(layerDependencies);
-      const boards = Context.get(context, BoardsService);
-      const boardId = (yield* boards.dispatch(
-        { type: "board.create", name: "Salon", key: "SALON" },
-        "user",
-      )).id!;
-      yield* boards.dispatch({ type: "ticket.create", boardId, title: "Sign-in dead end" }, "user");
-      const toolkit = yield* ProjectToolkit.pipe(
-        Effect.provide(
-          McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
-            Layer.provide(Layer.succeedContext(context)),
-          ),
-        ),
-      );
-      const launch = (params: Record<string, unknown>) =>
-        toolkit
-          .handle("t3_thread_launch", { title: "Review", message: "Review it", ...params } as never)
-          .pipe(Stream.unwrap, Stream.runCollect, Effect.provideContext(context));
+      ),
+    );
+    const launch = (params: Record<string, unknown>) =>
+      toolkit
+        .handle("t3_thread_launch", { title: "Review", message: "Review it", ...params } as never)
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provideContext(context));
 
-      const placed = yield* launch({ ticket: "SALON-1", folder: "Salon/tickets/1/review-rounds" });
-      const threadId = launched[0]!;
-      expect(placed.at(-1)?.result).toMatchObject({ threadId });
-      const ticket = (yield* boards.snapshot).tickets[0]!;
-      expect(ticket.threadKeys).toEqual([`environment:${threadId}`]);
-      expect(filed).toEqual([{ threadId, folder: "Salon/tickets/1/review-rounds" }]);
+    const placed = yield* launch({ ticket: "SALON-1" });
+    const threadId = launched[0]!;
+    expect(placed.at(-1)?.result).toMatchObject({ threadId });
+    const ticket = (yield* boards.snapshot).tickets[0]!;
+    expect(ticket.threadKeys).toEqual([`environment:${threadId}`]);
 
-      const refused = yield* launch({ ticket: "SALON-9" });
-      expect(refused.at(-1)?.result).toMatchObject({
-        code: "invalid_request",
-        message: expect.stringContaining("There is no ticket SALON-9."),
-      });
-      expect(launched).toHaveLength(1);
-    }).pipe(Effect.scoped),
+    const refused = yield* launch({ ticket: "SALON-9" });
+    expect(refused.at(-1)?.result).toMatchObject({
+      code: "invalid_request",
+      message: expect.stringContaining("There is no ticket SALON-9."),
+    });
+    expect(launched).toHaveLength(1);
+  }).pipe(Effect.scoped),
 );
 
 it.effect("project scripts and defaults go where the app reads them", () =>

@@ -10,10 +10,7 @@ import {
   BoardsCommandError,
   OrchestratorMcpFailure,
   PositiveInt,
-  ScheduledTaskId,
-  ThreadId,
   TicketPriority,
-  TicketFolderPath,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -108,7 +105,6 @@ export const TicketDetailResult = Schema.Struct({
   column: Schema.String,
   priority: TicketPriority,
   project: Schema.NullOr(Schema.String),
-  folder: Schema.NullOr(Schema.String),
   history: Schema.Array(
     Schema.Struct({
       kind: Schema.String,
@@ -140,7 +136,9 @@ export const TicketDetailResult = Schema.Struct({
   thisChatIsLinked: Schema.Boolean,
   workspace: Schema.NullOr(
     Schema.Struct({
-      path: Schema.String.annotate({ description: "The ticket's folder; its chats run here." }),
+      path: Schema.String.annotate({
+        description: "The ticket's workspace folder; its chats run here.",
+      }),
       repos: Schema.Array(
         Schema.Struct({
           repo: Schema.String,
@@ -207,7 +205,7 @@ const ListTicketsTool = Tool.make("list_tickets", {
 
 const GetTicketTool = Tool.make("get_ticket", {
   description:
-    "Read a ticket: description, folder, acceptance criteria (numbered), requirements, comments, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
+    "Read a ticket: description, acceptance criteria (numbered), requirements, comments, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
   parameters: Schema.Struct({ ticket: OptionalTicketRef }),
   success: TicketDetailResult,
   failure,
@@ -264,7 +262,7 @@ const CreateBoardTool = Tool.make("create_board", {
 
 const DeleteBoardTool = Tool.make("delete_board", {
   description:
-    "Permanently delete an archived board and all of its tickets, criteria, requirements, comments, history, and ticket-to-chat links. Chats and sidebar folders are preserved. Refused while the board is active or any ticket still has a workspace; archive it with update_board and remove those workspaces first.",
+    "Permanently delete an archived board and all of its tickets, criteria, requirements, comments, history, and ticket-to-chat links. Chats are preserved. Refused while the board is active or any ticket still has a workspace; archive it with update_board and remove those workspaces first.",
   parameters: Schema.Struct({
     board: TrimmedNonEmptyString.annotate({ description: "Board key like WEB." }),
   }),
@@ -372,12 +370,6 @@ const CreateTicketTool = Tool.make("create_ticket", {
     description: Schema.optional(Schema.String.annotate({ description: "Markdown." })),
     column: Schema.optional(ColumnRef),
     priority: Schema.optional(TicketPriority),
-    folder: Schema.optional(
-      Schema.NullOr(TicketFolderPath).annotate({
-        description:
-          'Sidebar folder path for this ticket\'s chats, e.g. "SalonesDeFiestas/salones-infantiles". Missing folders are created in each client.',
-      }),
-    ),
     criteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     requires: Schema.optional(
       Schema.Array(TicketRef).annotate({
@@ -405,7 +397,7 @@ const CreateTicketTool = Tool.make("create_ticket", {
 
 const UpdateTicketTool = Tool.make("update_ticket", {
   description:
-    "Change a ticket's number, title, description, priority, folder, or archived state; add or remove required tickets; and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
+    "Change a ticket's number, title, description, priority, or archived state; add or remove required tickets; and add, check, uncheck, or remove acceptance criteria. Criteria are named by number (from get_ticket), or exact text.",
   parameters: Schema.Struct({
     ticket: OptionalTicketRef,
     number: Schema.optional(
@@ -419,12 +411,6 @@ const UpdateTicketTool = Tool.make("update_ticket", {
     priority: Schema.optional(TicketPriority),
     archived: Schema.optional(
       Schema.Boolean.annotate({ description: "true archives the ticket; false restores it." }),
-    ),
-    folder: Schema.optional(
-      Schema.NullOr(TicketFolderPath).annotate({
-        description:
-          "Sidebar folder path for linked chats. Use / for nested folders, or null to stop automatic filing.",
-      }),
     ),
     addCriteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     checkCriteria: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
@@ -545,47 +531,6 @@ const RemoveWorkspaceTool = Tool.make("remove_ticket_workspace", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
-const FileTaskRunsTool = Tool.make("file_scheduled_task_runs", {
-  description:
-    "Choose the sidebar folder a scheduled task files the chats of its runs into, like 'SERP/Adaptive checks'; null stops filing. Every client creates the folder and files existing and future run chats there.",
-  parameters: Schema.Struct({
-    scheduledTaskId: ScheduledTaskId,
-    folder: Schema.NullOr(
-      TicketFolderPath.annotate({ description: "Folder names separated by /." }),
-    ),
-  }),
-  success: Schema.Struct({
-    scheduledTaskId: ScheduledTaskId,
-    folder: Schema.NullOr(Schema.String),
-  }),
-  failure,
-  dependencies,
-})
-  .annotate(Tool.Title, "File scheduled task runs")
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false)
-  .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
-
-const FileChatTool = Tool.make("file_chat", {
-  description:
-    "Choose the sidebar folder a chat is filed in on every client, like 'Research/Benchmarks'; null stops filing and leaves the chat where it is. Omit threadId for this chat. A chat's own folder wins over its ticket's folder. t3_thread_launch, create_threads, and delegate_task take the same folder when starting a chat.",
-  parameters: Schema.Struct({
-    threadId: Schema.optional(ThreadId),
-    folder: Schema.NullOr(
-      TicketFolderPath.annotate({ description: "Folder names separated by /." }),
-    ),
-  }),
-  success: Schema.Struct({ threadId: ThreadId, folder: Schema.NullOr(Schema.String) }),
-  failure,
-  dependencies,
-})
-  .annotate(Tool.Title, "File chat")
-  .annotate(Tool.Readonly, false)
-  .annotate(Tool.Destructive, false)
-  .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
-
 export const BoardsToolkit = Toolkit.make(
   ListBoardsTool,
   ListTicketsTool,
@@ -600,6 +545,4 @@ export const BoardsToolkit = Toolkit.make(
   RequestHumanTool,
   LinkThreadTool,
   RemoveWorkspaceTool,
-  FileTaskRunsTool,
-  FileChatTool,
 );

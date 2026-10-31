@@ -1,7 +1,7 @@
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { Board } from "@t3tools/contracts";
-import { lazy, memo, Suspense, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useState } from "react";
 
 import { OrganizingIcon } from "../OrganizingIcon";
 import { readLocalApi } from "../../localApi";
@@ -19,7 +19,7 @@ const BoardIconPicker = lazy(() =>
 /** Quick links to pinned boards, above the sidebar's Folders. */
 export const SidebarPinnedBoards = memo(function SidebarPinnedBoards() {
   const model = useBoardsModel();
-  const { pinned, needsYouByBoardId } = useMemo(() => {
+  const { pinned, needsYouByBoardId } = (() => {
     if (model.status !== "ready") return { pinned: [], needsYouByBoardId: new Map() };
     const counts = new Map<string, number>();
     for (const view of model.needsYou) {
@@ -29,7 +29,7 @@ export const SidebarPinnedBoards = memo(function SidebarPinnedBoards() {
       pinned: model.boards.filter((board) => board.pinnedAt !== null),
       needsYouByBoardId: counts,
     };
-  }, [model]);
+  })();
   if (pinned.length === 0) return null;
   return (
     <li className="mb-1 list-none" data-thread-selection-safe>
@@ -111,7 +111,7 @@ function PinnedBoardRow({ board, needsYou }: { readonly board: Board; readonly n
           active && "bg-sidebar-row-active text-sidebar-foreground",
         )}
       >
-        <OrganizingIcon icon={board.icon} kind="board" />
+        <OrganizingIcon icon={board.icon} />
         <span className="min-w-0 flex-1 truncate">{board.name}</span>
         {needsYou > 0 ? (
           <span
