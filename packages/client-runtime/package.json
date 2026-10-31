@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./assembly-highlighting": {
+      "types": "./src/assemblyHighlighting.ts",
+      "default": "./src/assemblyHighlighting.ts"
+    },
     "./auto-settle-duration": {
       "types": "./src/autoSettleDuration.ts",
       "default": "./src/autoSettleDuration.ts"

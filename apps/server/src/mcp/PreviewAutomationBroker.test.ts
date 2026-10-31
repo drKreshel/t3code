@@ -19,6 +19,7 @@ import * as Fiber from "effect/Fiber";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 
+import { PreviewBrowserRootError } from "../preview/PreviewBrowserHost.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 
 const makeBroker = PreviewAutomationBroker.make.pipe(Effect.provide(NodeServices.layer));
@@ -299,6 +300,12 @@ it.effect.each([
     tag: "PreviewAutomationExecutionError",
     message: "page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:4719/",
     shown: false,
+  },
+  {
+    clientId: SERVER_BROWSER_AUTOMATION_CLIENT_ID,
+    tag: "PreviewAutomationExecutionError",
+    message: new PreviewBrowserRootError().message,
+    shown: true,
   },
   // The host gives up before the broker would, so its own reason is the accurate one.
   {

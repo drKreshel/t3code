@@ -21,7 +21,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import type * as Scope from "effect/Scope";
 import { TestClock } from "effect/testing";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vite-plus/test";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
@@ -31,11 +31,18 @@ import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewManager from "./Manager.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 
-// Drains pending microtasks (navigation handlers run after a resolved promise).
-const settle = function* (until: () => boolean) {
-  for (let attempt = 0; attempt < 30 && !until(); attempt++) {
-    yield* Effect.promise(() => Promise.resolve());
-  }
+// Resolves once the mock gets a matching call; navigation handlers call it after a resolved promise.
+const nextCall = <Args extends unknown[]>(
+  mock: Mock<(...args: Args) => unknown>,
+  matches: (...args: Args) => boolean,
+) => {
+  const called = Promise.withResolvers<void>();
+  const original = mock.getMockImplementation();
+  mock.mockImplementation((...args: Args) => {
+    if (matches(...args)) called.resolve();
+    return original?.(...args);
+  });
+  return Effect.promise(() => called.promise);
 };
 
 describe("fitPictureInPictureContentSize", () => {
@@ -93,6 +100,12 @@ describe("previewWindowOpenAction", () => {
     ).toBe("popup");
   });
 
+  it("opens HTTP links in preview tabs", () => {
+    for (const disposition of ["foreground-tab", "background-tab"] as const) {
+      expect(PreviewManager.previewWindowOpenAction(details({ disposition }))).toBe("new-tab");
+    }
+  });
+
   it("keeps a form POST with a body on the in-place path", () => {
     const postBody = { data: [], contentType: "application/x-www-form-urlencoded" };
     expect(
@@ -105,12 +118,29 @@ describe("previewWindowOpenAction", () => {
 
   it("does not hand a window to schemes that cannot be hardened", () => {
     for (const url of [
-      "javascript:alert(1)",
-      "file:///etc/passwd",
       "vscode://vscode-remote/ssh-remote+box/tmp",
-      "not a url",
+      "blob:https://example.com/0b6c6a5e-55d4-4b4c-9d47-8f1b0c1d2e3f",
     ]) {
       expect(PreviewManager.previewWindowOpenAction(details({ url }))).toBe("navigate");
+    }
+  });
+
+  it("denies local and inline schemes that no page could open in place itself", () => {
+    for (const url of [
+      "data:text/html,<h1>hi</h1>",
+      "DaTa:text/html,<h1>hi</h1>",
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      "view-source:https://example.com",
+      "chrome://gpu",
+      "about:srcdoc",
+      "devtools://devtools/bundled/inspector.html",
+      "filesystem:https://example.com/temporary/page.html",
+      "not a url",
+    ]) {
+      for (const disposition of ["new-window", "foreground-tab", "background-tab"] as const) {
+        expect(PreviewManager.previewWindowOpenAction(details({ url, disposition }))).toBe("deny");
+      }
     }
   });
 
@@ -812,6 +842,10 @@ describe("PreviewManager", () => {
           { userAgent: NATIVE_PREVIEW_USER_AGENT },
         );
 
+        const sendLoaded = nextCall(
+          preview.loadURL,
+          (url) => url === "https://web.whatsapp.com/send?phone=123",
+        );
         const preventDefault = vi.fn();
         preview.listeners.get("will-navigate")?.(
           { preventDefault } as never,
@@ -819,21 +853,19 @@ describe("PreviewManager", () => {
         );
         expect(preview.setUserAgent).toHaveBeenLastCalledWith(WHATSAPP_PREVIEW_USER_AGENT);
         expect(preventDefault).toHaveBeenCalledOnce();
-        yield* settle(() =>
-          preview.loadURL.mock.calls.some(
-            ([url]) => url === "https://web.whatsapp.com/send?phone=123",
-          ),
-        );
+        yield* sendLoaded;
 
+        const leaveLoaded = nextCall(
+          preview.loadURL,
+          (url) => url === "https://example.com/after-whatsapp",
+        );
         const leavePreventDefault = vi.fn();
         preview.listeners.get("will-navigate")?.(
           { preventDefault: leavePreventDefault } as never,
           "https://example.com/after-whatsapp" as never,
         );
         expect(leavePreventDefault).toHaveBeenCalledOnce();
-        yield* settle(() =>
-          preview.loadURL.mock.calls.some(([url]) => url === "https://example.com/after-whatsapp"),
-        );
+        yield* leaveLoaded;
         expect(preview.setUserAgent).toHaveBeenLastCalledWith(NATIVE_PREVIEW_USER_AGENT);
         expect(preview.debuggerSendCommand).toHaveBeenLastCalledWith(
           "Emulation.setUserAgentOverride",
@@ -849,9 +881,10 @@ describe("PreviewManager", () => {
         const preview = makeFaviconWebContents({ url: "https://web.whatsapp.com/" });
         fromId.mockReturnValue(preview.webContents);
         yield* manager.createTab("tab_initial_whatsapp_identity");
+        const reloaded = nextCall(preview.reload, () => true);
         yield* manager.registerWebview("tab_initial_whatsapp_identity", 42);
 
-        yield* settle(() => preview.reload.mock.calls.length === 1);
+        yield* reloaded;
         expect(preview.debuggerSendCommand).toHaveBeenCalledWith(
           "Emulation.setUserAgentOverride",
           expect.objectContaining({
@@ -1836,6 +1869,9 @@ describe("PreviewManager", () => {
           {
             isDevToolsOpened: () => false,
             getUserAgent: () => "Electron",
+            // The fork's per-site browser identity reads the session's native user agent.
+            session: { getUserAgent: () => "Electron" },
+            setUserAgent: vi.fn(),
             loadURL: vi.fn(async () => undefined),
           },
         );
@@ -2307,6 +2343,48 @@ describe("PreviewManager", () => {
         const capturesAfterClose = capturePage.mock.calls.length;
         yield* TestClock.adjust(200);
         expect(capturePage).toHaveBeenCalledTimes(capturesAfterClose);
+      }),
+    ),
+  );
+
+  effectIt.effect("shows picture-in-picture and keeps capturing after stalled captures", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const image = {
+          toJPEG: () => Buffer.from("preview-frame"),
+          getSize: () => ({ width: 1280, height: 720 }),
+        };
+        const stalledInitial = Promise.withResolvers<typeof image>();
+        const stalledLoop = Promise.withResolvers<typeof image>();
+        const capturePage = vi
+          .fn<() => Promise<typeof image>>()
+          .mockImplementationOnce(() => stalledInitial.promise)
+          .mockImplementationOnce(() => stalledLoop.promise)
+          .mockResolvedValue(image);
+        fromId.mockReturnValue(makeTestPreviewWebContents(capturePage));
+        const { pictureInPictureWindow, send } = makeTestPictureInPictureWindow();
+        browserWindowConstructor.mockImplementation(function () {
+          return pictureInPictureWindow;
+        });
+        yield* manager.createTab("tab_pip_stalled_capture");
+        yield* manager.registerWebview("tab_pip_stalled_capture", 42);
+
+        try {
+          const open = yield* manager
+            .openPictureInPicture("tab_pip_stalled_capture")
+            .pipe(Effect.forkChild({ startImmediately: true }));
+          yield* TestClock.adjust(1_000);
+          expect(pictureInPictureWindow.showInactive).toHaveBeenCalledOnce();
+          yield* Fiber.join(open);
+
+          expect(send).not.toHaveBeenCalled();
+          yield* TestClock.adjust(500);
+          expect(send).toHaveBeenCalled();
+        } finally {
+          // Release stalled native calls after a failing assertion against unchanged base.
+          stalledInitial.resolve(image);
+          stalledLoop.resolve(image);
+        }
       }),
     ),
   );
