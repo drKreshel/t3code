@@ -10,14 +10,11 @@ import {
   AuthTerminalOperateScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
-import { FORK_SIDEBAR_FOLDERS_WS_METHODS } from "./forkSidebarFolders.ts";
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS } from "./rpc.ts";
 
 /** Incremental client enforcement; the server still authorizes every request. */
 export const CLIENT_GUARDED_RPC_SCOPES = {
-  [FORK_SIDEBAR_FOLDERS_WS_METHODS.claim]: AuthOrchestrationOperateScope,
-  [FORK_SIDEBAR_FOLDERS_WS_METHODS.respond]: AuthOrchestrationOperateScope,
   [WS_METHODS.previewClose]: AuthPreviewOperateScope,
   // Stopping a server signals its processes, as closing a terminal does.
   [WS_METHODS.previewStopLocalServer]: AuthTerminalOperateScope,

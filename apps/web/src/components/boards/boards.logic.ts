@@ -132,14 +132,34 @@ export function ticketAttention(
 export function ticketsByColumn(
   board: Board,
   tickets: ReadonlyArray<Ticket>,
+  showSubTickets = true,
 ): Map<string, Ticket[]> {
   const byColumn = new Map<string, Ticket[]>(board.columns.map((column) => [column.id, []]));
+  const activeIds = new Set(
+    tickets.filter((ticket) => ticket.archivedAt === null).map((ticket) => ticket.id),
+  );
   for (const ticket of tickets) {
     if (ticket.boardId !== board.id || ticket.archivedAt !== null) continue;
+    // A sub-ticket shows on its parent's card unless the parent is archived.
+    if (!showSubTickets && ticket.parentId !== null && activeIds.has(ticket.parentId)) continue;
     byColumn.get(ticket.columnId)?.push(ticket);
   }
   for (const list of byColumn.values()) list.sort((a, b) => a.position - b.position);
   return byColumn;
+}
+
+/** How many of a parent's sub-tickets reached the board's last column. */
+export function subTicketProgress(
+  board: Board,
+  subTickets: ReadonlyArray<Ticket>,
+): { readonly done: number; readonly total: number; readonly columnName: string } | null {
+  const last = board.columns.toSorted((a, b) => b.position - a.position)[0];
+  if (subTickets.length === 0 || !last) return null;
+  return {
+    done: subTickets.filter((ticket) => ticket.columnId === last.id).length,
+    total: subTickets.length,
+    columnName: last.name,
+  };
 }
 
 /**
@@ -211,6 +231,14 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
       return `Now requires ${text("ticket")}`;
     case "requirement.removed":
       return `No longer requires ${text("ticket")}`;
+    case "parent.set":
+      return `Filed under ${text("ticket")}`;
+    case "parent.removed":
+      return `No longer under ${text("ticket")}`;
+    case "subticket.added":
+      return `Added sub-ticket ${text("ticket")}`;
+    case "subticket.removed":
+      return `Removed sub-ticket ${text("ticket")}`;
     case "blocked":
       return `Blocked again: ${text("by")} was reopened`;
     case "unblocked":

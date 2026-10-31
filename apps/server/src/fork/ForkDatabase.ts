@@ -356,6 +356,10 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
       )`,
     ],
   },
+  {
+    version: 19,
+    statements: [`ALTER TABLE fork_tickets ADD COLUMN parent_id TEXT`],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

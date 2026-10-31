@@ -124,7 +124,7 @@ interface TicketRow {
   readonly column_id: string;
   readonly priority: TicketPriority;
   readonly project_key: string | null;
-  readonly folder: string | null;
+  readonly parent_id: string | null;
   readonly position: number;
   readonly flag_json: string | null;
   readonly created_at: string;
@@ -208,10 +208,10 @@ const make = Effect.gen(function* () {
         columnId: row.column_id,
         priority: row.priority,
         projectKey: row.project_key,
-        folder: row.folder,
         position: row.position,
         flag: row.flag_json === null ? null : decodeFlag(row.flag_json),
         requires: (requiresByTicket.get(row.id) ?? []).map((entry) => entry.requires_ticket_id),
+        parentId: row.parent_id,
         criteria: (criteriaByTicket.get(row.id) ?? []).map((criterion) => ({
           id: criterion.id,
           text: criterion.text,
@@ -356,6 +356,30 @@ const make = Effect.gen(function* () {
       stack.push(...(next.get(current) ?? []));
     }
     return false;
+  });
+
+  /** The parent `parentId` names for a ticket on `boardId`, checked to stay one level deep. */
+  const findParent = Effect.fn("BoardsService.findParent")(function* (
+    ticketId: string | null,
+    boardId: string,
+    parentId: string,
+  ) {
+    if (parentId === ticketId) return yield* fail("invalid", "A ticket cannot be its own parent.");
+    const parent = yield* findTicket(parentId);
+    if (parent.board_id !== boardId) {
+      return yield* fail("invalid", "The parent ticket must be on the same board.");
+    }
+    if (parent.parent_id !== null) {
+      return yield* fail("invalid", "A sub-ticket cannot have sub-tickets of its own.");
+    }
+    if (ticketId !== null) {
+      const children =
+        yield* sql`SELECT id FROM fork_tickets WHERE parent_id = ${ticketId} LIMIT 1`;
+      if (children.length > 0) {
+        return yield* fail("invalid", "A ticket with sub-tickets cannot become a sub-ticket.");
+      }
+    }
+    return parent;
   });
 
   // Commands
@@ -567,22 +591,20 @@ const make = Effect.gen(function* () {
           return yield* fail("invalid", "That column belongs to another board.");
         }
         for (const requiredId of command.requires ?? []) yield* findTicket(requiredId);
+        const parent =
+          command.parentId === undefined
+            ? null
+            : yield* findParent(null, board.id, command.parentId);
         const number = board.ticket_counter + 1;
         yield* sql`UPDATE fork_boards SET ticket_counter = ${number} WHERE id = ${board.id}`;
         const id = yield* newId;
         const position = yield* nextPosition("tickets", column.id);
         yield* sql`
             INSERT INTO fork_tickets (id, board_id, number, title, description, column_id, priority,
-              project_key, folder, position, created_at, updated_at)
+              project_key, parent_id, position, created_at, updated_at)
             VALUES (${id}, ${board.id}, ${number}, ${command.title}, ${command.description ?? ""},
               ${column.id}, ${command.priority ?? "none"}, ${command.projectKey ?? null},
-              ${
-                command.folder
-                  ?.split("/")
-                  .map((name) => name.trim())
-                  .join("/") ?? null
-              },
-              ${position}, ${at}, ${at})
+              ${parent?.id ?? null}, ${position}, ${at}, ${at})
           `;
         for (const [index, text] of (command.criteria ?? []).entries()) {
           const criterionId = yield* newId;
@@ -598,6 +620,14 @@ const make = Effect.gen(function* () {
             `;
         }
         yield* recordEvent(id, "created", { column: column.name }, actor, at);
+        if (parent !== null) {
+          yield* recordEvent(id, "parent.set", { ticket: yield* ticketLabel(parent) }, actor, at);
+          // Same board as its parent, so the parent's row gives the new ticket's key.
+          const label = yield* ticketLabel({ ...parent, number });
+          yield* recordEvent(parent.id, "subticket.added", { ticket: label }, actor, at);
+          yield* touchTicket(parent.id, at);
+          return { id, touched: [id, parent.id] };
+        }
         return { id, touched: [id] };
       }
       case "ticket.update": {
@@ -617,14 +647,6 @@ const make = Effect.gen(function* () {
               WHERE id = ${ticket.board_id}
             `;
         }
-        const folder =
-          command.folder === undefined
-            ? ticket.folder
-            : (command.folder
-                ?.split("/")
-                .map((name) => name.trim())
-                .join("/") ?? null);
-        const folderChanged = command.folder !== undefined && folder !== ticket.folder;
         yield* sql`
             UPDATE fork_tickets SET
               number = ${command.number ?? ticket.number},
@@ -632,7 +654,6 @@ const make = Effect.gen(function* () {
               description = ${command.description ?? ticket.description},
               priority = ${command.priority ?? ticket.priority},
               project_key = ${command.projectKey === undefined ? ticket.project_key : command.projectKey},
-              folder = ${folder},
               updated_at = ${at}
             WHERE id = ${ticket.id}
           `;
@@ -648,7 +669,6 @@ const make = Effect.gen(function* () {
           command.projectKey !== undefined && command.projectKey !== ticket.project_key
             ? "project"
             : null,
-          folderChanged ? "folder" : null,
         ].filter((field) => field !== null);
         if (changed.length > 0) {
           yield* recordEvent(
@@ -658,7 +678,6 @@ const make = Effect.gen(function* () {
               fields: changed,
               ...(command.priority !== undefined ? { priority: command.priority } : {}),
               ...(renumber ? { from: yield* ticketLabel(ticket) } : {}),
-              ...(folderChanged ? { folderFrom: ticket.folder, folderTo: folder } : {}),
             },
             actor,
             at,
@@ -724,6 +743,39 @@ const make = Effect.gen(function* () {
           `;
         yield* recordEvent(ticket.id, command.archived ? "archived" : "unarchived", {}, actor, at);
         return { id: null, touched: [ticket.id] };
+      }
+      case "ticket.setParent": {
+        const ticket = yield* findTicket(command.ticketId);
+        if (command.parentId === ticket.parent_id) return { id: null, touched: [] };
+        const parent =
+          command.parentId === null
+            ? null
+            : yield* findParent(ticket.id, ticket.board_id, command.parentId);
+        const previous = ticket.parent_id === null ? null : yield* findTicket(ticket.parent_id);
+        yield* sql`
+            UPDATE fork_tickets SET parent_id = ${parent?.id ?? null}, updated_at = ${at}
+            WHERE id = ${ticket.id}
+          `;
+        const label = yield* ticketLabel(ticket);
+        if (previous !== null) {
+          yield* recordEvent(previous.id, "subticket.removed", { ticket: label }, actor, at);
+          yield* touchTicket(previous.id, at);
+        }
+        if (parent !== null) {
+          yield* recordEvent(parent.id, "subticket.added", { ticket: label }, actor, at);
+          yield* touchTicket(parent.id, at);
+        }
+        yield* recordEvent(
+          ticket.id,
+          parent === null ? "parent.removed" : "parent.set",
+          { ticket: yield* ticketLabel(parent ?? previous!) },
+          actor,
+          at,
+        );
+        return {
+          id: null,
+          touched: [ticket.id, ...(previous ? [previous.id] : []), ...(parent ? [parent.id] : [])],
+        };
       }
       case "criterion.add": {
         const ticket = yield* findTicket(command.ticketId);

@@ -12,19 +12,17 @@ const IconPicker = lazy(() =>
 
 export function OrganizingIconSetting({
   icon,
-  kind,
   name,
   onSelect,
 }: {
   readonly icon?: OrganizingIconOverride | null | undefined;
-  readonly kind: "board" | "folder";
   readonly name: string;
   readonly onSelect: (icon: OrganizingIconOverride | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="flex items-center gap-2">
-      <OrganizingIcon icon={icon} kind={kind} className="mr-1 size-6 text-2xl" />
+      <OrganizingIcon icon={icon} className="mr-1 size-6 text-2xl" />
       <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
         Choose icon
       </Button>
@@ -38,8 +36,8 @@ export function OrganizingIconSetting({
           <IconPicker
             current={icon ?? null}
             projectName={name}
-            entityType={kind}
-            defaultIcon={kind === "board" ? "square-kanban" : "folder"}
+            entityType="board"
+            defaultIcon="square-kanban"
             open={open}
             onOpenChange={setOpen}
             onSelect={onSelect}

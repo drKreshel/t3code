@@ -85,6 +85,7 @@ export function filterTickets(
   filter: {
     readonly board?: Board | undefined;
     readonly column?: BoardColumn | undefined;
+    readonly parent?: Ticket | undefined;
     readonly query?: string | undefined;
     readonly includeArchived?: boolean | undefined;
   },
@@ -95,6 +96,7 @@ export function filterTickets(
       (filter.includeArchived === true || ticket.archivedAt === null) &&
       (filter.board === undefined || ticket.boardId === filter.board.id) &&
       (filter.column === undefined || ticket.columnId === filter.column.id) &&
+      (filter.parent === undefined || ticket.parentId === filter.parent.id) &&
       (query === "" ||
         ticket.title.toLowerCase().includes(query) ||
         ticket.description.toLowerCase().includes(query)),

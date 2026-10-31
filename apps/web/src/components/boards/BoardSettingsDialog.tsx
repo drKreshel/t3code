@@ -122,7 +122,7 @@ function BoardSettingsFields({ board }: { readonly board: Board }) {
     <DialogPanel>
       <OrganizingIconSetting
         icon={board.icon}
-        kind="board"
+
         name={board.name}
         onSelect={(icon) => void dispatch({ type: "board.update", boardId: board.id, icon })}
       />

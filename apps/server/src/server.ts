@@ -44,9 +44,7 @@ import * as ForkLegacyAutomations from "./fork/automations/LegacyAutomations.ts"
 import * as ForkBoards from "./fork/boards/BoardsService.ts";
 import * as ForkBoardUpkeep from "./fork/boards/BoardUpkeep.ts";
 import * as ForkSkills from "./fork/skills/SkillsService.ts";
-import * as ForkSidebarFolders from "./fork/sidebarFolders/SidebarFolders.ts";
 import * as ForkThreadPins from "./fork/threadPins/ThreadPinsService.ts";
-import * as ForkTaskFolders from "./fork/taskFolders/TaskFolders.ts";
 import * as ForkBoardTemplates from "./fork/templates/BoardTemplates.ts";
 import * as ForkTicketWorkspaces from "./fork/workspaces/TicketWorkspaces.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
@@ -589,92 +587,86 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
   }),
 );
 
-const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer
-  .pipe(
-    Layer.provideMerge(Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer)),
-    // Below upkeep, which drops a deleted chat's folder.
-    Layer.provideMerge(ForkTaskFolders.layer),
-    Layer.provideMerge(ForkTicketWorkspaces.layer),
-    Layer.provideMerge(ForkBoards.layer),
-    Layer.provideMerge(ForkSkills.layer),
-    Layer.provideMerge(ForkThreadPins.layer),
-    Layer.provideMerge(ForkSidebarFolders.layer),
-    Layer.provideMerge(
-      Layer.mergeAll(
-        AgentAwarenessRelay.layer,
-        HeldHooksWaker.layer,
-        layerThreadSettlementWorker,
-        layerIdleCompactionWorker,
-        StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
-        DatabaseStorage.layer.pipe(
-          Layer.provide(ProjectionMaintenance.layer),
-          Layer.provide(
-            Layer.merge(EventStoreV2.layerFromOrchestrationEventStore, ProjectionStoreV2.layer),
-          ),
+const layerRuntimeCoreDependenciesBase = ForkBoardTemplates.layer.pipe(
+  Layer.provideMerge(Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer)),
+  Layer.provideMerge(ForkTicketWorkspaces.layer),
+  Layer.provideMerge(ForkBoards.layer),
+  Layer.provideMerge(ForkSkills.layer),
+  Layer.provideMerge(ForkThreadPins.layer),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      AgentAwarenessRelay.layer,
+      HeldHooksWaker.layer,
+      layerThreadSettlementWorker,
+      layerIdleCompactionWorker,
+      StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
+      DatabaseStorage.layer.pipe(
+        Layer.provide(ProjectionMaintenance.layer),
+        Layer.provide(
+          Layer.merge(EventStoreV2.layerFromOrchestrationEventStore, ProjectionStoreV2.layer),
         ),
-        layerThreadPullRequestWorker,
-        DelegatedTaskAnalytics.layer,
-        Layer.effectDiscard(
-          Effect.gen(function* () {
-            const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;
-            yield* service.start();
-          }),
-        ).pipe(
-          Layer.provideMerge(PullRequestSyncReactor.layer),
-          Layer.provide(layerPullRequestService),
-          Layer.provide(ProjectionStoreV2.layer),
-        ),
-        Layer.effectDiscard(
-          Effect.gen(function* () {
-            const service = yield* PullRequestWatchReactor.PullRequestWatchReactor;
-            yield* service.start();
-          }),
-        ).pipe(
-          Layer.provide(PullRequestWatchReactor.layer),
-          Layer.provide(layerPullRequestService),
-          Layer.provide(ProjectionStoreV2.layer),
-        ),
-        Layer.effectDiscard(
-          Effect.gen(function* () {
-            const service = yield* DelegatedTaskQuestionReactor.DelegatedTaskQuestionReactor;
-            yield* service.start();
-          }),
-        ).pipe(
-          Layer.provide(DelegatedTaskQuestionReactor.layer),
-          Layer.provide(ProjectionStoreV2.layer),
-        ),
-        ProviderUsageLimitsIngestion.layer,
-        layerProviderInstallationRefresh,
-        ReplayMarkers.layer,
-        Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
       ),
-    ),
-  )
-  .pipe(
-    Layer.provideMerge(layerOrchestrationApplication),
-    Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
-    Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
-    Layer.provideMerge(layerServerSettings),
-    Layer.provideMerge(layerSourceControlProviderRegistry),
-    Layer.provideMerge(layerGit),
-    Layer.provideMerge(layerVcs),
-    Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
-    Layer.provideMerge(layerPersistence),
-    Layer.provideMerge(
-      Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
-    ),
-    Layer.provideMerge(ProviderRegistry.layer),
-    Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
-    // Provider hydration builds the Claude runner, which reports agents to the same scanner the
-    // terminal and preview layers share.
-    Layer.provideMerge(layerPortScanner),
-    Layer.provideMerge(
-      Layer.mergeAll(
-        AntigravityInstallation.AntigravityInstallation.layer,
-        CodexInstallation.CodexInstallation.layer,
+      layerThreadPullRequestWorker,
+      DelegatedTaskAnalytics.layer,
+      Layer.effectDiscard(
+        Effect.gen(function* () {
+          const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;
+          yield* service.start();
+        }),
+      ).pipe(
+        Layer.provideMerge(PullRequestSyncReactor.layer),
+        Layer.provide(layerPullRequestService),
+        Layer.provide(ProjectionStoreV2.layer),
       ),
+      Layer.effectDiscard(
+        Effect.gen(function* () {
+          const service = yield* PullRequestWatchReactor.PullRequestWatchReactor;
+          yield* service.start();
+        }),
+      ).pipe(
+        Layer.provide(PullRequestWatchReactor.layer),
+        Layer.provide(layerPullRequestService),
+        Layer.provide(ProjectionStoreV2.layer),
+      ),
+      Layer.effectDiscard(
+        Effect.gen(function* () {
+          const service = yield* DelegatedTaskQuestionReactor.DelegatedTaskQuestionReactor;
+          yield* service.start();
+        }),
+      ).pipe(
+        Layer.provide(DelegatedTaskQuestionReactor.layer),
+        Layer.provide(ProjectionStoreV2.layer),
+      ),
+      ProviderUsageLimitsIngestion.layer,
+      layerProviderInstallationRefresh,
+      ReplayMarkers.layer,
+      Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
     ),
-  );
+  ),
+  Layer.provideMerge(layerOrchestrationApplication),
+  Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
+  Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
+  Layer.provideMerge(layerServerSettings),
+  Layer.provideMerge(layerSourceControlProviderRegistry),
+  Layer.provideMerge(layerGit),
+  Layer.provideMerge(layerVcs),
+  Layer.provideMerge(Layer.mergeAll(layerTerminal, layerPreview, layerDevice)),
+  Layer.provideMerge(layerPersistence),
+  Layer.provideMerge(
+    Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
+  ),
+  Layer.provideMerge(ProviderRegistry.layer),
+  Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
+  // Provider hydration builds the Claude runner, which reports agents to the same scanner the
+  // terminal and preview layers share.
+  Layer.provideMerge(layerPortScanner),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      AntigravityInstallation.AntigravityInstallation.layer,
+      CodexInstallation.CodexInstallation.layer,
+    ),
+  ),
+);
 
 const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   Layer.provideMerge(layerPtyAdapter),

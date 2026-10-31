@@ -2,8 +2,6 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   // Exported types are part of our contracts even before they have consumers.
   "rules": { "types": "off", "nsTypes": "off" },
-  // Fork: the folders sidebar keeps an export only it uses until its lint debt is paid down.
-  "ignoreIssues": { "apps/web/src/components/SidebarFolders.tsx": ["exports"] },
   // These executables are supplied by the OS or installed separately from npm.
   "ignoreBinaries": ["eas", "file", "mkfifo", "pkill", "pkg-config", "plutil", "sips"],
   "workspaces": {

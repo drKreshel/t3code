@@ -1,5 +1,5 @@
 import type { OrganizingIconOverride } from "@t3tools/contracts";
-import { FolderIcon, FolderOpenIcon, SquareKanbanIcon } from "lucide-react";
+import { SquareKanbanIcon } from "lucide-react";
 import type { IconName } from "lucide-react/dynamic";
 import { lazy, Suspense } from "react";
 
@@ -11,19 +11,15 @@ const DynamicIcon = lazy(() =>
   import("lucide-react/dynamic").then((module) => ({ default: module.DynamicIcon })),
 );
 
-/** Custom identity with a small type badge so folders and boards stay recognizable. */
+/** A board's custom identity with a small type badge so boards stay recognizable. */
 export function OrganizingIcon({
   icon,
-  kind,
-  expanded = false,
   className,
 }: {
   readonly icon?: OrganizingIconOverride | null | undefined;
-  readonly kind: "board" | "folder";
-  readonly expanded?: boolean;
   readonly className?: string;
 }) {
-  const TypeIcon = kind === "board" ? SquareKanbanIcon : expanded ? FolderOpenIcon : FolderIcon;
+  const TypeIcon = SquareKanbanIcon;
   if (!icon) {
     return <TypeIcon aria-hidden className={cn("size-4 shrink-0 text-icon-muted", className)} />;
   }

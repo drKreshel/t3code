@@ -20,12 +20,12 @@ const handlers = {
       return yield* service.capabilities(scope, input);
     }),
   ),
-  delegate_task: McpToolAccess.actsAsCaller(({ ticket, folder, ...input }) =>
+  delegate_task: McpToolAccess.actsAsCaller(({ ticket, ...input }) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      // Fork: the ticket and sidebar folder the child chat joins.
-      const place = yield* prepareNewChatPlacement({ ticket, folder });
+      // Fork: the ticket the child chat joins.
+      const place = yield* prepareNewChatPlacement({ ticket });
       return yield* service.delegateTask(scope, input, place);
     }),
   ),
@@ -156,11 +156,11 @@ const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      // Fork: the ticket and sidebar folder each new chat joins, all checked first.
-      const places = yield* Effect.forEach(threads, ({ ticket, folder }) =>
-        prepareNewChatPlacement({ ticket, folder }),
+      // Fork: the ticket each new chat joins, all checked first.
+      const places = yield* Effect.forEach(threads, ({ ticket }) =>
+        prepareNewChatPlacement({ ticket }),
       );
-      const requests = threads.map(({ ticket: _ticket, folder: _folder, ...request }) => request);
+      const requests = threads.map(({ ticket: _ticket, ...request }) => request);
       return yield* service.createThreads(
         scope,
         { ...input, threads: requests },

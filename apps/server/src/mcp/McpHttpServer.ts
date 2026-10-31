@@ -69,8 +69,6 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
-import { SidebarFoldersToolkit } from "../fork/mcp/sidebarFoldersTools.ts";
-import { SidebarFoldersToolkitHandlersLive } from "../fork/mcp/sidebarFoldersHandlers.ts";
 import { BoardsToolkitHandlersLive } from "../fork/mcp/boardsHandlers.ts";
 import { BoardsToolkit } from "../fork/mcp/boardsTools.ts";
 import { AgentTerminalToolkitHandlersLive } from "../fork/mcp/terminalHandlers.ts";
@@ -1139,10 +1137,9 @@ const layerDeviceScreenshotRegistration = imageToolRegistration(
   DeviceHandlers.layerScreenshot,
 );
 
-// Fork: boards, tickets, sidebar folders, agent terminals, and chat pins.
+// Fork: boards, tickets, agent terminals, and chat pins.
 const BoardsToolkitRegistrationLive = Layer.mergeAll(
   toolkitRegistration(BoardsToolkit, BoardsToolkitHandlersLive),
-  toolkitRegistration(SidebarFoldersToolkit, SidebarFoldersToolkitHandlersLive),
   toolkitRegistration(AgentTerminalToolkit, AgentTerminalToolkitHandlersLive),
   toolkitRegistration(ThreadPinsToolkit, ThreadPinsToolkitHandlersLive),
 );

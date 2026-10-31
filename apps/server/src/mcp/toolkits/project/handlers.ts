@@ -196,7 +196,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             message:
               "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
           });
-        // Fork: the ticket and sidebar folder the new chat joins.
+        // Fork: the ticket the new chat joins.
         const place = yield* prepareNewChatPlacement(input);
         const startedRuntimeMode =
           projectDefaults !== undefined && input.runtimeMode === undefined

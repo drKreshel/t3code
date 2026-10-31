@@ -105,7 +105,7 @@ export function NewBoardDialog({
           <DialogPanel>
             <OrganizingIconSetting
               icon={icon}
-              kind="board"
+
               name={name || "Board"}
               onSelect={setIcon}
             />

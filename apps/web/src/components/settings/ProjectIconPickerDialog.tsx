@@ -57,7 +57,7 @@ export function ProjectIconPickerDialog({
 }: {
   readonly current: OrganizingIconOverride | null;
   readonly projectName: string;
-  readonly entityType?: "project" | "board" | "folder";
+  readonly entityType?: "project" | "board";
   readonly defaultIcon?: string;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
@@ -90,7 +90,7 @@ function ProjectIconPickerBody({
 }: {
   readonly current: OrganizingIconOverride | null;
   readonly projectName: string;
-  readonly entityType: "project" | "board" | "folder";
+  readonly entityType: "project" | "board";
   readonly defaultIcon: string;
   readonly onClose: () => void;
   readonly onSelect: (icon: OrganizingIconOverride) => void;
@@ -164,9 +164,7 @@ function ProjectIconPickerBody({
           }}
         >
           <Toggle value="lucide">Icons</Toggle>
-          {entityType === "board" || entityType === "folder" ? (
-            <Toggle value="image">Image</Toggle>
-          ) : null}
+          {entityType === "board" ? <Toggle value="image">Image</Toggle> : null}
           <Toggle value="emoji">Emoji</Toggle>
           <Toggle value="monogram">Monogram</Toggle>
         </ToggleGroup>

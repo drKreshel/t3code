@@ -43,11 +43,6 @@ import {
   ForkBoardsSubscribeRpc,
   ForkBoardsSubscribeTicketRpc,
 } from "./forkBoards.ts";
-import {
-  ForkSidebarFoldersConnectRpc,
-  ForkSidebarFoldersRespondRpc,
-  ForkSidebarFoldersClaimRpc,
-} from "./forkSidebarFolders.ts";
 import { ForkAgentContextThreadRpc } from "./forkAgentContext.ts";
 import {
   ForkSkillsListRpc,
@@ -56,11 +51,6 @@ import {
   ForkSkillsSaveSettingsRpc,
 } from "./forkSkills.ts";
 import { ForkTemplatesDispatchRpc, ForkTemplatesSubscribeRpc } from "./forkBoardTemplates.ts";
-import {
-  ForkTaskFoldersSetChatRpc,
-  ForkTaskFoldersSetRpc,
-  ForkTaskFoldersSubscribeRpc,
-} from "./forkTaskFolders.ts";
 import {
   ForkWorkspacesDispatchRpc,
   ForkWorkspacesListReposRpc,
@@ -2208,9 +2198,6 @@ export const ForkWsRpcGroup = RpcGroup.make(
   ForkWorkspacesListReposRpc,
   ForkTemplatesSubscribeRpc,
   ForkTemplatesDispatchRpc,
-  ForkTaskFoldersSubscribeRpc,
-  ForkTaskFoldersSetRpc,
-  ForkTaskFoldersSetChatRpc,
   ForkAgentContextThreadRpc,
   ForkSkillsListRpc,
   ForkSkillsReadRpc,
@@ -2218,9 +2205,6 @@ export const ForkWsRpcGroup = RpcGroup.make(
   ForkSkillsSaveSettingsRpc,
   ForkThreadPinsSubscribeRpc,
   ForkThreadPinsDispatchRpc,
-  ForkSidebarFoldersConnectRpc,
-  ForkSidebarFoldersClaimRpc,
-  ForkSidebarFoldersRespondRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const WsRpcGroup = CoreWsRpcGroup.merge(ForkWsRpcGroup);

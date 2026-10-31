@@ -153,14 +153,13 @@ const tasks = [
 const labels = (entry: ScheduledTask): TaskLabels => ({
   project: entry.projectId === "project-1" ? "SEO" : "Content",
   schedule: entry.id === "serp" ? "Cron 15,45 2-19 * * *" : "Daily at 06:00",
-  folder: entry.id === "serp" ? "SERP/Adaptive" : "",
   model: "GPT-5.6-Sol",
 });
 const taskIds = (list: ReadonlyArray<ScheduledTask>) => list.map((entry) => entry.id);
 const ALL_TASKS = { query: "", projectId: null };
 
 describe("the scheduled task list", () => {
-  it("narrows by project and by words in the title, prompt, project, schedule, or folder", () => {
+  it("narrows by project and by words in the title, prompt, project, or schedule", () => {
     expect(taskIds(visibleTasks(tasks, ALL_TASKS, DEFAULT_TASK_SORT, labels))).toEqual([
       "blog",
       "vendors",
@@ -171,7 +170,7 @@ describe("the scheduled task list", () => {
         visibleTasks(tasks, { ...ALL_TASKS, projectId: "project-2" }, DEFAULT_TASK_SORT, labels),
       ),
     ).toEqual(["blog", "vendors"]);
-    for (const query of ["adaptive", "seo", "15,45", "serp/adap"]) {
+    for (const query of ["adaptive", "seo", "15,45"]) {
       expect(
         taskIds(visibleTasks(tasks, { ...ALL_TASKS, query }, DEFAULT_TASK_SORT, labels)),
       ).toEqual(["serp"]);

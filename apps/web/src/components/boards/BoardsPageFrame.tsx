@@ -59,7 +59,7 @@ export function BoardsPageFrame({
                   {current || crumb.to === undefined ? (
                     <h1 className="flex min-w-0 items-center gap-2">
                       {crumb.boardIcon !== undefined ? (
-                        <OrganizingIcon icon={crumb.boardIcon} kind="board" />
+                        <OrganizingIcon icon={crumb.boardIcon} />
                       ) : null}
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </h1>
@@ -74,7 +74,7 @@ export function BoardsPageFrame({
                       params={{ boardKey: crumb.to.boardKey }}
                     >
                       {crumb.boardIcon !== undefined ? (
-                        <OrganizingIcon icon={crumb.boardIcon} kind="board" />
+                        <OrganizingIcon icon={crumb.boardIcon} />
                       ) : null}
                       <WorkspaceBreadcrumbText>{crumb.label}</WorkspaceBreadcrumbText>
                     </Link>

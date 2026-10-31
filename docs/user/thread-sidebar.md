@@ -200,51 +200,23 @@ rules to connected environments that support shared settings. Offline environmen
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
 
-## Organize ticket sessions
-
-On web and desktop, set a ticket's **Folder** to group its sessions in the sidebar.
-Use a path such as `SalonesDeFiestas/salones-infantiles` to nest a feature folder
-under a project folder. Missing folders are created automatically, and new manual
-and automation sessions join the same folder. You can ask an agent or a skill to
-set the folder when creating or updating a ticket.
-
-A chat an agent starts or delegates joins a ticket only when the agent names
-it, and a fork of a ticket chat stays on its ticket. The agent can also give the
-chat a folder of its own, which wins over the ticket's folder.
-
-Changing the ticket's folder moves its linked sessions to the new location.
-Clearing it stops automatic filing and keeps existing sessions where they are.
-You can also move individual sessions afterward. Moving or renaming the folder
-in the sidebar, or a folder above it, updates the ticket's folder to match, so
-agents and your other devices use the new path. Deleting it clears the folder.
-
-Choose **Settle folder** from a folder's menu to settle its chats,
-including those in subfolders. A top-level folder moves into the main Settled
-section; a subfolder stays inside its parent's Settled section, with its chats
-still inside it.
-Settling every chat by hand leaves the folder where it is. **Un-settle folder**
-brings the folder back and keeps its chats settled. While any chat inside is
-active, a settled folder shows with the others.
-
-With a web or desktop client connected, you can ask an agent to list, settle, un-settle, or delete
-sidebar folders, or move an individual chat into or out of one. Deleting a folder
-removes its subfolders and returns their chats to the main list. Clearing a ticket
-or scheduled task's folder field leaves the sidebar folder in place.
-
-## Organize scheduled task runs
+## Scheduled task runs
 
 Open **Scheduled Tasks** from the bottom of the sidebar to see every task.
-Search by title, prompt, project, schedule, or folder, filter by project, and
+Search by title, prompt, project, or schedule, filter by project, and
 select a column header to sort. Select a task to open its page, which lists all
 its runs, with the model and effort each one used, to search, filter by status,
 and sort; select a run to open its chat.
 
-On a task's page, type a folder under **Put runs in folder**, such as
-`SERP/Adaptive checks`, to file the chats its runs start there on web and
-desktop. Missing folders are created, and an agent can set the folder for you.
-Clearing it stops filing new runs; chats already filed stay put. Moving,
-renaming, or deleting the folder in the sidebar updates the task, as it does
-for tickets.
+## Group tickets under a parent
+
+Give a ticket a **Parent** on its page, or use **Add sub-ticket** on the parent, to
+group work that belongs together. Sub-tickets stay off the board so it shows one card
+per piece of work; the parent's card counts how many reached the board's last column.
+Choose **Show sub-tickets** in the board's menu to see them all. A sub-ticket cannot
+have sub-tickets of its own. Remove the parent to put a ticket back on the board, and
+archiving a parent shows its sub-tickets again. Agents can set a parent when they
+create or update a ticket, so one chat can drive a parent and delegate each sub-ticket.
 
 ## Pin a board
 
@@ -274,6 +246,9 @@ loop, in a skill and name it in the request. To prefill that request for every
 ticket on a board, set **New chat message** in the board's settings, such as
 `Implement {key} ({title}) using $implement-ticket`. Several chats and skills
 can work the same ticket over time.
+
+A chat an agent starts or delegates joins a ticket only when the agent names
+it, and a fork of a ticket chat stays on its ticket.
 
 Moving a ticket between columns records progress and never starts an agent.
 Decisions, findings, checks, and handoffs belong on the ticket; linked chats

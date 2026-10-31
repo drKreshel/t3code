@@ -22,7 +22,6 @@ import { useProjects } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
-import { useTaskFolders } from "../../state/taskFolders";
 import {
   DEFAULT_TASK_SORT,
   type Sort,
@@ -59,7 +58,6 @@ export function ScheduledTasksPage() {
   );
   const tasks = tasksQuery.data?.tasks ?? [];
   const projects = useProjects();
-  const folders = useTaskFolders();
   const [creating, setCreating] = useState(false);
   const [sort, setSort] = useState<Sort<TaskSortKey>>(DEFAULT_TASK_SORT);
   const modelLabel = useModelLabel(environmentId);
@@ -67,14 +65,9 @@ export function ScheduledTasksPage() {
   const projectOf = (projectId: string) =>
     projects.find((project) => project.environmentId === environmentId && project.id === projectId);
   const projectTitle = (projectId: string) => projectOf(projectId)?.title ?? projectId;
-  const folderOf = (taskId: string) =>
-    folders.status === "ready"
-      ? (folders.routes.find((route) => route.taskId === taskId)?.folder ?? "")
-      : "";
   const labels = (task: ScheduledTask): TaskLabels => ({
     project: projectTitle(task.projectId),
     schedule: scheduleLabel(task.schedule),
-    folder: folderOf(task.id),
     model: formatModelLabel(modelLabel(task.modelSelection)),
   });
   const projectId = search.project ?? null;
@@ -170,7 +163,6 @@ export function ScheduledTasksPage() {
                 <SortableHead sortKey="runs" sort={sort} onSort={onSort}>
                   Runs
                 </SortableHead>
-                <TableHead>Folder</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -226,11 +218,6 @@ export function ScheduledTasksPage() {
                   </TableCell>
                   <TableCell>
                     <span className="text-muted-foreground tabular-nums">{task.runCount}</span>
-                  </TableCell>
-                  <TableCell>
-                    <span className="block max-w-48 truncate text-muted-foreground">
-                      {folderOf(task.id) || "—"}
-                    </span>
                   </TableCell>
                 </TableRow>
               ))}

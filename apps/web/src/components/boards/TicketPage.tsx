@@ -4,13 +4,7 @@ import {
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import {
-  TicketFolderPath,
-  type TicketComment,
-  type TicketEvent,
-  type TicketPriority,
-} from "@t3tools/contracts";
-import * as Schema from "effect/Schema";
+import { type TicketComment, type TicketEvent, type TicketPriority } from "@t3tools/contracts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -23,17 +17,14 @@ import {
   UnlinkIcon,
   XIcon,
 } from "lucide-react";
-import { useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { useBoardsDispatch, useTicketDetail } from "../../state/boards";
-import { useSidebarFolderStore } from "../../sidebarFolderStore";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import ChatMarkdown from "../ChatMarkdown";
 import { resolveThreadStatusPill } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
-import { toastManager } from "../ui/toast";
-import { flattenSidebarFolders } from "../SidebarFolders.logic";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -638,7 +629,7 @@ function FoldedCard({
       }
     >
       <div className="flex min-w-0 items-center gap-2">
-        <CollapsibleTrigger className="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <CollapsibleTrigger className="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
           <ChevronRightIcon
             aria-hidden
             className={cn(
@@ -759,64 +750,77 @@ function TicketNumberProperty({
   );
 }
 
-const isTicketFolderPath = Schema.is(TicketFolderPath);
-
-function TicketFolderProperty({
+function LinkedTicketItem({
   view,
-  readOnly,
+  removeLabel,
+  onRemove,
 }: {
   readonly view: TicketView;
-  readonly readOnly: boolean;
+  /** Null hides the remove button. */
+  readonly removeLabel: string | null;
+  readonly onRemove: () => void;
 }) {
-  const dispatch = useBoardsDispatch();
-  const folders = useSidebarFolderStore((state) => state.folders);
-  const listId = useId();
-  const paths = flattenSidebarFolders({
-    folders,
-    threadKeysByFolderId: {},
-    collapsedFolderIds: [],
-  });
-  const folder = view.ticket.folder ?? "";
+  const column = view.board.columns.find((candidate) => candidate.id === view.ticket.columnId);
   return (
-    <PropertyRow label="Folder">
-      <Input
-        key={`${view.ticket.id}:${folder}`}
-        nativeInput
-        size="sm"
-        aria-label="Ticket folder"
-        placeholder="No folder"
-        defaultValue={folder}
-        list={listId}
-        disabled={readOnly}
-        onBlur={(event) => {
-          const path = event.currentTarget.value
-            .split("/")
-            .map((name) => name.trim())
-            .join("/");
-          if (path === folder) return;
-          if (path && !isTicketFolderPath(path)) {
-            toastManager.add({ type: "error", title: "Enter a folder name between each /" });
-            return;
-          }
-          void dispatch({ type: "ticket.update", ticketId: view.ticket.id, folder: path || null });
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") event.currentTarget.value = folder;
-          if (event.key === "Enter" || event.key === "Escape") {
-            event.preventDefault();
-            event.currentTarget.blur();
-          }
-        }}
-      />
-      <datalist id={listId}>
-        {paths.map(({ folder: option, path }) => (
-          <option key={option.id} value={path} />
+    <li className="group/linked flex min-w-0 items-center gap-2 text-sm">
+      <span className={cn("size-2 shrink-0 rounded-full", columnDotClass(column?.color ?? null))} />
+      <Link
+        className="min-w-0 truncate hover:underline"
+        to="/boards/$boardKey/$ticketNumber"
+        params={{ boardKey: view.board.key, ticketNumber: String(view.ticket.number) }}
+      >
+        <span className="font-mono text-xs text-muted-foreground">{view.label}</span>{" "}
+        {view.ticket.title}
+        <span className="text-xs text-muted-foreground">
+          {" · "}
+          {column?.name ?? ""}
+        </span>
+      </Link>
+      {removeLabel !== null ? (
+        <span className="ml-auto opacity-0 group-hover/linked:opacity-100 focus-within:opacity-100">
+          <Button aria-label={removeLabel} size="icon-xs" variant="ghost" onClick={onRemove}>
+            <XIcon />
+          </Button>
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function TicketPicker({
+  label,
+  candidates,
+  onPick,
+}: {
+  readonly label: string;
+  readonly candidates: ReadonlyArray<TicketView>;
+  readonly onPick: (ticketId: string) => void;
+}) {
+  if (candidates.length === 0) return null;
+  return (
+    <Select
+      value=""
+      onValueChange={(value) => {
+        if (typeof value === "string" && value) onPick(value);
+      }}
+    >
+      <SelectTrigger size="sm" aria-label={label}>
+        <SelectValue>
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <PlusIcon className="size-3.5" />
+            {label}
+          </span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup alignItemWithTrigger={false}>
+        {candidates.map((candidate) => (
+          <SelectItem key={candidate.ticket.id} value={candidate.ticket.id}>
+            <span className="font-mono text-xs text-muted-foreground">{candidate.label}</span>{" "}
+            {candidate.ticket.title}
+          </SelectItem>
         ))}
-      </datalist>
-      <p className="text-xs text-muted-foreground">
-        Use / for subfolders. Ticket chats are filed here.
-      </p>
-    </PropertyRow>
+      </SelectPopup>
+    </Select>
   );
 }
 
@@ -850,6 +854,25 @@ function TicketProperties({
         !ticket.requires.includes(candidate.ticket.id),
     )
     .toSorted((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const parentView = ticket.parentId === null ? undefined : viewById.get(ticket.parentId);
+  const subTicketViews = view.subTickets.flatMap((child) => {
+    const childView = viewById.get(child.id);
+    return childView ? [childView] : [];
+  });
+  // One level: parents are top-level, and a ticket with sub-tickets cannot become one.
+  const topLevelOnBoard = [...viewById.values()]
+    .filter(
+      (candidate) =>
+        candidate.ticket.id !== ticket.id &&
+        candidate.ticket.boardId === ticket.boardId &&
+        candidate.ticket.archivedAt === null &&
+        candidate.ticket.parentId === null,
+    )
+    .toSorted((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  const parentCandidates = topLevelOnBoard;
+  const subTicketCandidates = topLevelOnBoard.filter(
+    (candidate) => candidate.subTickets.length === 0,
+  );
 
   const moveTo = (columnId: string) => {
     if (columnId === ticket.columnId) return;
@@ -947,97 +970,89 @@ function TicketProperties({
           </MenuPopup>
         </Menu>
       </PropertyRow>
-      <TicketFolderProperty view={view} readOnly={readOnly} />
       <PropertyRow label="Requires">
         {required.length > 0 ? (
           <ul className="flex flex-col gap-1">
             {required.map((requiredView) => (
-              <li
+              <LinkedTicketItem
                 key={requiredView.ticket.id}
-                className="group/requires flex min-w-0 items-center gap-2 text-sm"
-              >
-                <span
-                  className={cn(
-                    "size-2 shrink-0 rounded-full",
-                    columnDotClass(
-                      requiredView.board.columns.find(
-                        (column) => column.id === requiredView.ticket.columnId,
-                      )?.color ?? null,
-                    ),
-                  )}
-                />
-                <Link
-                  className="min-w-0 truncate hover:underline"
-                  to="/boards/$boardKey/$ticketNumber"
-                  params={{
-                    boardKey: requiredView.board.key,
-                    ticketNumber: String(requiredView.ticket.number),
-                  }}
-                >
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {requiredView.label}
-                  </span>{" "}
-                  {requiredView.ticket.title}
-                  <span className="text-xs text-muted-foreground">
-                    {" · "}
-                    {requiredView.board.columns.find(
-                      (column) => column.id === requiredView.ticket.columnId,
-                    )?.name ?? ""}
-                  </span>
-                </Link>
-                {!readOnly ? (
-                  <span className="ml-auto opacity-0 group-hover/requires:opacity-100 focus-within:opacity-100">
-                    <Button
-                      aria-label={`Remove requirement ${requiredView.label}`}
-                      size="icon-xs"
-                      variant="ghost"
-                      onClick={() =>
-                        void dispatch({
-                          type: "requirement.remove",
-                          ticketId: ticket.id,
-                          requiresTicketId: requiredView.ticket.id,
-                        })
-                      }
-                    >
-                      <XIcon />
-                    </Button>
-                  </span>
-                ) : null}
-              </li>
+                view={requiredView}
+                removeLabel={readOnly ? null : `Remove requirement ${requiredView.label}`}
+                onRemove={() =>
+                  void dispatch({
+                    type: "requirement.remove",
+                    ticketId: ticket.id,
+                    requiresTicketId: requiredView.ticket.id,
+                  })
+                }
+              />
             ))}
           </ul>
         ) : null}
-        {!readOnly && candidates.length > 0 ? (
-          <Select
-            value=""
-            onValueChange={(value) => {
-              if (typeof value !== "string" || !value) return;
-              void dispatch({
-                type: "requirement.add",
-                ticketId: ticket.id,
-                requiresTicketId: value,
-              });
-            }}
-          >
-            <SelectTrigger size="sm" aria-label="Add a required ticket">
-              <SelectValue>
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <PlusIcon className="size-3.5" />
-                  Add required ticket
-                </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup alignItemWithTrigger={false}>
-              {candidates.map((candidate) => (
-                <SelectItem key={candidate.ticket.id} value={candidate.ticket.id}>
-                  <span className="font-mono text-xs text-muted-foreground">{candidate.label}</span>{" "}
-                  {candidate.ticket.title}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+        {!readOnly ? (
+          <TicketPicker
+            label="Add required ticket"
+            candidates={candidates}
+            onPick={(requiresTicketId) =>
+              void dispatch({ type: "requirement.add", ticketId: ticket.id, requiresTicketId })
+            }
+          />
         ) : null}
       </PropertyRow>
+      {view.subTickets.length === 0 ? (
+        <PropertyRow label="Parent">
+          {parentView ? (
+            <ul className="flex flex-col gap-1">
+              <LinkedTicketItem
+                view={parentView}
+                removeLabel={readOnly ? null : `Remove from ${parentView.label}`}
+                onRemove={() =>
+                  void dispatch({ type: "ticket.setParent", ticketId: ticket.id, parentId: null })
+                }
+              />
+            </ul>
+          ) : !readOnly ? (
+            <TicketPicker
+              label="Set parent ticket"
+              candidates={parentCandidates}
+              onPick={(parentId) =>
+                void dispatch({ type: "ticket.setParent", ticketId: ticket.id, parentId })
+              }
+            />
+          ) : null}
+        </PropertyRow>
+      ) : null}
+      {ticket.parentId === null ? (
+        <PropertyRow label="Sub-tickets">
+          {subTicketViews.length > 0 ? (
+            <ul className="flex flex-col gap-1">
+              {subTicketViews.map((childView) => (
+                <LinkedTicketItem
+                  key={childView.ticket.id}
+                  view={childView}
+                  removeLabel={readOnly ? null : `Remove sub-ticket ${childView.label}`}
+                  onRemove={() =>
+                    void dispatch({
+                      type: "ticket.setParent",
+                      ticketId: childView.ticket.id,
+                      parentId: null,
+                    })
+                  }
+                />
+              ))}
+            </ul>
+          ) : null}
+          {!readOnly ? (
+            <TicketPicker
+              label="Add sub-ticket"
+              candidates={subTicketCandidates}
+              onPick={(childId) =>
+                void dispatch({ type: "ticket.setParent", ticketId: childId, parentId: ticket.id })
+              }
+            />
+          ) : null}
+        </PropertyRow>
+      ) : null}
       <PropertyRow label="Dates">
         <p className="text-xs text-muted-foreground">
           Created {formatRelativeTimeLabel(ticket.createdAt)}, updated{" "}

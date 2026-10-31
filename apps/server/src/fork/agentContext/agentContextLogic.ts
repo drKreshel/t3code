@@ -20,7 +20,6 @@ import { ProjectToolkit } from "../../mcp/toolkits/project/tools.ts";
 import { PullRequestsToolkit } from "../../mcp/toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "../../mcp/toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "../../mcp/toolkits/worktree/tools.ts";
-import { SidebarFoldersToolkit } from "../mcp/sidebarFoldersTools.ts";
 import { BoardsToolkit } from "../mcp/boardsTools.ts";
 import { AgentTerminalToolkit } from "../mcp/terminalTools.ts";
 import { ThreadPinsToolkit } from "../mcp/pinsTools.ts";
@@ -113,7 +112,6 @@ const TOOLKITS = [
   { toolkit: WorktreeToolkit, capability: null },
   { toolkit: PullRequestsToolkit, capability: null },
   { toolkit: BoardsToolkit, capability: null },
-  { toolkit: SidebarFoldersToolkit, capability: null },
   { toolkit: AgentTerminalToolkit, capability: null },
   { toolkit: ThreadPinsToolkit, capability: null },
   { toolkit: PreviewToolkit, capability: "browser" },

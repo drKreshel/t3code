@@ -50,7 +50,6 @@ export interface TaskFilter {
 export interface TaskLabels {
   readonly project: string;
   readonly schedule: string;
-  readonly folder: string;
   readonly model: string;
 }
 
@@ -68,7 +67,6 @@ export function visibleTasks(
       task.prompt,
       label.project,
       label.schedule,
-      label.folder,
       label.model,
     ]);
   });

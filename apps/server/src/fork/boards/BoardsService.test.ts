@@ -31,48 +31,6 @@ const columnNamed = (state: BoardsSnapshot, boardId: string, name: string) =>
   state.boards.find((board) => board.id === boardId)!.columns.find((c) => c.name === name)!.id;
 
 it.layer(TestLayer)("BoardsService", (it) => {
-  it.effect(
-    "persists a ticket folder, preserves it on other edits, and records reassignment and clearing",
-    () =>
-      Effect.gen(function* () {
-        const boardId = yield* createdId({ type: "board.create", name: "Salones", key: "SALON" });
-        const ticketId = yield* createdId({
-          type: "ticket.create",
-          boardId,
-          title: "Kids venues",
-          folder: "SalonesDeFiestas / salones-infantiles",
-        });
-        const read = snapshot.pipe(
-          Effect.map((state) => state.tickets.find((ticket) => ticket.id === ticketId)!),
-        );
-        assert.equal((yield* read).folder, "SalonesDeFiestas/salones-infantiles");
-        yield* dispatch({
-          type: "ticket.update",
-          ticketId,
-          folder: "SalonesDeFiestas / salones-infantiles",
-        });
-        yield* dispatch({ type: "ticket.update", ticketId, title: "Finish kids venues" });
-        assert.equal((yield* read).folder, "SalonesDeFiestas/salones-infantiles");
-        yield* dispatch({ type: "ticket.update", ticketId, folder: "SalonesDeFiestas / venues" });
-        assert.equal((yield* read).folder, "SalonesDeFiestas/venues");
-        yield* dispatch({ type: "ticket.update", ticketId, folder: null });
-        assert.equal((yield* read).folder, null);
-        const boards = yield* BoardsService;
-        const detail = Option.getOrThrow(
-          yield* Stream.runHead(boards.ticketDetailStream(ticketId)),
-        );
-        assert.deepEqual(
-          detail.events
-            .filter((event) => event.kind === "updated")
-            .map(({ payload }) => [payload.fields, payload.folderFrom, payload.folderTo]),
-          [
-            [["title"], undefined, undefined],
-            [["folder"], "SalonesDeFiestas/salones-infantiles", "SalonesDeFiestas/venues"],
-            [["folder"], "SalonesDeFiestas/venues", null],
-          ],
-        );
-      }),
-  );
   it.effect("creates boards with plain default columns and unique keys", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Web", key: "WEB" });
@@ -238,6 +196,63 @@ it.layer(TestLayer)("BoardsService", (it) => {
         dispatch({ type: "requirement.add", ticketId: a, requiresTicketId: c }),
       );
       assert.equal(error.code, "cycle");
+    }),
+  );
+
+  it.effect("files sub-tickets one level deep under a parent on the same board", () =>
+    Effect.gen(function* () {
+      const boardId = yield* createdId({ type: "board.create", name: "Epics", key: "EPIC" });
+      const otherBoardId = yield* createdId({ type: "board.create", name: "Other", key: "OTH" });
+      const parent = yield* createdId({ type: "ticket.create", boardId, title: "Checkout" });
+      const child = yield* createdId({
+        type: "ticket.create",
+        boardId,
+        title: "Payment form",
+        parentId: parent,
+      });
+      const loose = yield* createdId({ type: "ticket.create", boardId, title: "Receipts" });
+      const elsewhere = yield* createdId({
+        type: "ticket.create",
+        boardId: otherBoardId,
+        title: "Elsewhere",
+      });
+      const parentOf = (id: string) =>
+        Effect.map(snapshot, (next) => next.tickets.find((ticket) => ticket.id === id)!.parentId);
+      assert.equal(yield* parentOf(child), parent);
+
+      yield* dispatch({ type: "ticket.setParent", ticketId: loose, parentId: parent });
+      assert.equal(yield* parentOf(loose), parent);
+      for (const command of [
+        { type: "ticket.setParent", ticketId: parent, parentId: parent },
+        { type: "ticket.setParent", ticketId: elsewhere, parentId: parent },
+        { type: "ticket.setParent", ticketId: loose, parentId: child },
+        { type: "ticket.setParent", ticketId: parent, parentId: loose },
+      ] as const) {
+        assert.equal((yield* Effect.flip(dispatch(command))).code, "invalid");
+      }
+
+      yield* dispatch({ type: "ticket.setParent", ticketId: loose, parentId: null });
+      assert.equal(yield* parentOf(loose), null);
+      const boards = yield* BoardsService;
+      const events = (id: string) =>
+        Stream.runHead(boards.ticketDetailStream(id)).pipe(
+          Effect.map((detail) =>
+            Option.getOrThrow(detail)
+              .events.filter(
+                (event) => event.kind.startsWith("parent") || event.kind.startsWith("sub"),
+              )
+              .map((event) => [event.kind, event.payload.ticket]),
+          ),
+        );
+      assert.deepEqual(yield* events(parent), [
+        ["subticket.added", "EPIC-2"],
+        ["subticket.added", "EPIC-3"],
+        ["subticket.removed", "EPIC-3"],
+      ]);
+      assert.deepEqual(yield* events(loose), [
+        ["parent.set", "EPIC-1"],
+        ["parent.removed", "EPIC-1"],
+      ]);
     }),
   );
 

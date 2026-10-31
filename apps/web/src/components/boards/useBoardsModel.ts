@@ -1,7 +1,6 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { Board, Ticket } from "@t3tools/contracts";
-import { useMemo } from "react";
 
 import { useBoards } from "../../state/boards";
 import { useThreadShells } from "../../state/entities";
@@ -23,6 +22,9 @@ export interface TicketView {
   readonly label: string;
   /** Tickets this one requires, with the column each sits in. */
   readonly requirements: ReadonlyArray<TicketRequirement>;
+  readonly parent: Ticket | null;
+  /** Sub-tickets that are not archived, in board order. */
+  readonly subTickets: ReadonlyArray<Ticket>;
   readonly attention: TicketAttention | null;
   /** Linked chats this client knows about; chats of disconnected environments are missing. */
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
@@ -48,7 +50,7 @@ export type BoardsModel =
 export function useBoardsModel(): BoardsModel {
   const state = useBoards();
   const shells = useThreadShells();
-  return useMemo((): BoardsModel => {
+  return ((): BoardsModel => {
     if (state.status === "loading") return { status: "loading" };
     if (state.status === "unavailable") return { status: "unavailable" };
     const { snapshot } = state;
@@ -59,6 +61,13 @@ export function useBoardsModel(): BoardsModel {
         shell,
       ]),
     );
+    const subTicketsById = new Map<string, Ticket[]>();
+    for (const ticket of snapshot.tickets) {
+      if (ticket.parentId === null || ticket.archivedAt !== null) continue;
+      const list = subTicketsById.get(ticket.parentId);
+      if (list) list.push(ticket);
+      else subTicketsById.set(ticket.parentId, [ticket]);
+    }
     const viewById = new Map<string, TicketView>();
     for (const ticket of snapshot.tickets) {
       const board = index.boardById.get(ticket.boardId);
@@ -72,6 +81,8 @@ export function useBoardsModel(): BoardsModel {
         board,
         label: ticketKey(board, ticket),
         requirements: ticketRequirements(ticket, index),
+        parent: ticket.parentId === null ? null : (index.ticketById.get(ticket.parentId) ?? null),
+        subTickets: (subTicketsById.get(ticket.id) ?? []).toSorted((a, b) => a.number - b.number),
         attention:
           board.archivedAt === null
             ? ticketAttention(
@@ -125,7 +136,7 @@ export function useBoardsModel(): BoardsModel {
             a.ticket.updatedAt.localeCompare(b.ticket.updatedAt),
         ),
     };
-  }, [shells, state]);
+  })();
 }
 
 /** Attention in linked chats still lights up the sidebar's Boards button. */

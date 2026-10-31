@@ -14,7 +14,6 @@ import {
   AuthPreviewOperateScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
-  FORK_SIDEBAR_FOLDERS_WS_METHODS,
   ThreadId,
   EnvironmentId,
   ORCHESTRATION_V2_WS_METHODS,
@@ -68,27 +67,6 @@ const setup = Effect.gen(function* () {
 });
 
 describe("command permissions", () => {
-  it.effect("requires the destination's operate grant for sidebar folder replies", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const registry = yield* setup;
-        for (const method of [
-          FORK_SIDEBAR_FOLDERS_WS_METHODS.claim,
-          FORK_SIDEBAR_FOLDERS_WS_METHODS.respond,
-        ]) {
-          const folderPermissions = createCommandPermissions(runtime, method);
-          registry.set(sessions(env), AsyncResult.success(grant(true)));
-          expect(registry.get(folderPermissions.permissionAtom(env))).toBe(true);
-          yield* folderPermissions.authorize(registry, env);
-          registry.set(sessions(env), AsyncResult.success(grant(false)));
-          expect(registry.get(folderPermissions.permissionAtom(env))).toBe(false);
-          expect((yield* folderPermissions.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
-            "EnvironmentAuthorizationError",
-          );
-        }
-      }),
-    ),
-  );
   it.effect("requires the destination preview grant to close a browser tab", () =>
     Effect.scoped(
       Effect.gen(function* () {

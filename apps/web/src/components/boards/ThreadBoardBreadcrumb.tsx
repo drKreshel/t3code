@@ -42,7 +42,7 @@ export function ThreadBoardBreadcrumb({
           params={{ boardKey: board.key }}
           aria-label={`Board ${board.name}`}
         >
-          <OrganizingIcon icon={board.icon} kind="board" />
+          <OrganizingIcon icon={board.icon} />
           <WorkspaceBreadcrumbText className="max-w-40">{board.name}</WorkspaceBreadcrumbText>
         </Link>
       </WorkspaceBreadcrumbItem>

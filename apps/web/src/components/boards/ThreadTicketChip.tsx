@@ -2,7 +2,7 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import type { EnvironmentId, OrganizingIconOverride, ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { SquareKanbanIcon } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { OrganizingIcon } from "../OrganizingIcon";
 import { useBoards, useBoardsDispatch, useThreadTicketKey } from "../../state/boards";
@@ -65,7 +65,7 @@ export function ThreadTicketChip({
   const canLink = environmentId === primaryEnvironmentId;
 
   // Built only while the picker is open; the closed chip reads one string.
-  const { boardCandidates, ticketCandidates } = useMemo(() => {
+  const { boardCandidates, ticketCandidates } = (() => {
     if (!open || !canLink || boards.status !== "ready") {
       return { boardCandidates: [] as BoardCandidate[], ticketCandidates: [] as TicketCandidate[] };
     }
@@ -109,7 +109,7 @@ export function ThreadTicketChip({
           );
       }),
     };
-  }, [boards, canLink, open, query]);
+  })();
 
   const actions = linkedKey === null ? [] : [OPEN, UNLINK];
   const boardValues = boardCandidates.map((board) => `${BOARD_PREFIX}${board.key}`);
@@ -202,7 +202,7 @@ export function ThreadTicketChip({
                       value={`${BOARD_PREFIX}${board.key}`}
                     >
                       <span className="flex min-w-0 items-center gap-2">
-                        <OrganizingIcon icon={board.icon} kind="board" />
+                        <OrganizingIcon icon={board.icon} />
                         <span className="min-w-0 truncate">{board.name}</span>
                         <span className="shrink-0 font-mono text-xs text-muted-foreground">
                           {board.key}
