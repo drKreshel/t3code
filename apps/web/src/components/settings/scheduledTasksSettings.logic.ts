@@ -113,7 +113,6 @@ export const WEBHOOK_SIGNATURE_DEFAULTS = {
   signaturePrefix: "sha256=",
 } as const;
 
-/** Formats a date as a `datetime-local` input value in the browser's time zone. */
 export function scheduleDraftErrors(draft: DraftState) {
   if (draft.scheduleMode === "once") {
     const timezone = draft.timezone.trim() || undefined;
