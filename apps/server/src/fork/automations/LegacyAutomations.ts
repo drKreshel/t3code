@@ -1,11 +1,7 @@
 /**
- * One-time move of the fork's automations onto upstream's scheduled tasks.
- *
- * Chat automations become scheduled tasks with the same id, so a rerun after a
- * crash updates instead of duplicating. "Move stale tickets" steps become the
- * column's `autoMove`. Cron and one-off schedules carry over as they are, in
- * their timezone; a one-off already past is dropped. The fork's automation
- * tables are dropped once everything is moved, which makes later starts a no-op.
+ * One-time move of the fork's automations onto upstream's scheduled tasks, under
+ * the same ids so a rerun updates instead of duplicating. Past one-offs are
+ * dropped; the automation tables are dropped once everything has moved.
  */
 import {
   DEFAULT_MODEL,
@@ -71,14 +67,10 @@ interface LegacyRow {
   readonly enabled: number;
 }
 
-const pad = (value: number) => String(value).padStart(2, "0");
-
-/** A legacy one-off's instant as the wall-clock time scheduled tasks store, in its zone. */
-export function onceWallClock(at: string, timezone: string): string | null {
+/** A legacy one-off's instant as scheduled tasks store it. */
+export function onceRunAt(at: string, timezone: string): string | null {
   const zoned = DateTime.makeZoned(at, { timeZone: timezone });
-  if (Option.isNone(zoned)) return null;
-  const parts = DateTime.toParts(zoned.value);
-  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
+  return Option.isNone(zoned) ? null : DateTime.formatIso(zoned.value);
 }
 
 /** Moves every automation, then drops the automation tables. A no-op once they are gone. */
@@ -134,13 +126,13 @@ export const migrateLegacyAutomations = Effect.gen(function* () {
     }
 
     const { schedule: legacy, timezone } = trigger.value;
-    const at = legacy.kind === "once" ? onceWallClock(legacy.at, timezone) : null;
+    const runAt = legacy.kind === "once" ? onceRunAt(legacy.at, timezone) : null;
     const schedule: ScheduledTaskUpsertSchedule | null =
       legacy.kind === "cron"
         ? { type: "cron", expression: legacy.cron, timezone }
-        : at === null
+        : runAt === null
           ? null
-          : { type: "once", at, timezone };
+          : { type: "once", runAt, timezone };
     if (schedule === null) {
       yield* Effect.logWarning("Dropping an automation whose time does not parse", { id: row.id });
       continue;

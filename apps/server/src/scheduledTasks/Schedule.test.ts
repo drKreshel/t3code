@@ -33,6 +33,12 @@ describe("scheduled task schedule calculation", () => {
 
   it("compares schedules structurally", () => {
     expect(
+      isSameSchedule(
+        { type: "once", runAt: "2026-11-01T03:00:00-05:00" },
+        { type: "once", runAt: "2026-11-01T08:00:00.000Z" },
+      ),
+    ).toBe(true);
+    expect(
       isSameSchedule({ type: "interval", everyMs: 60_000 }, { type: "interval", everyMs: 60_000 }),
     ).toBe(true);
     expect(
@@ -108,7 +114,11 @@ describe("cron, one-off, and timezone schedules", () => {
   });
 
   it("runs a one-off once, then has no next run", () => {
-    const once = { type: "once", at: "2026-10-09T09:00", timezone: "Europe/Berlin" } as const;
+    const once = {
+      type: "once",
+      runAt: "2026-10-09T07:00:00.000Z",
+      timezone: "Europe/Berlin",
+    } as const;
     expect(iso(nextScheduledRunAt(once, at("2026-10-01T00:00:00.000Z")))).toBe(
       "2026-10-09T07:00:00.000Z",
     );
@@ -122,15 +132,18 @@ describe("cron, one-off, and timezone schedules", () => {
     );
   });
 
-  it("refuses bad cron, unknown timezones, and one-offs in the past", () => {
+  it("refuses bad cron and unknown timezones", () => {
     const now = at("2026-10-06T12:00:00.000Z");
     expect(scheduleProblem({ type: "cron", expression: "61 * * * *" }, now)).toMatch(/cron/);
     expect(
       scheduleProblem({ type: "cron", expression: "0 9 * * *", timezone: "Mars/Olympus" }, now),
     ).toMatch(/timezone/);
-    expect(scheduleProblem({ type: "once", at: "2026-10-01T09:00", timezone: "UTC" }, now)).toMatch(
-      /passed/,
-    );
+    expect(
+      scheduleProblem(
+        { type: "once", runAt: "2026-10-09T09:00:00.000Z", timezone: "Mars/Olympus" },
+        now,
+      ),
+    ).toMatch(/timezone/);
     expect(scheduleProblem({ type: "cron", expression: "*/5 * * * 1-5" }, now)).toBeNull();
   });
 

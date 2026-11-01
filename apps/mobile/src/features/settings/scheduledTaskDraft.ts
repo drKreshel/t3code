@@ -53,11 +53,11 @@ export function scheduledTaskDefaultModel(
 export type ScheduleDraft = {
   readonly mode: "fixed_time" | "interval" | "cron" | "once" | "webhook";
   readonly timeOfDay: string;
+  /** ISO time for a one-time run. Empty until the user picks the "Once" mode. */
+  readonly runAt: string;
   readonly weekdays: ReadonlyArray<number>;
   readonly intervalMinutes: string;
   readonly cronExpression: string;
-  /** YYYY-MM-DDTHH:MM, read in `timezone`. */
-  readonly onceAt: string;
   /** IANA timezone for times, cron, and one-offs; empty uses the environment's. */
   readonly timezone: string;
   /** A webhook signature check configured elsewhere; mobile keeps it but does not edit it. */
@@ -74,10 +74,10 @@ export type ScheduleDraft = {
 export const DEFAULT_SCHEDULE: ScheduleDraft = {
   mode: "fixed_time",
   timeOfDay: "09:00",
+  runAt: "",
   weekdays: [1, 2, 3, 4, 5],
   intervalMinutes: "15",
   cronExpression: "0 9 * * 1-5",
-  onceAt: "",
   timezone: "",
   signature: null,
   maxDeliveryAgeMinutes: "",
@@ -110,7 +110,7 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
       return {
         ...DEFAULT_SCHEDULE,
         mode: "once",
-        onceAt: task.schedule.at,
+        runAt: task.schedule.runAt,
         timezone: task.schedule.timezone ?? "",
       };
     case "interval":
@@ -190,6 +190,13 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
         : {}),
     };
   }
+  if (draft.mode === "once") {
+    const runAt = new Date(draft.runAt);
+    const timezone = draft.timezone.trim();
+    return Number.isNaN(runAt.getTime())
+      ? null
+      : { type: "once", runAt: runAt.toISOString(), ...(timezone ? { timezone } : {}) };
+  }
   if (draft.mode === "interval") {
     const minutes = parseIntervalMinutes(draft.intervalMinutes);
     const everyMs = Math.round(minutes * 60_000);
@@ -200,12 +207,6 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
   if (draft.mode === "cron") {
     const expression = draft.cronExpression.trim();
     return expression.split(/\s+/).length === 5 ? { type: "cron", expression, ...zone } : null;
-  }
-  if (draft.mode === "once") {
-    const at = draft.onceAt.trim();
-    return /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(at)
-      ? { type: "once", at, ...zone }
-      : null;
   }
   const weekdays = [...new Set(draft.weekdays)].sort((a, b) => a - b);
   if (
@@ -252,10 +253,10 @@ function draftSignature(draft: ScheduledTaskDraft): string {
       .map((option) => [option.id, option.value]),
     draft.schedule.mode,
     draft.schedule.timeOfDay,
+    draft.schedule.runAt,
     [...draft.schedule.weekdays].sort((a, b) => a - b),
     draft.schedule.intervalMinutes,
     draft.schedule.cronExpression,
-    draft.schedule.onceAt,
     draft.schedule.timezone,
     draft.schedule.maxDeliveryAgeMinutes,
     draft.schedule.replayKey,

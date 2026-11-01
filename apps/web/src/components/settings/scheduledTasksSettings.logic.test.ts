@@ -7,7 +7,7 @@ import {
   ScheduledTaskId,
   type ScheduledTask,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type {
   SidebarProjectGroupMember,
@@ -173,7 +173,7 @@ describe("editing scheduled task branch settings", () => {
 describe("cron and one-off scheduled tasks", () => {
   it.each([
     { type: "cron", expression: "15,45 2-19 * * *", timezone: "America/Vancouver" },
-    { type: "once", at: "2026-10-09T09:00", timezone: "Europe/Berlin" },
+    { type: "once", runAt: "2026-10-09T07:00:00.000Z", timezone: "Europe/Berlin" },
     { type: "fixed_time", timeOfDay: "06:00", timezone: "Asia/Tokyo" },
     { type: "cron", expression: "0 9 1 * *" },
   ] as const)("round-trips $type schedules with their timezone", (schedule) => {
@@ -189,6 +189,59 @@ describe("cron and one-off scheduled tasks", () => {
     expect(scheduleFromDraft({ ...draft, timezone: "  " })).toEqual({
       type: "cron",
       expression: "0 9 * * *",
+    });
+  });
+
+  it("reads and writes a one-off's time in its own timezone", () => {
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: {
+        type: "once",
+        runAt: "2026-11-02T12:00:00.000Z",
+        timezone: "America/Argentina/Buenos_Aires",
+      },
+    });
+    expect(draft.runAt).toBe("2026-11-02T09:00");
+    expect(scheduleFromDraft({ ...draft, runAt: "2026-11-03T10:00" })).toEqual({
+      type: "once",
+      runAt: "2026-11-03T13:00:00.000Z",
+      timezone: "America/Argentina/Buenos_Aires",
+    });
+  });
+});
+
+describe("one-time scheduled tasks", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("round-trips the run time through the local date-time input", () => {
+    const runAt = "2026-11-03T17:00:42.000Z";
+    const draft = taskToDraft({ ...legacyTask, schedule: { type: "once", runAt } });
+    expect(draft.scheduleMode).toBe("once");
+    expect(scheduleFromDraft(draft)).toEqual({ type: "once", runAt });
+    const moved = scheduleFromDraft({ ...draft, runAt: "2026-11-04T09:30" });
+    expect(moved).toEqual({ type: "once", runAt: new Date("2026-11-04T09:30").toISOString() });
+    expect(scheduleFromDraft({ ...draft, runAt: "" })).toBeNull();
+  });
+
+  it("rejects a time skipped by daylight saving", () => {
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "once", runAt: "2027-03-14T18:00:00.000Z" },
+    });
+    expect(scheduleFromDraft({ ...draft, runAt: "2027-03-14T02:30" })).toBeNull();
+  });
+
+  it("keeps the saved offset when an edit stays in an hour that repeats", () => {
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    // 01:30 PST, the second 01:30 on 2026-11-01.
+    const draft = taskToDraft({
+      ...legacyTask,
+      schedule: { type: "once", runAt: "2026-11-01T09:30:00.000Z" },
+    });
+    expect(scheduleFromDraft({ ...draft, runAt: "2026-11-01T01:35" })).toEqual({
+      type: "once",
+      runAt: "2026-11-01T09:35:00.000Z",
     });
   });
 });

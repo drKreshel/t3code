@@ -1,6 +1,7 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import { describeCron } from "@t3tools/shared/cronDescription";
+import { isKnownTimeZone } from "@t3tools/shared/zonedDateTime";
 import {
   AuthOrchestrationOperateScope,
   resolveProjectProviderInstanceEnabled,
@@ -116,7 +117,17 @@ function describeSchedule(task: ScheduledTask): string {
   if (schedule.type === "cron") {
     return `${describeCron(schedule.expression) ?? `Cron ${schedule.expression}`}${zone}`;
   }
-  if (schedule.type === "once") return `Once on ${schedule.at.replace("T", " at ")}${zone}`;
+  if (schedule.type === "once") {
+    const runAt = new Date(schedule.runAt);
+    if (!schedule.timezone || !isKnownTimeZone(schedule.timezone))
+      return `Once, ${formatRunAtDate(runAt)} at ${formatRunAtTime(runAt)}`;
+    const zoned = new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: schedule.timezone,
+    });
+    return `Once, ${zoned.format(runAt)}${zone}`;
+  }
   const days = schedule.weekdays?.length ? repeatLabel(schedule.weekdays) : "Every day";
   return `${days} at ${formatTime(schedule.timeOfDay)}${zone}`;
 }
@@ -127,6 +138,14 @@ function formatTime(value: string): string {
   const time = new Date();
   time.setHours(hours ?? 9, minutes ?? 0, 0, 0);
   return time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function formatRunAtDate(value: Date): string {
+  return value.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatRunAtTime(value: Date): string {
+  return value.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function timePickerValue(value: string): Date {
@@ -701,6 +720,7 @@ function TaskForm({
   });
   const submissionPending = useRef(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [runAtPicker, setRunAtPicker] = useState<"date" | "time" | null>(null);
   const taskMissing =
     draft.task !== null &&
     tasks.data !== null &&
@@ -715,6 +735,9 @@ function TaskForm({
     }
   };
 
+  const offersOnce =
+    config?.environment.capabilities.oneTimeSchedules === true ||
+    draft.task?.schedule.type === "once";
   const save = async () => {
     if (
       !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ||
@@ -739,6 +762,13 @@ function TaskForm({
       Dialog.alert(
         "Invalid age limit",
         `Enter whole minutes from 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES}, or leave it blank.`,
+      );
+      return;
+    }
+    if (draft.schedule.mode === "once" && !offersOnce) {
+      Dialog.alert(
+        "Once is not available here",
+        "This environment runs an older T3 Code. Update it to schedule a one-time task, or pick another schedule.",
       );
       return;
     }
@@ -978,21 +1008,32 @@ function TaskForm({
               variant="card"
               options={[
                 { value: "fixed_time", label: "At a time" },
+                // Older servers reject one-time schedules on save.
+                ...(offersOnce || draft.schedule.mode === "once"
+                  ? [{ value: "once" as const, label: "Once" }]
+                  : []),
                 { value: "interval", label: "Interval" },
                 { value: "cron", label: "Cron" },
-                { value: "once", label: "Once" },
                 { value: "webhook", label: "On webhook" },
               ]}
               selected={draft.schedule.mode}
               onSelect={(mode) => {
                 setTimePickerOpen(false);
+                setRunAtPicker(null);
                 setDraft({
                   ...draft,
                   prompt:
                     mode === "webhook" && !draft.prompt.trim()
                       ? DEFAULT_WEBHOOK_PROMPT
                       : draft.prompt,
-                  schedule: { ...draft.schedule, mode },
+                  schedule: {
+                    ...draft.schedule,
+                    mode,
+                    runAt:
+                      mode === "once" && !draft.schedule.runAt
+                        ? new Date(Math.ceil(Date.now() / 3_600_000) * 3_600_000).toISOString()
+                        : draft.schedule.runAt,
+                  },
                 });
               }}
             />
@@ -1088,15 +1129,52 @@ function TaskForm({
               }
             />
           ) : draft.schedule.mode === "once" ? (
-            <FormField
-              label="Date and time"
-              value={draft.schedule.onceAt}
-              placeholder="2026-10-09T09:00"
-              verbatim
-              disabled={saving}
-              borderTop
-              onChange={(onceAt) => setDraft({ ...draft, schedule: { ...draft.schedule, onceAt } })}
-            />
+            (["date", "time"] as const).map((field) => {
+              const runAt = new Date(draft.schedule.runAt);
+              const label = field === "date" ? formatRunAtDate(runAt) : formatRunAtTime(runAt);
+              return (
+                <View key={field}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${field === "date" ? "Date" : "Time"}, ${label}`}
+                    onPress={() => setRunAtPicker((open) => (open === field ? null : field))}
+                    className="min-h-14 flex-row items-center gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70"
+                  >
+                    <Text textRole="body" className="text-foreground">
+                      {field === "date" ? "Date" : "Time"}
+                    </Text>
+                    <Text
+                      textRole="footnote"
+                      className="min-w-0 flex-1 text-right text-foreground-muted"
+                    >
+                      {label}
+                    </Text>
+                    <SymbolView
+                      name="chevron.right"
+                      size={14}
+                      tintColorClassName="accent-chevron"
+                      type="monochrome"
+                    />
+                  </Pressable>
+                  {runAtPicker === field ? (
+                    <DateTimePicker
+                      value={runAt}
+                      mode={field}
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      onDismiss={() => setRunAtPicker(null)}
+                      onValueChange={(_, selected) => {
+                        // Android shows a dialog that closes on pick; iOS stays inline.
+                        if (Platform.OS === "android") setRunAtPicker(null);
+                        setDraft({
+                          ...draft,
+                          schedule: { ...draft.schedule, runAt: selected.toISOString() },
+                        });
+                      }}
+                    />
+                  ) : null}
+                </View>
+              );
+            })
           ) : draft.schedule.mode === "webhook" ? (
             <>
               <WebhookScheduleDetails
@@ -1129,7 +1207,7 @@ function TaskForm({
                 }
               />
               <FormField
-                label="Replay key template"
+                label="Duplicate request key"
                 value={draft.schedule.replayKey}
                 placeholder="{{headers.delivery-id}}"
                 disabled={saving}
@@ -1138,6 +1216,9 @@ function TaskForm({
                   setDraft({ ...draft, schedule: { ...draft.schedule, replayKey } })
                 }
               />
+              <Text className="px-4 pb-3 text-sm text-foreground-muted">
+                Requests with the same key run only once within 7 days.
+              </Text>
               <FormField
                 label="Coalesce key template"
                 value={draft.schedule.coalesceKey}
@@ -1160,8 +1241,8 @@ function TaskForm({
                 }
               />
               <Text className="px-4 pb-3 text-sm text-foreground-muted">
-                Replay keys suppress repeats for 7 days. Coalescing runs the latest payload when the
-                window from the first delivery closes. Empty keys run normally.
+                Coalescing runs the latest payload when the window from the first delivery closes.
+                Empty keys run normally.
               </Text>
             </>
           ) : (
@@ -1189,9 +1270,7 @@ function TaskForm({
               ) : null}
             </>
           )}
-          {draft.schedule.mode === "fixed_time" ||
-          draft.schedule.mode === "cron" ||
-          draft.schedule.mode === "once" ? (
+          {draft.schedule.mode === "fixed_time" || draft.schedule.mode === "cron" ? (
             <FormField
               label="Timezone"
               value={draft.schedule.timezone}
@@ -1215,9 +1294,7 @@ function TaskForm({
             />
           </View>
         </SettingsSection>
-        {draft.schedule.mode === "fixed_time" ||
-        draft.schedule.mode === "cron" ||
-        draft.schedule.mode === "once" ? (
+        {draft.schedule.mode === "fixed_time" || draft.schedule.mode === "cron" ? (
           <Text className="px-2 text-sm text-foreground-muted">
             Times use the timezone above, an IANA name such as America/Vancouver. Left empty, they
             use the environment's time zone, which may differ from your phone's.

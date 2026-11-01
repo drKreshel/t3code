@@ -78,13 +78,16 @@ branch name remains.
 
 ## Scheduled tasks on mobile
 
-Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
+Open **Settings → Scheduled tasks** to create scheduled tasks or manage existing
 ones across your connected environments. Use the settings filter to narrow the
 list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Times use the timezone you
 set on the task, or the environment's when you leave it empty, which may differ
-from your phone's. New tasks use the project checkout by default. Choose a new
-worktree when you want each run isolated, or a specific checkout to reuse one.
+from your phone's. Choose **Once** to run a task a single time at a date and
+time, read in the task's timezone or, when it has none, your own. If the
+environment is offline then, the task runs when it is back. New tasks use the
+project checkout by default. Choose a new worktree when you want each run
+isolated, or a specific checkout to reuse one.
 
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.
@@ -149,7 +152,7 @@ compare as text, and a value that is an object or a list only passes
 **exists**. Separate **is one of** values with commas; a value can't contain
 a comma or start or end with a space.
 
-To suppress repeated deliveries, set a **Replay key** template, such as
+To suppress repeated deliveries, set a **Duplicate request key** template, such as
 `{{headers.delivery-id}}`. The same key is ignored for seven days per task.
 To combine a burst, set a **Coalesce key**, such as `{{body.id}}`, and a window
 of 10–3600 seconds (120 by default). One run uses the latest body, headers,

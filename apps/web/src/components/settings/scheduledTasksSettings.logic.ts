@@ -23,6 +23,12 @@ import {
   resolveProjectSettings,
   type LegacyProjectSettingsFields,
 } from "@t3tools/shared/projectSettings";
+import {
+  fromZonedLocalValue,
+  isKnownTimeZone,
+  toZonedLocalValue,
+  zonedOffsetMinutes,
+} from "@t3tools/shared/zonedDateTime";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
 import type { ResolvedSettingsScope } from "./settingsScope";
@@ -63,10 +69,12 @@ export interface DraftState {
   readonly scheduleMode: ScheduleMode;
   readonly intervalMinutes: string;
   readonly timeOfDay: string;
+  /** Local date and time as a `datetime-local` input value, such as 2026-11-02T15:00. */
+  readonly runAt: string;
+  /** The stored ISO run time, sent back unchanged when the field was not edited. */
+  readonly savedRunAt: string;
   readonly weekdays: ReadonlySet<number>;
   readonly cronExpression: string;
-  /** `datetime-local` value, YYYY-MM-DDTHH:MM. */
-  readonly onceAt: string;
   /** IANA timezone for fixed, cron, and one-off times; empty uses the server's. */
   readonly timezone: string;
   readonly projectId: string;
@@ -105,7 +113,21 @@ export const WEBHOOK_SIGNATURE_DEFAULTS = {
   signaturePrefix: "sha256=",
 } as const;
 
-export function webhookDraftErrors(draft: DraftState) {
+/** Formats a date as a `datetime-local` input value in the browser's time zone. */
+export function scheduleDraftErrors(draft: DraftState) {
+  if (draft.scheduleMode === "once") {
+    const timezone = draft.timezone.trim() || undefined;
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(draft.runAt))
+      return [{ title: "Invalid run time", description: "Pick a date and time." }];
+    if (timezone !== undefined && !isKnownTimeZone(timezone))
+      return [{ title: "Invalid time zone", description: `Unknown time zone "${timezone}".` }];
+    // A time skipped by a daylight saving change has no instant.
+    if (fromZonedLocalValue(draft.runAt, timezone) === null)
+      return [
+        { title: "Invalid run time", description: "That time does not exist in its time zone." },
+      ];
+    return [];
+  }
   if (draft.scheduleMode !== "webhook") return [];
   if (parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes) === undefined)
     return [
@@ -116,7 +138,7 @@ export function webhookDraftErrors(draft: DraftState) {
     ];
   const errors: Array<{ title: string; description: string }> = [];
   for (const [label, value] of [
-    ["Replay key", draft.replayKey],
+    ["Duplicate request key", draft.replayKey],
     ["Coalesce key", draft.coalesceKey],
   ] as const) {
     if (value.trim() && !isWebhookDedupeTemplate(value.trim()))
@@ -153,8 +175,22 @@ export function webhookDeliveryLabel(delivery: {
 }
 
 export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedule | null {
+  if (scheduleDraftErrors(draft).length > 0) return null;
+  if (draft.scheduleMode === "once") {
+    const timezone = draft.timezone.trim() || undefined;
+    const zone = timezone ? { timezone } : {};
+    const saved = draft.savedRunAt ? new Date(draft.savedRunAt) : null;
+    if (saved !== null && toZonedLocalValue(saved, timezone) === draft.runAt)
+      return { type: "once", runAt: draft.savedRunAt, ...zone };
+    // In an hour that repeats when clocks go back, keep the saved time's offset.
+    const runAt = fromZonedLocalValue(
+      draft.runAt,
+      timezone,
+      saved === null ? undefined : zonedOffsetMinutes(saved, timezone),
+    );
+    return runAt === null ? null : { type: "once", runAt: runAt.toISOString(), ...zone };
+  }
   if (draft.scheduleMode === "webhook") {
-    if (webhookDraftErrors(draft).length > 0) return null;
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     const replayKey = draft.replayKey.trim();
     const coalesceKey = draft.coalesceKey.trim();
@@ -200,7 +236,6 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
   if (draft.scheduleMode === "cron") {
     return { type: "cron", expression: draft.cronExpression.trim(), ...zone };
   }
-  if (draft.scheduleMode === "once") return { type: "once", at: draft.onceAt, ...zone };
   const selectedEveryDay = draft.weekdays.size === 0 || draft.weekdays.size === 7;
   return {
     type: "fixed_time",
@@ -226,9 +261,13 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     intervalMinutes:
       schedule.type === "interval" ? String(Math.max(1, schedule.everyMs / 60_000)) : "15",
     timeOfDay: schedule.type === "fixed_time" ? schedule.timeOfDay : "09:00",
+    runAt:
+      schedule.type === "once"
+        ? toZonedLocalValue(new Date(schedule.runAt), schedule.timezone)
+        : "",
+    savedRunAt: schedule.type === "once" ? schedule.runAt : "",
     weekdays,
     cronExpression: schedule.type === "cron" ? schedule.expression : DEFAULT_CRON_EXPRESSION,
-    onceAt: schedule.type === "once" ? schedule.at : "",
     timezone:
       schedule.type === "fixed_time" || schedule.type === "cron" || schedule.type === "once"
         ? (schedule.timezone ?? "")

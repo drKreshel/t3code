@@ -28,18 +28,6 @@ function scheduleZone(
   return DateTime.isZoned(from) ? from.zone : DateTime.zoneMakeLocal();
 }
 
-/** A one-off's instant: its wall-clock `at` read in its zone. */
-function onceInstant(
-  schedule: Extract<ScheduledTaskSchedule, { type: "once" }>,
-  from: DateTime.DateTime,
-): DateTime.DateTime | null {
-  const zone = scheduleZone(schedule.timezone, from);
-  if (zone === null) return null;
-  return Option.getOrNull(
-    DateTime.makeZoned(schedule.at, { timeZone: zone, adjustForTimeZone: true }),
-  );
-}
-
 /** Why a schedule cannot run, or null. Saves refuse schedules with a problem. */
 export function scheduleProblem(
   schedule: ScheduledTaskSchedule | ScheduledTaskUpsertSchedule,
@@ -53,13 +41,6 @@ export function scheduleProblem(
     const parsed = Cron.parse(schedule.expression);
     return Result.isFailure(parsed) ? `Invalid cron expression: ${parsed.failure.message}` : null;
   }
-  if (schedule.type === "once") {
-    const at = onceInstant(schedule, now);
-    if (at === null) return `Invalid date and time "${schedule.at}".`;
-    return DateTime.toEpochMillis(at) <= DateTime.toEpochMillis(now)
-      ? `${schedule.at} has already passed.`
-      : null;
-  }
   return null;
 }
 
@@ -69,8 +50,11 @@ export function nextScheduledRunAt(
 ): DateTime.DateTime | null {
   if (schedule.type === "webhook") return null;
   if (schedule.type === "once") {
-    const at = onceInstant(schedule, from);
-    return at !== null && DateTime.toEpochMillis(at) > DateTime.toEpochMillis(from) ? at : null;
+    const runAt = DateTime.make(schedule.runAt);
+    return Option.isSome(runAt) &&
+      DateTime.toEpochMillis(runAt.value) > DateTime.toEpochMillis(from)
+      ? runAt.value
+      : null;
   }
   if (schedule.type === "cron") {
     const zone = scheduleZone(schedule.timezone, from);
@@ -122,7 +106,7 @@ export function isSameSchedule(a: ScheduledTaskSchedule, b: ScheduledTaskSchedul
       a.timezone === b.timezone
     );
   }
-  if (a.type === "once") return b.type === "once" && a.at === b.at && a.timezone === b.timezone;
+  if (a.type === "once") return b.type === "once" && Date.parse(a.runAt) === Date.parse(b.runAt);
   if (b.type !== "fixed_time") return false;
   // Compare parsed times so padded-hour edits do not reschedule pending runs.
   const aTime = parseTimeOfDay(a.timeOfDay);

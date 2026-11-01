@@ -68,7 +68,7 @@ const OrchestratorMcpSchedule = Schema.Union([
   OrchestratorMcpScheduleFromJsonString,
 ]).annotate({
   description:
-    "Trigger: {type:'interval',everyMs}, {type:'fixed_time',timeOfDay,weekdays?,timezone?}, {type:'cron',expression,timezone?} (five-field), {type:'once',at:'YYYY-MM-DDTHH:MM',timezone?}, or {type:'webhook'}. timezone: IANA, default the server's.",
+    "Trigger: {type:'interval',everyMs}, {type:'fixed_time',timeOfDay,weekdays?,timezone?}, {type:'cron',expression,timezone?} (five-field), {type:'once',runAt,timezone?} (runAt: ISO with offset), or {type:'webhook'}. timezone: IANA, default the server's.",
 });
 
 const OrchestratorMcpTargetOptionsFromRecord = Schema.Record(

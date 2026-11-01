@@ -21,16 +21,18 @@ import { ScheduledTaskService } from "../../scheduledTasks/ScheduledTaskService.
 import * as ServerSettings from "../../serverSettings.ts";
 import { BoardsService, layerMemory as boardsLayerMemory } from "../boards/BoardsService.ts";
 import { ForkDatabaseMemory } from "../ForkDatabase.ts";
-import { migrateLegacyAutomations, onceWallClock } from "./LegacyAutomations.ts";
+import { migrateLegacyAutomations, onceRunAt } from "./LegacyAutomations.ts";
 
 const ENVIRONMENT_ID = EnvironmentId.make("env-1");
 const PROJECT_ID = ProjectId.make("project-1");
 const toJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-describe("onceWallClock", () => {
-  it("reads a one-off's instant as wall-clock time in its zone", () => {
-    expect(onceWallClock("2026-10-09T16:00:00.000Z", "America/Vancouver")).toBe("2026-10-09T09:00");
-    expect(onceWallClock("not a date", "UTC")).toBeNull();
+describe("onceRunAt", () => {
+  it("keeps a one-off's instant", () => {
+    expect(onceRunAt("2026-10-09T16:00:00.000Z", "America/Vancouver")).toBe(
+      "2026-10-09T16:00:00.000Z",
+    );
+    expect(onceRunAt("not a date", "UTC")).toBeNull();
   });
 });
 
@@ -140,7 +142,7 @@ describe("migrateLegacyAutomations", () => {
       });
       expect(tasks[2]).toMatchObject({
         id: "once",
-        schedule: { type: "once", at: "2026-10-09T09:00", timezone: "UTC" },
+        schedule: { type: "once", runAt: "2026-10-09T09:00:00.000Z", timezone: "UTC" },
       });
 
       const columns = (yield* boards.snapshot).boards[0]!.columns;

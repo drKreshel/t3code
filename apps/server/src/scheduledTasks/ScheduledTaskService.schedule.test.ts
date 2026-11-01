@@ -163,10 +163,12 @@ it.effect("saves cron schedules with their next run, and refuses ones that canno
         timezone: "Nowhere/City",
       }).pipe(Effect.flip);
       expect(refused.message).toMatch(/Unknown timezone/);
-      const past = yield* save({ type: "once", at: "2026-06-30T09:00", timezone: "UTC" }).pipe(
-        Effect.flip,
-      );
-      expect(past.message).toMatch(/already passed/);
+      const past = yield* save({
+        type: "once",
+        runAt: "2026-06-30T09:00:00.000Z",
+        timezone: "UTC",
+      }).pipe(Effect.flip);
+      expect(past.message).toMatch(/has passed/);
       expect((yield* service.list()).tasks).toHaveLength(1);
     }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
