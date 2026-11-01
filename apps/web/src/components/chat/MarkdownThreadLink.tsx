@@ -9,7 +9,6 @@ import {
 } from "@t3tools/shared/threadLinks";
 
 import { useThreadRefs, useThreadShell } from "../../state/entities";
-import { UnresolvedChip } from "../contextChipParts";
 import { ThreadContextChip } from "../ThreadContextChip";
 
 /** `label` is the link's written text; an autolink has none. */
@@ -29,12 +28,13 @@ export function MarkdownThreadLink(props: {
   const refs = useThreadRefs(guess);
   const remote = useThreadShell(guess ? guessThreadLinkRef(props.link, refs) : null);
   const thread = local ?? remote;
-  if (thread === null) {
-    const unknown = unknownThreadLinkLabel(props.link, props.environmentId);
-    return <UnresolvedChip label={props.label ?? unknown} tooltip={unknown} />;
-  }
-  const ref = { environmentId: thread.environmentId, threadId: thread.id };
-  const title = thread.title.trim() || props.label || "Untitled thread";
+  // A missing shell must not remove navigation to an explicitly linked thread.
+  const ref = thread
+    ? { environmentId: thread.environmentId, threadId: thread.id }
+    : { environmentId, threadId: props.link.threadId };
+  const title = thread
+    ? thread.title.trim() || props.label || "Untitled thread"
+    : props.label || unknownThreadLinkLabel(props.link, props.environmentId);
   return (
     <ThreadContextChip record={{ ...ref, title }} copyMarkdown={formatThreadLink(ref, title)} />
   );
