@@ -21,7 +21,7 @@ import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolba
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
-import { TraitsPicker } from "../chat/TraitsPicker";
+import { SettingsModelPicker } from "./SettingsModelPicker";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
@@ -133,43 +133,43 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       }
       control={
         selection && activeEntry ? (
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
-            <ProviderModelPicker
-              environmentId={representative?.environmentId ?? null}
-              activeInstanceId={selection.instanceId}
-              model={selection.model}
-              lockedProvider={null}
-              instanceEntries={entries}
-              modelOptionsByInstance={modelOptions}
-              triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-              {...(mixedModel ? { triggerLabel: "Mixed" } : {})}
-              getModelDisabledReason={modelDisabledReason}
-              onOpenProviderSetup={(instanceId) => {
-                if (representative)
-                  void navigate({
-                    to: "/settings/providers",
-                    search: { environmentId: representative.environmentId, instanceId },
-                  });
-              }}
-              onInstanceModelChange={(instanceId, model) =>
-                setModel(createModelSelection(instanceId, model))
-              }
-            />
-            {!mixedModel ? (
-              <TraitsPicker
-                provider={activeEntry.driverKind}
-                models={activeEntry.models}
-                model={selection.model}
-                modelOptions={selection.options ?? []}
-                allowPromptInjectedEffort={false}
-                planModeEnabled={settings.planModeEnabled}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onModelOptionsChange={(options) =>
-                  setModel(createModelSelection(selection.instanceId, selection.model, options))
-                }
-              />
-            ) : null}
-          </div>
+          <SettingsModelPicker
+            environmentId={representative?.environmentId ?? null}
+            activeInstanceId={selection.instanceId}
+            model={selection.model}
+            lockedProvider={null}
+            instanceEntries={entries}
+            modelOptionsByInstance={modelOptions}
+            {...(mixedModel ? { triggerLabel: "Mixed" } : {})}
+            getModelDisabledReason={modelDisabledReason}
+            onOpenProviderSetup={(instanceId) => {
+              if (representative)
+                void navigate({
+                  to: "/settings/providers",
+                  search: { environmentId: representative.environmentId, instanceId },
+                });
+            }}
+            onInstanceModelChange={(instanceId, model) =>
+              setModel(createModelSelection(instanceId, model))
+            }
+            traits={
+              mixedModel
+                ? null
+                : {
+                    provider: activeEntry.driverKind,
+                    instanceId: selection.instanceId,
+                    models: activeEntry.models,
+                    model: selection.model,
+                    modelOptions: selection.options ?? [],
+                    allowPromptInjectedEffort: false,
+                    planModeEnabled: settings.planModeEnabled,
+                    onModelOptionsChange: (options) =>
+                      setModel(
+                        createModelSelection(selection.instanceId, selection.model, options),
+                      ),
+                  }
+            }
+          />
         ) : (
           <span className="text-sm text-muted-foreground">No providers available</span>
         )

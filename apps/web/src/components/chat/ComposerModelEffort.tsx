@@ -361,7 +361,7 @@ function SpeedSegment(props: {
   );
 }
 
-function SpeedControl(props: { traits: TraitsSelectionInput }) {
+export function SpeedControl(props: { traits: TraitsSelectionInput }) {
   const traits = useTraitsSelection(props.traits);
   const { speedSelect, fastToggle } = splitSpeed(
     props.traits.provider,

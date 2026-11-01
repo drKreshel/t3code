@@ -44,8 +44,7 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
-import { TraitsPicker } from "../chat/TraitsPicker";
+import { SettingsModelPicker } from "./SettingsModelPicker";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import {
@@ -94,7 +93,6 @@ import {
   rememberEnabledProjectGroupingMode,
 } from "./SettingsPanels.logic";
 import {
-  SETTINGS_PICKER_TRIGGER_CLASSNAME,
   SettingResetButton,
   SettingsPageContainer,
   SettingsRow,
@@ -1769,14 +1767,13 @@ export function ThreadsSettingsPanel() {
               </span>
             ) : (
               <div className="flex flex-wrap items-center justify-end gap-1.5">
-                <ProviderModelPicker
+                <SettingsModelPicker
                   environmentId={environmentId}
                   activeInstanceId={textGenInstanceId}
                   model={textGenModel}
                   lockedProvider={null}
                   instanceEntries={textGenerationModelInstanceEntries}
                   modelOptionsByInstance={textGenerationModelOptionsByInstance}
-                  triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                   {...(mixedTextGenerationModel ? { triggerLabel: "Mixed" } : {})}
                   getModelDisabledReason={textGenerationModelDisabledReason}
                   {...(environmentId
@@ -1809,35 +1806,36 @@ export function ThreadsSettingsPanel() {
                       ),
                     });
                   }}
-                />
-                {textGenInstanceEntry ? (
-                  <TraitsPicker
-                    provider={textGenProvider}
-                    models={textGenInstanceEntry?.models ?? []}
-                    model={textGenModel}
-                    modelOptions={textGenModelOptions}
-                    allowPromptInjectedEffort={false}
-                    planModeEnabled={
-                      settings.planModeEnabled || selectsPlanAgent(textGenModelOptions)
-                    }
-                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                    onModelOptionsChange={(nextOptions) => {
-                      updateSettings({
-                        textGenerationModelSelection: resolveAppModelSelectionState(
-                          {
-                            ...settings,
-                            textGenerationModelSelection: createModelSelection(
-                              textGenInstanceId,
-                              textGenModel,
-                              nextOptions,
-                            ),
+                  traits={
+                    textGenInstanceEntry
+                      ? {
+                          provider: textGenProvider,
+                          instanceId: textGenInstanceId,
+                          models: textGenInstanceEntry.models,
+                          model: textGenModel,
+                          modelOptions: textGenModelOptions,
+                          allowPromptInjectedEffort: false,
+                          planModeEnabled:
+                            settings.planModeEnabled || selectsPlanAgent(textGenModelOptions),
+                          onModelOptionsChange: (nextOptions) => {
+                            updateSettings({
+                              textGenerationModelSelection: resolveAppModelSelectionState(
+                                {
+                                  ...settings,
+                                  textGenerationModelSelection: createModelSelection(
+                                    textGenInstanceId,
+                                    textGenModel,
+                                    nextOptions,
+                                  ),
+                                },
+                                textGenerationProviders,
+                              ),
+                            });
                           },
-                          textGenerationProviders,
-                        ),
-                      });
-                    }}
-                  />
-                ) : null}
+                        }
+                      : null
+                  }
+                />
               </div>
             )
           }

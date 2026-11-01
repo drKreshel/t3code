@@ -95,8 +95,7 @@ import { Label } from "../ui/label";
 import { Menu, MenuTrigger, MenuPopup, MenuItem, MenuSeparator } from "../ui/menu";
 import { ToggleGroup, Toggle } from "../ui/toggle-group";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyMedia } from "../ui/empty";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
-import { TraitsPicker } from "../chat/TraitsPicker";
+import { SettingsModelPicker } from "./SettingsModelPicker";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
@@ -115,12 +114,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import {
-  SettingsPageContainer,
-  SettingsRow,
-  SettingsSection,
-  SETTINGS_PICKER_TRIGGER_CLASSNAME,
-} from "./settingsLayout";
+import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -1565,45 +1559,42 @@ function ScheduledTaskEditorForm({
           </Field>
 
           <Field label="Model">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <ProviderModelPicker
-                environmentId={environmentId}
-                disabled={saving || !connected}
-                activeInstanceId={activeInstanceId}
-                model={activeModel}
-                lockedProvider={null}
-                instanceEntries={instanceEntries}
-                modelOptionsByInstance={modelOptionsByInstance}
-                isComposerOwned={false}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onInstanceModelChange={(instanceId, model) =>
-                  setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
-                }
-              />
-              {activeModelSelection !== null && activeEntry ? (
-                <TraitsPicker
-                  provider={activeEntry.driverKind}
-                  models={activeEntry.models}
-                  model={activeModelSelection.model}
-                  modelOptions={activeModelSelection.options ?? []}
-                  allowPromptInjectedEffort={false}
-                  planModeEnabled={settings.planModeEnabled}
-                  triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                  disabled={saving || !connected}
-                  onModelOptionsChange={(options) =>
-                    setDraft((current) => ({
-                      ...current,
-                      modelKey: `${activeModelSelection.instanceId}:${activeModelSelection.model}`,
-                      baseModelSelection: createModelSelection(
-                        activeModelSelection.instanceId,
-                        activeModelSelection.model,
-                        options,
-                      ),
-                    }))
-                  }
-                />
-              ) : null}
-            </div>
+            <SettingsModelPicker
+              environmentId={environmentId}
+              disabled={saving || !connected}
+              activeInstanceId={activeInstanceId}
+              model={activeModel}
+              lockedProvider={null}
+              instanceEntries={instanceEntries}
+              modelOptionsByInstance={modelOptionsByInstance}
+              isComposerOwned={false}
+              onInstanceModelChange={(instanceId, model) =>
+                setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
+              }
+              traits={
+                activeModelSelection !== null && activeEntry
+                  ? {
+                      provider: activeEntry.driverKind,
+                      instanceId: activeModelSelection.instanceId,
+                      models: activeEntry.models,
+                      model: activeModelSelection.model,
+                      modelOptions: activeModelSelection.options ?? [],
+                      allowPromptInjectedEffort: false,
+                      planModeEnabled: settings.planModeEnabled,
+                      onModelOptionsChange: (options) =>
+                        setDraft((current) => ({
+                          ...current,
+                          modelKey: `${activeModelSelection.instanceId}:${activeModelSelection.model}`,
+                          baseModelSelection: createModelSelection(
+                            activeModelSelection.instanceId,
+                            activeModelSelection.model,
+                            options,
+                          ),
+                        })),
+                    }
+                  : null
+              }
+            />
           </Field>
 
           <div className="space-y-3">
