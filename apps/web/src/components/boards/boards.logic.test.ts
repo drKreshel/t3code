@@ -5,6 +5,7 @@ import {
   describeTicketEvent,
   indexBoards,
   positionBetween,
+  resolveTicketStatusIndicator,
   recentBoardsByActivity,
   suggestBoardKey,
   ticketAttention,
@@ -267,5 +268,22 @@ describe("ticketChatOpener", () => {
     expect(ticketChatOpener("Implement {key} ({title}), then review {key}. {other}", ticket)).toBe(
       "Implement WEB-12 (Fix $& login), then review WEB-12. {other}",
     );
+  });
+});
+
+describe("resolveTicketStatusIndicator", () => {
+  const pill = (label: "Needs you" | "Working" | "Failed") => ({
+    label,
+    colorClass: "",
+    dotClass: "",
+    pulse: false,
+  });
+
+  it("shows the most urgent of a ticket's chat statuses", () => {
+    expect(resolveTicketStatusIndicator([pill("Working"), null, pill("Needs you")])?.label).toBe(
+      "Needs you",
+    );
+    expect(resolveTicketStatusIndicator([pill("Working"), pill("Failed")])?.label).toBe("Failed");
+    expect(resolveTicketStatusIndicator([null])).toBeNull();
   });
 });

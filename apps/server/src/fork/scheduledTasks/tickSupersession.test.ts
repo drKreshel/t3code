@@ -21,6 +21,7 @@ import * as Orchestrator from "../../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunchService from "../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../../orchestration-v2/ThreadManagementService.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
+import * as ManagedPolicy from "../../policy/ManagedPolicy.ts";
 import * as ScheduledTaskService from "../../scheduledTasks/ScheduledTaskService.ts";
 import * as Scheduler from "../../scheduling/Scheduler.ts";
 import * as ManagedProjectFolders from "../../project/ManagedProjectFolders.ts";
@@ -91,6 +92,7 @@ it.effect(
       );
       const cancelAttempts = yield* Ref.make<ReadonlyArray<RunId>>([]);
       const layerDependencies = Layer.mergeAll(
+        ManagedPolicy.layerTest(),
         NodeCrypto.layer,
         Scheduler.layer,
         Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),

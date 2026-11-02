@@ -11,6 +11,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 
 const insertThread = (threadId: string, title: string, deletedAt: string | null = null) =>
@@ -172,6 +173,7 @@ it.effect("lists task runs newest first with their turn's outcome, skipping dele
         ScheduledTaskService.layer.pipe(
           Layer.provide(
             Layer.mergeAll(
+              ManagedPolicy.layerTest(),
               NodeCrypto.layer,
               Scheduler.layer,
               Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),

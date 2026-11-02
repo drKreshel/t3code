@@ -286,10 +286,13 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     },
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
-    ...(task.webhook?.url == null || !mayRun ? {} : { webhookUrl: task.webhook.url }),
+    ...(task.webhook?.url == null || !mayRun || task.blockedByPolicy !== undefined
+      ? {}
+      : { webhookUrl: task.webhook.url }),
     ...(task.webhook === undefined
       ? {}
       : { webhookSignature: task.webhook.hasSecret ? "set" : "none" }),
+    ...(task.blockedByPolicy === undefined ? {} : { blockedByPolicy: task.blockedByPolicy }),
   };
 }
 
@@ -651,7 +654,7 @@ function pageIncludesTerminalTaskResult(input: {
     if (!matchesResult) return false;
 
     const text = turnItemText(row.item);
-    return text !== null && text.length <= input.maxChars;
+    return text !== null && text.length <= textPageEnd(text, 0, input.maxChars);
   });
 }
 
@@ -968,6 +971,15 @@ function turnItemText(item: OrchestrationV2TurnItem): string | null {
   }
 }
 
+/** A cut inside a surrogate pair would leave half an emoji on each page. */
+function textPageEnd(text: string | null, offset: number, maxChars: number): number {
+  const end = offset + maxChars;
+  if (text === null || end >= text.length) return end;
+  const last = text.charCodeAt(end - 1);
+  if (last < 0xd800 || last > 0xdbff) return end;
+  return end - 1 > offset ? end - 1 : end + 1;
+}
+
 function timelineItem(input: {
   readonly row: OrchestrationV2ThreadProjection["visibleTurnItems"][number];
   readonly maxChars: number;
@@ -976,7 +988,7 @@ function timelineItem(input: {
 }): OrchestratorMcpThreadTimelineItem {
   const text = turnItemText(input.row.item);
   const offset = input.textOffset ?? 0;
-  const end = offset + input.maxChars;
+  const end = textPageEnd(text, offset, input.maxChars);
   const textTruncated = text !== null && text.length > end;
   const messageId =
     input.row.item.type === "user_message" || input.row.item.type === "assistant_message"
@@ -1155,7 +1167,6 @@ const make = Effect.gen(function* () {
 
   const loadCaller = Effect.fn("OrchestratorMcpService.loadCaller")(function* (
     scope: McpInvocationScope,
-    includeUserMessages = true,
   ) {
     yield* requireCapability(scope);
     if (scope.thread === undefined) {
@@ -1164,7 +1175,8 @@ const make = Effect.gen(function* () {
         limits: clientModeCeiling(scope.client),
       } as const;
     }
-    const parent = yield* loadProjection(scope.thread.threadId, includeUserMessages);
+    // No loadCaller consumer reads the caller's own prompts.
+    const parent = yield* loadProjection(scope.thread.threadId, false);
     return {
       parent,
       limits: {
@@ -1280,8 +1292,7 @@ const make = Effect.gen(function* () {
     scope: McpInvocationScope,
     threadId: ThreadId,
   ) {
-    // Caller prompts are not used to read a timeline or acknowledge a child result.
-    const { parent } = yield* loadCaller(scope, false);
+    const { parent } = yield* loadCaller(scope);
     const shell = yield* threadManagement
       .getThreadShell(threadId)
       .pipe(Effect.mapError(threadManagementFailure));

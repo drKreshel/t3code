@@ -36,12 +36,18 @@ import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "reac
 
 import { cn } from "../../lib/utils";
 import { useBoardsDispatch } from "../../state/boards";
-import { resolveProjectStatusIndicator, resolveThreadStatusPill } from "../Sidebar.logic";
+import { resolveThreadStatusPill } from "../Sidebar.logic";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
-import { positionBetween, subTicketProgress, ticketKey, ticketsByColumn } from "./boards.logic";
+import {
+  positionBetween,
+  resolveTicketStatusIndicator,
+  subTicketProgress,
+  ticketKey,
+  ticketsByColumn,
+} from "./boards.logic";
 import { BoardSettingsDialog } from "./BoardSettingsDialog";
 import { BoardsPageFrame, BoardsStatusMessage } from "./BoardsPageFrame";
 import { columnDotClass, PRIORITY_LABEL } from "./boardsPresentation";
@@ -480,7 +486,7 @@ function TicketCard({
   const { ticket } = view;
   const project = ticket.projectKey === null ? null : lookupProject(ticket.projectKey);
   const checked = ticket.criteria.filter((criterion) => criterion.checked).length;
-  const status = resolveProjectStatusIndicator(
+  const status = resolveTicketStatusIndicator(
     view.threads.map((thread) => resolveThreadStatusPill({ thread })),
   );
   const runningSessions = view.threads.filter(

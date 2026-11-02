@@ -4,6 +4,8 @@ import { describeCron } from "@t3tools/shared/cronDescription";
 import { isKnownTimeZone } from "@t3tools/shared/zonedDateTime";
 import {
   AuthOrchestrationOperateScope,
+  clampManagedRuntimeMode,
+  managedCapabilityDenial,
   resolveProjectProviderInstanceEnabled,
 } from "@t3tools/contracts";
 import { readEnvironmentScope } from "../../state/session";
@@ -25,6 +27,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import { resolvePastedPath } from "@t3tools/shared/path";
 import {
   DEFAULT_WEBHOOK_PROMPT,
   emptyWebhookFilterDraft,
@@ -711,6 +714,8 @@ function TaskForm({
     .sort((left, right) => Number(right.pinnedAt != null) - Number(left.pinnedAt != null));
   const config = useEnvironmentServerConfig(environmentId);
   const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
+  // Existing webhook tasks keep the option so they can still switch to a timer.
+  const webhookDenial = managedCapabilityDenial(config?.managedPolicy, "webhookTasks");
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),
   );
@@ -821,7 +826,9 @@ function TaskForm({
                 baseRef: draft.baseRef.trim() || "main",
                 startFromOrigin: draft.startFromOrigin,
               },
-      runtimeMode: draft.runtimeMode,
+      // Tasks have no mode picker; a mode above the administrator's ceiling is refused.
+      runtimeMode:
+        clampManagedRuntimeMode(config?.managedPolicy, draft.runtimeMode) ?? draft.runtimeMode,
       interactionMode: draft.task?.interactionMode ?? "default",
       creationSource: draft.task?.creationSource ?? "mobile",
     };
@@ -997,7 +1004,12 @@ function TaskForm({
               disabled={saving}
               value={draft.checkoutPath}
               borderTop
-              onChange={(checkoutPath) => setDraft({ ...draft, checkoutPath })}
+              onChange={(checkoutPath) =>
+                setDraft({
+                  ...draft,
+                  checkoutPath: resolvePastedPath(draft.checkoutPath, checkoutPath),
+                })
+              }
             />
           ) : null}
         </SettingsSection>
@@ -1014,7 +1026,9 @@ function TaskForm({
                   : []),
                 { value: "interval", label: "Interval" },
                 { value: "cron", label: "Cron" },
-                { value: "webhook", label: "On webhook" },
+                ...(webhookDenial === undefined || draft.schedule.mode === "webhook"
+                  ? [{ value: "webhook" as const, label: "On webhook" }]
+                  : []),
               ]}
               selected={draft.schedule.mode}
               onSelect={(mode) => {
@@ -1128,6 +1142,10 @@ function TaskForm({
                 setDraft({ ...draft, schedule: { ...draft.schedule, cronExpression } })
               }
             />
+          ) : draft.schedule.mode === "webhook" && webhookDenial !== undefined && draft.enabled ? (
+            <Text className="border-t border-border-subtle px-4 py-3 text-sm text-foreground-muted">
+              {`${webhookDenial} Switch the task to a timer, or turn it off, to save it.`}
+            </Text>
           ) : draft.schedule.mode === "once" ? (
             (["date", "time"] as const).map((field) => {
               const runAt = new Date(draft.schedule.runAt);
@@ -1305,7 +1323,14 @@ function TaskForm({
         tone="primary"
         fullWidth
         loading={saving}
-        disabled={!canOperate || dictationPending || taskMissing || environmentUnavailable}
+        disabled={
+          !canOperate ||
+          dictationPending ||
+          taskMissing ||
+          environmentUnavailable ||
+          // The server refuses an enabled webhook task under this policy.
+          (draft.enabled && draft.schedule.mode === "webhook" && webhookDenial !== undefined)
+        }
         onPress={() => void save()}
         label={saving ? "Saving…" : draft.task ? "Save changes" : "Create task"}
       />
@@ -1501,6 +1526,11 @@ function EnvironmentTasks({
                     ? ` · ${formatNextScheduledTaskRun(task.nextRunAt, now)}`
                     : ""}
               </Text>
+              {task.blockedByPolicy ? (
+                <Text className="text-sm text-foreground-muted" numberOfLines={2}>
+                  {task.blockedByPolicy}
+                </Text>
+              ) : null}
               {task.lastRunError ? (
                 <Text className="text-sm text-danger-foreground" numberOfLines={2}>
                   Last run failed: {task.lastRunError}

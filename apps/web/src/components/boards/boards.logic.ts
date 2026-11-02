@@ -1,3 +1,4 @@
+import type { ThreadStatusPill } from "../Sidebar.logic";
 import type { Board, BoardsSnapshot, Ticket, TicketEvent } from "@t3tools/contracts";
 
 export const DEFAULT_NEW_CHAT_MESSAGE = "Work on ticket {key}: {title}";
@@ -303,4 +304,33 @@ export function recentBoardsByActivity(snapshot: BoardsSnapshot, limit: number):
     .filter((board) => board.archivedAt === null)
     .toSorted((a, b) => (lastActivity.get(b.id) ?? "").localeCompare(lastActivity.get(a.id) ?? ""))
     .slice(0, limit);
+}
+
+const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
+  "Needs you": 6,
+  "Pending Approval": 5,
+  "Awaiting Input": 4,
+  "Guest Request": 3.75,
+  Failed: 3.5,
+  Working: 3,
+  Connecting: 3,
+  Waiting: 2.5,
+  "Plan Ready": 2,
+  Completed: 1,
+};
+
+/** The most urgent status among a ticket's chats, shown on its card. */
+export function resolveTicketStatusIndicator(
+  statuses: ReadonlyArray<ThreadStatusPill | null>,
+): ThreadStatusPill | null {
+  let highest: ThreadStatusPill | null = null;
+  for (const status of statuses) {
+    if (status === null) continue;
+    if (
+      highest === null ||
+      THREAD_STATUS_PRIORITY[status.label] > THREAD_STATUS_PRIORITY[highest.label]
+    )
+      highest = status;
+  }
+  return highest;
 }
