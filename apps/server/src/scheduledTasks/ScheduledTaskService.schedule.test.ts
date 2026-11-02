@@ -118,7 +118,7 @@ it.effect("preserves a due run when a save only pads the scheduled hour", () =>
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
-it.effect("saves cron schedules with their next run, and refuses ones that cannot run", () =>
+it.effect("saves cron and once schedules with their zone, and refuses ones that cannot run", () =>
   Effect.gen(function* () {
     const layerDependencies = Layer.mergeAll(
       NodeCrypto.layer,
@@ -169,7 +169,17 @@ it.effect("saves cron schedules with their next run, and refuses ones that canno
         timezone: "UTC",
       }).pipe(Effect.flip);
       expect(past.message).toMatch(/has passed/);
-      expect((yield* service.list()).tasks).toHaveLength(1);
+      const once = yield* save({
+        type: "once",
+        runAt: "2026-07-02T09:00:00-03:00",
+        timezone: "America/Argentina/Buenos_Aires",
+      });
+      expect(once.task.schedule).toEqual({
+        type: "once",
+        runAt: "2026-07-02T12:00:00.000Z",
+        timezone: "America/Argentina/Buenos_Aires",
+      });
+      expect((yield* service.list()).tasks).toHaveLength(2);
     }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
