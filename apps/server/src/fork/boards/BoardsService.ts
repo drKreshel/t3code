@@ -5,6 +5,7 @@
  * which tickets it touched; subscribers reload whole snapshots, which stay
  * small (boards and tickets, without comments or events).
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   type Board,
   OrganizingIconOverride,
@@ -21,7 +22,7 @@ import {
   type TicketPriority,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -134,11 +135,11 @@ interface TicketRow {
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const changes = yield* PubSub.unbounded<ReadonlyArray<string>>();
   const writeLock = yield* Semaphore.make(1);
 
-  const newId = crypto.randomUUIDv4();
+  const newId = random.uuidV4();
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
   const loadSnapshot = Effect.gen(function* () {
@@ -1011,4 +1012,5 @@ export const layer = Layer.effect(BoardsService, make).pipe(Layer.provide(ForkDa
 /** In-memory variant for tests. */
 export const layerMemory = Layer.effect(BoardsService, make).pipe(
   Layer.provide(ForkDatabase.ForkDatabaseMemory),
+  Layer.provide(NodeCrypto.layer),
 );

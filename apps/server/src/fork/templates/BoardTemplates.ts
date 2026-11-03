@@ -2,6 +2,7 @@
  * Board templates: the built-in ones plus those saved in `fork.sqlite`.
  * Creating a board from a template creates the board with its columns.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   BoardsCommandError,
   type BoardTemplate,
@@ -11,7 +12,7 @@ import {
   type TemplatesSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -53,7 +54,7 @@ const fail = (code: BoardsCommandError["code"], message: string) =>
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const boards = yield* BoardsService;
   const changes = yield* PubSub.unbounded<void>();
 
@@ -122,7 +123,7 @@ const make = Effect.gen(function* () {
               SELECT id FROM fork_board_templates WHERE name = ${command.name}
             `,
         );
-        const id = existing[0]?.id ?? (yield* storage(crypto.randomUUIDv4()));
+        const id = existing[0]?.id ?? (yield* storage(random.uuidV4()));
         yield* storage(sql`
             INSERT INTO fork_board_templates
               (id, name, description, columns_json, created_at, updated_at)
@@ -176,4 +177,5 @@ export const layer = Layer.effect(BoardTemplates, make).pipe(Layer.provide(ForkD
 /** In-memory variant for tests. */
 export const layerMemory = Layer.effect(BoardTemplates, make).pipe(
   Layer.provide(ForkDatabase.ForkDatabaseMemory),
+  Layer.provide(NodeCrypto.layer),
 );

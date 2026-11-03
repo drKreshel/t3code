@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -68,7 +69,9 @@ const makeHarness = (threads: ReadonlyArray<string> = []) =>
     return { upkeep, boards, commands, column, ticket, linkChat, event };
   });
 
-const TestLayer = boardsLayerMemory.pipe(Layer.provideMerge(NodeServices.layer));
+const TestLayer = boardsLayerMemory.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+);
 
 describe("BoardUpkeep", () => {
   it.effect("moves tickets left in an auto-move column for its days, once due", () =>

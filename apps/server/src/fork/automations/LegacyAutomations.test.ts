@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -156,7 +157,7 @@ describe("migrateLegacyAutomations", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(boardsLayerMemory, ForkDatabaseMemory).pipe(
-          Layer.provideMerge(NodeServices.layer),
+          Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
         ),
       ),
     ),

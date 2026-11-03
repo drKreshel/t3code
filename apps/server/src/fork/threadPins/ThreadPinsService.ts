@@ -4,6 +4,7 @@
  * Every write publishes the thread it changed; subscribers to that thread
  * reload its whole (small) pin set.
  */
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   THREAD_PINS_MAX,
   type ThreadId,
@@ -13,7 +14,7 @@ import {
   type ThreadPinsErrorCode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -53,7 +54,7 @@ const toPinsError = (error: unknown): ThreadPinsError =>
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const changes = yield* PubSub.unbounded<ThreadId>();
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
@@ -107,7 +108,7 @@ const make = Effect.gen(function* () {
         yield* assertRoom(command.threadId);
         yield* sql`
             INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
-            VALUES (${yield* crypto.randomUUIDv4()}, ${command.threadId}, ${command.title}, NULL,
+            VALUES (${yield* random.uuidV4()}, ${command.threadId}, ${command.title}, NULL,
               ${command.text}, ${now}, ${now})`;
         return;
       }
@@ -126,7 +127,7 @@ const make = Effect.gen(function* () {
         yield* assertRoom(command.threadId);
         yield* sql`
             INSERT INTO fork_thread_pins (id, thread_id, title, target, text, created_at, updated_at)
-            VALUES (${yield* crypto.randomUUIDv4()}, ${command.threadId}, ${command.title},
+            VALUES (${yield* random.uuidV4()}, ${command.threadId}, ${command.title},
               ${command.target}, NULL, ${now}, ${now})`;
         return;
       }
@@ -182,4 +183,5 @@ export const layer = Layer.effect(ThreadPinsService, make).pipe(Layer.provide(Fo
 /** In-memory variant for tests. */
 export const layerMemory = Layer.effect(ThreadPinsService, make).pipe(
   Layer.provide(ForkDatabase.ForkDatabaseMemory),
+  Layer.provide(NodeCrypto.layer),
 );
