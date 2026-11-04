@@ -26,6 +26,7 @@ import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as BoardsBoardKeyIndexRouteImport } from './routes/boards.$boardKey.index'
+import { Route as ThreadsEnvironmentIdThreadIdRouteImport } from './routes/threads.$environmentId.$threadId'
 import { Route as BoardsBoardKeyTicketNumberRouteImport } from './routes/boards.$boardKey.$ticketNumber'
 import { Route as ChatSettingsWorktreesRouteImport } from './routes/_chat.settings.worktrees'
 import { Route as ChatSettingsThreadsRouteImport } from './routes/_chat.settings.threads'
@@ -140,6 +141,12 @@ const BoardsBoardKeyIndexRoute = BoardsBoardKeyIndexRouteImport.update({
   path: '/boards/$boardKey/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ThreadsEnvironmentIdThreadIdRoute =
+  ThreadsEnvironmentIdThreadIdRouteImport.update({
+    id: '/threads/$environmentId/$threadId',
+    path: '/threads/$environmentId/$threadId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const BoardsBoardKeyTicketNumberRoute =
   BoardsBoardKeyTicketNumberRouteImport.update({
     id: '/boards/$boardKey/$ticketNumber',
@@ -337,6 +344,7 @@ export interface FileRoutesByFullPath {
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
+  '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
   '/boards/$boardKey/': typeof BoardsBoardKeyIndexRoute
 }
 export interface FileRoutesByTo {
@@ -384,6 +392,7 @@ export interface FileRoutesByTo {
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
+  '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
   '/boards/$boardKey': typeof BoardsBoardKeyIndexRoute
 }
 export interface FileRoutesById {
@@ -433,6 +442,7 @@ export interface FileRoutesById {
   '/_chat/settings/threads': typeof ChatSettingsThreadsRoute
   '/_chat/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/boards/$boardKey/$ticketNumber': typeof BoardsBoardKeyTicketNumberRoute
+  '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
   '/boards/$boardKey/': typeof BoardsBoardKeyIndexRoute
 }
 export interface FileRouteTypes {
@@ -482,6 +492,7 @@ export interface FileRouteTypes {
     | '/settings/threads'
     | '/settings/worktrees'
     | '/boards/$boardKey/$ticketNumber'
+    | '/threads/$environmentId/$threadId'
     | '/boards/$boardKey/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -529,6 +540,7 @@ export interface FileRouteTypes {
     | '/settings/threads'
     | '/settings/worktrees'
     | '/boards/$boardKey/$ticketNumber'
+    | '/threads/$environmentId/$threadId'
     | '/boards/$boardKey'
   id:
     | '__root__'
@@ -577,6 +589,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/threads'
     | '/_chat/settings/worktrees'
     | '/boards/$boardKey/$ticketNumber'
+    | '/threads/$environmentId/$threadId'
     | '/boards/$boardKey/'
   fileRoutesById: FileRoutesById
 }
@@ -593,6 +606,7 @@ export interface RootRouteChildren {
   BoardsIndexRoute: typeof BoardsIndexRoute
   ScheduledIndexRoute: typeof ScheduledIndexRoute
   BoardsBoardKeyTicketNumberRoute: typeof BoardsBoardKeyTicketNumberRoute
+  ThreadsEnvironmentIdThreadIdRoute: typeof ThreadsEnvironmentIdThreadIdRoute
   BoardsBoardKeyIndexRoute: typeof BoardsBoardKeyIndexRoute
 }
 
@@ -715,6 +729,13 @@ declare module '@tanstack/react-router' {
       path: '/boards/$boardKey'
       fullPath: '/boards/$boardKey/'
       preLoaderRoute: typeof BoardsBoardKeyIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/threads/$environmentId/$threadId': {
+      id: '/threads/$environmentId/$threadId'
+      path: '/threads/$environmentId/$threadId'
+      fullPath: '/threads/$environmentId/$threadId'
+      preLoaderRoute: typeof ThreadsEnvironmentIdThreadIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/boards/$boardKey/$ticketNumber': {
@@ -1020,6 +1041,7 @@ const rootRouteChildren: RootRouteChildren = {
   BoardsIndexRoute: BoardsIndexRoute,
   ScheduledIndexRoute: ScheduledIndexRoute,
   BoardsBoardKeyTicketNumberRoute: BoardsBoardKeyTicketNumberRoute,
+  ThreadsEnvironmentIdThreadIdRoute: ThreadsEnvironmentIdThreadIdRoute,
   BoardsBoardKeyIndexRoute: BoardsBoardKeyIndexRoute,
 }
 export const routeTree = rootRouteImport

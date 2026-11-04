@@ -1,13 +1,14 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId } from "@t3tools/contracts";
 import {
-  formatThreadLink,
+  formatHostedThreadLink,
   guessThreadLinkRef,
   percentDecodedThreadLinkId,
   type ThreadLink,
   unknownThreadLinkLabel,
 } from "@t3tools/shared/threadLinks";
 
+import { configuredHostedAppUrl } from "../../hostedPairing";
 import { useThreadRefs, useThreadShell } from "../../state/entities";
 import { ThreadContextChip } from "../ThreadContextChip";
 
@@ -36,6 +37,9 @@ export function MarkdownThreadLink(props: {
     ? thread.title.trim() || props.label || "Untitled thread"
     : props.label || unknownThreadLinkLabel(props.link, props.environmentId);
   return (
-    <ThreadContextChip record={{ ...ref, title }} copyMarkdown={formatThreadLink(ref, title)} />
+    <ThreadContextChip
+      record={{ ...ref, title }}
+      copyMarkdown={formatHostedThreadLink(ref, title, configuredHostedAppUrl())}
+    />
   );
 }

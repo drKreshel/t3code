@@ -79,12 +79,12 @@ export function ThreadDetailsCard({
     const measure = () => {
       const frame = element.closest<HTMLElement>("[data-thread-details-card]");
       const next = element.offsetHeight + (frame ? frame.offsetHeight - frame.clientHeight : 0);
-      // Flexible sections (pins, lineage, side chats, PR lists, automations) scroll or collapse independently.
+      // Flexible sections (pins, lineage, side chats, PR lists, automations, servers) scroll or collapse independently.
       // Counting them toward density would hide the section and workspace controls
       // when the user asks to see more rows, instead of leaving the card scrollable.
       const flexibleSectionHeights = Array.from(
         element.querySelectorAll<HTMLElement>(
-          "[data-thread-details-flexible-section], [data-thread-side-chats-panel], [data-thread-details-pr-list], [data-thread-automations-panel]",
+          "[data-thread-details-flexible-section], [data-thread-side-chats-panel], [data-thread-details-pr-list], [data-thread-automations-panel], [data-thread-details-server-overflow]",
         ),
         (section) => section.offsetHeight,
       );
