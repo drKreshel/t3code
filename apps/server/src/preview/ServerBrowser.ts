@@ -2,6 +2,9 @@
 // Screencasts ignore emulated device scale; real 2x keeps captures sharp.
 // --disable-gpu uses cheaper software compositing while preserving SwiftShader WebGL.
 import {
+  BrowserProfile as BrowserProfileSchema,
+  BrowserProfileId,
+  BrowserRecordingFrameRate,
   BUILT_IN_BROWSER_PROFILES,
   DEFAULT_BROWSER_PROFILE_ID,
   DEFAULT_BROWSER_RECORDING_FRAME_RATE,
@@ -44,6 +47,7 @@ import {
   type PreviewAppearancePreference,
 } from "@t3tools/contracts";
 import { AgentScope, agentScopeLauncherScript } from "@t3tools/shared/AgentScope";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
@@ -52,12 +56,15 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import { constVoid } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -456,6 +463,16 @@ const CLIPBOARD_SCRIPT = `(() => {
     return text;
   };
 })();`;
+
+const SavedProfileCatalog = Schema.fromJsonString(
+  Schema.Struct({
+    profiles: Schema.Array(BrowserProfileSchema),
+    defaultProfileId: BrowserProfileId,
+    recordingFrameRate: BrowserRecordingFrameRate,
+  }),
+);
+const decodeSavedProfileCatalog = Schema.decodeEffect(SavedProfileCatalog);
+const encodeSavedProfileCatalog = Schema.encodeEffect(SavedProfileCatalog);
 
 const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
@@ -1540,13 +1557,49 @@ const make = Effect.gen(function* () {
 
   const reportsByClient = new Map<number, PreviewReportProfilesInput>();
   let nextClient = 0;
+  // Saved because scheduled agents run after a restart before any client reconnects to report.
+  const savedCatalogPath = NodePath.join(
+    config.stateDir,
+    "server-browser",
+    "reported-profiles.json",
+  );
+  const fileServices = yield* Effect.context<FileSystem.FileSystem | Path.Path>();
+  const savedCatalog = yield* (yield* FileSystem.FileSystem)
+    .readFileString(savedCatalogPath)
+    .pipe(Effect.flatMap(decodeSavedProfileCatalog), Effect.option, Effect.map(Option.getOrNull));
   let reportedProfiles: {
     readonly profiles: ReadonlyArray<BrowserProfile>;
     readonly defaultProfileId: string;
-  } | null = null;
+  } | null = savedCatalog && {
+    profiles: resolveBrowserProfiles(savedCatalog.profiles),
+    defaultProfileId: savedCatalog.defaultProfileId,
+  };
   // Agent recordings encode here, so they need the client's Browser recording frame rate. The
   // last report outlives the client, which lets agents record while no client is connected.
-  let recordingFrameRate = DEFAULT_BROWSER_RECORDING_FRAME_RATE;
+  let recordingFrameRate = savedCatalog?.recordingFrameRate ?? DEFAULT_BROWSER_RECORDING_FRAME_RATE;
+  const saveLock = Semaphore.makeUnsafe(1);
+  // Writes the catalog current when the lock is taken, so overlapping reports cannot save a stale one.
+  const saveCatalog = saveLock
+    .withPermits(1)(
+      Effect.suspend(() =>
+        reportedProfiles === null
+          ? Effect.void
+          : encodeSavedProfileCatalog({ ...reportedProfiles, recordingFrameRate }).pipe(
+              Effect.flatMap((contents) =>
+                writeFileStringAtomically({
+                  filePath: savedCatalogPath,
+                  contents: `${contents}\n`,
+                }),
+              ),
+            ),
+      ),
+    )
+    .pipe(
+      Effect.provideContext(fileServices),
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not save the reported browser profiles.", cause),
+      ),
+    );
 
   // Each client reports only the profiles in its own settings, so the catalog is
   // their union while they stay connected. The last catalog stays usable after
@@ -1573,7 +1626,7 @@ const make = Effect.gen(function* () {
       Effect.sync(() => {
         reportsByClient.delete(client);
         rebuildReportedProfiles();
-      }),
+      }).pipe(Effect.andThen(saveCatalog)),
   ).pipe(
     Effect.map(
       (client): ProfileReporter =>
@@ -1584,7 +1637,7 @@ const make = Effect.gen(function* () {
             reportsByClient.delete(client);
             reportsByClient.set(client, input);
             rebuildReportedProfiles();
-          }),
+          }).pipe(Effect.andThen(saveCatalog)),
     ),
   );
 
