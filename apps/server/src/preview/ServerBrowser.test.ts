@@ -1556,9 +1556,31 @@ it.live("a restarted server removes the previous run's downloads and keeps its p
       yield* fs.writeFileString(path.join(previousTab, "report.csv"), "a,b");
       yield* fs.writeFileString(path.join(profile, "Preferences"), "{}");
 
-      yield* Layer.build(ServerBrowser.layer);
-
+      const work = { id: "profile-work", name: "Work", kind: "persistent" } as const;
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          yield* Layer.build(ServerBrowser.layer);
+          const report = yield* (yield* ServerBrowser.ServerBrowser).profileReporter;
+          yield* report({ profiles: [work], defaultProfileId: work.id });
+        }).pipe(Effect.provide(ServerBrowser.layer)),
+      );
       expect(yield* fs.exists(previousTab)).toBe(false);
+
+      // Scheduled agents run after a restart before any client reports its profiles again.
+      yield* Layer.build(ServerBrowser.layer);
+      yield* Effect.yieldNow;
+      const status = yield* (yield* Broker.PreviewAutomationBroker).invoke<PreviewAutomationStatus>(
+        { scope, operation: "status", input: {} },
+      );
+
+      expect(status).toMatchObject({
+        defaultProfileId: work.id,
+        profiles: [
+          { id: "default", name: "Default" },
+          { id: "incognito", name: "Incognito", incognito: true },
+          { id: work.id, name: work.name },
+        ],
+      });
       expect(yield* fs.readFileString(path.join(profile, "Preferences"))).toBe("{}");
     }),
   ).pipe(Effect.provide(dependencies)),
