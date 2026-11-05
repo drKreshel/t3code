@@ -202,8 +202,7 @@ const make = Effect.gen(function* () {
 
   const rulesFor = (scope: string, scopeId: string | null) =>
     scopeId === null
-      ? // @effect-diagnostics-next-line effectSucceedWithVoid:off - Callers read the rules as optional, not void.
-        Effect.succeed(undefined)
+      ? Effect.undefined
       : storage(
           sql<{ readonly rules_json: string }>`
             SELECT rules_json FROM fork_workspace_rules
