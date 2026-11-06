@@ -641,6 +641,36 @@ it.effect("a tab the desktop does not draw is marked headless, so the desktop st
   ).pipe(Effect.provide(layer)),
 );
 
+it.effect("a tab a desktop window shows reports as visible without a streamed viewer", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      desktopAvailable = true;
+      const { broker } = yield* ready;
+      desktopRendersNext = true;
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: { reuseExistingTab: false, show: false },
+      });
+      const tabId = PreviewTabId.make(opened.tabId!);
+      const status = () =>
+        broker.invoke<PreviewAutomationStatus>({ scope, operation: "status", tabId, input: {} });
+      const listed = (result: PreviewAutomationStatus) =>
+        result.tabs?.find((tab) => tab.tabId === tabId)?.visible;
+
+      expect(opened.visible).toBe(false);
+      shownDesktopTabs.add(tabId);
+      const shown = yield* status();
+      expect(shown.visible).toBe(true);
+      expect(listed(shown)).toBe(true);
+      shownDesktopTabs.delete(tabId);
+      const hidden = yield* status();
+      expect(hidden.visible).toBe(false);
+      expect(listed(hidden)).toBe(false);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.effect("a desktop page that loaded before the server attached reports its loaded title", () =>
   Effect.scoped(
     Effect.gen(function* () {
