@@ -102,6 +102,12 @@ it.effect(
           isScratchProject: () => Effect.succeed(false),
         }),
         Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: () =>
+            Effect.succeed({
+              projectId: "project:bound",
+              deletedAt: null,
+              archivedAt: null,
+            } as never),
           sendToThread: (input) =>
             Ref.update(sent, (all) => [...all, input.messageId]).pipe(
               Effect.as({

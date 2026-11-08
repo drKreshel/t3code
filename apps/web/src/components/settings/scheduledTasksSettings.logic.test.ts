@@ -6,6 +6,7 @@ import {
   ProviderInstanceId,
   ScheduledTaskId,
   type ScheduledTask,
+  ThreadId,
 } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -22,6 +23,7 @@ import {
   matchesScheduledTaskScope,
   scheduleFromDraft,
   taskToDraft,
+  unbindDraftFromThread,
 } from "./scheduledTasksSettings.logic";
 
 const laptopId = EnvironmentId.make("laptop");
@@ -206,6 +208,20 @@ describe("cron and one-off scheduled tasks", () => {
       type: "once",
       runAt: "2026-11-03T13:00:00.000Z",
       timezone: "America/Argentina/Buenos_Aires",
+    });
+  });
+});
+
+describe("scheduled task destination", () => {
+  it("unbinding keeps the task's workspace choice", () => {
+    const rootBound = taskToDraft({
+      ...legacyTask,
+      threadId: ThreadId.make("thread:bound"),
+      workspaceStrategy: { type: "root" },
+    });
+    expect(unbindDraftFromThread(rootBound)).toMatchObject({
+      threadId: "",
+      workspaceMode: "root",
     });
   });
 });
