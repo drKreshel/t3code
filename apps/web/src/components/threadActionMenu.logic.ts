@@ -78,6 +78,8 @@ export interface ThreadActionMenuState {
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
+  /** False when the thread's project settings never auto-settle, so "Enabled" changes nothing. */
+  readonly autoSettleConfigured: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly isRegeneratingTitle: boolean;
@@ -211,7 +213,7 @@ export function buildThreadActionMenuItems(
             children: [
               {
                 id: "auto-settle:enabled" as const,
-                label: "Enabled",
+                label: state.autoSettleConfigured ? "Enabled" : "Enabled (off in Settings)",
                 checked: state.autoSettleEnabled,
               },
               {

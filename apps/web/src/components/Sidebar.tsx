@@ -144,6 +144,7 @@ import {
   usePrimaryEnvironmentId,
 } from "../state/environments";
 import {
+  readProjectAutoSettleConfigured,
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
   useDelegatedUnderParent,
@@ -2633,6 +2634,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               isPinned,
               isSettled,
               autoSettleEnabled: thread.autoSettleDisabledAt == null,
+              autoSettleConfigured: readProjectAutoSettleConfigured(
+                thread.environmentId,
+                thread.projectId,
+              ),
               isSnoozed,
               canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
               isRegeneratingTitle,
