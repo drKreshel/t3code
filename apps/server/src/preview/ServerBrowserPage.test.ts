@@ -5,7 +5,16 @@ import {
   type CDPSession,
   type Page,
 } from "playwright-core";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 
@@ -373,6 +382,46 @@ describe("server browser snapshot screenshot", () => {
     });
 
     expect([screenshot.width, screenshot.height]).toEqual([1280, 800]);
+  });
+});
+
+describe("server browser snapshot deadline", () => {
+  it("reports its own deadline and reason when the page never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const frame = {};
+      const page = {
+        viewportSize: () => ({ width: 1280, height: 800 }),
+        on: () => page,
+        frames: () => [frame],
+        mainFrame: () => frame,
+      } as unknown as Page;
+      // Like a desktop tab whose window draws no frames.
+      const cdp = { send: () => new Promise(() => {}) } as unknown as CDPSession;
+      const failure = ServerBrowserPage.snapshot({
+        page,
+        cdp,
+        renderScale: 2,
+        consoleEntries: [],
+        networkEntries: [],
+        actionTimeline: [],
+      }).then(
+        () => expect.unreachable(),
+        (error: unknown) => error,
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(await failure).toMatchObject({
+        tag: "PreviewAutomationTimeoutError",
+        detail: {
+          reason:
+            "The page was too busy to capture a snapshot in time. Wait for it to settle and take another snapshot.",
+          timeoutMs: 10_000,
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -45,6 +45,7 @@ Small fixes to upstream behavior. When upstream fixes the same thing, take upstr
 - User docs additions: `docs/user/composer.md`, `docs/user/thread-sidebar.md`.
 - Agent browser actions in a desktop preview tab (clicks, typing that calls focus()) hand keyboard focus back to the composer when they end, layered on upstream's focus emulation in the desktop relay: `preview/DesktopBrowserHost.ts` (`trackFocus` around `holdFocus`), `desktop/src/{preload.ts,ipc/channels.ts,ipc/methods/preview.ts}`, `contracts/ipc.ts`, `browser/{ElectronBrowserHost.tsx,previewHostFocus.ts}`.
 - WhatsApp Web receives a plain Chrome UA and client hints per preview tab without changing the persistent browser session or other sites: `packages/shared/src/preview.ts`, `packages/contracts/src/ipc.ts`, `apps/desktop/src/{ipc/methods/preview.ts,preview/Manager.ts}`, `apps/web/src/browser/HostedBrowserWebview.tsx`.
+- A desktop preview tab the server snapshots, records, or streams keeps painting while T3 Code's window is hidden or minimized, as recordings and picture-in-picture already do; before, every snapshot then timed out. A snapshot the server browser gives up on reports its own 10 s deadline and reason (upstream's broker reads both from the error's `detail`): `desktop/src/preview/Manager.ts` (`updateServerTabCapturing`, `server-capture` frame capture), `server/src/preview/ServerBrowserPage.ts` (`tooBusy`), tests in `Manager.test.ts` and `ServerBrowserPage.test.ts`.
 
 ## Data
 

@@ -248,11 +248,15 @@ const pageChanged = () =>
     message: "The page changed while capturing its snapshot. Take another snapshot.",
   });
 
+const TOO_BUSY =
+  "The page was too busy to capture a snapshot in time. Wait for it to settle and take another snapshot.";
+
+// The broker reports a host timeout's reason and deadline only from its detail.
 const tooBusy = () =>
   new ServerBrowserOperationError({
     tag: "PreviewAutomationTimeoutError",
-    message:
-      "The page was too busy to capture a snapshot in time. Wait for it to settle and take another snapshot.",
+    message: TOO_BUSY,
+    detail: { reason: TOO_BUSY, timeoutMs: SNAPSHOT_TIMEOUT_MS },
   });
 
 const VALUE_TOO_LONG = "A password field holds a value too long to hide, so no snapshot was taken.";
