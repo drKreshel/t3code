@@ -634,6 +634,20 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
   }),
 );
 
+// The desktop app and the background service start the server again after it exits.
+const layerServerRestart = Layer.effect(
+  DatabaseStorage.ServerRestart,
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
+    // As in runServerCommand, only the desktop app passes a bootstrap token; `serve --mode desktop` by hand has no supervisor.
+    const desktopLaunched = config.mode === "desktop" && config.desktopBootstrapToken !== undefined;
+    if (!desktopLaunched && !launcher.managed) return null;
+    // Stop as a SIGTERM would: runMain's listener interrupts the server, so its shutdown path runs.
+    return Effect.sync(() => void process.emit("SIGTERM"));
+  }),
+);
+
 // Fork services, split out because one pipe takes at most 20 steps.
 const layerForkServices = ForkBoardTemplates.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(ForkBoardUpkeep.layer, ForkLegacyAutomations.layer)),
@@ -651,7 +665,10 @@ const layerRuntimeCoreDependenciesBase = layerForkServices.pipe(
       layerThreadSettlementWorker,
       layerIdleCompactionWorker,
       StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
-      DatabaseStorage.layer.pipe(Layer.provide(ProjectionMaintenance.layer)),
+      DatabaseStorage.layer.pipe(
+        Layer.provide(ProjectionMaintenance.layer),
+        Layer.provide(layerServerRestart),
+      ),
       layerThreadPullRequestWorker,
       DelegatedTaskAnalytics.layer,
       Layer.effectDiscard(
