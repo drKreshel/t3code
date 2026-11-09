@@ -9,6 +9,7 @@ import { remapFileCommentAnnotations } from "./fileCommentAnnotations";
 import {
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
+  repeatedWorkspacePrefixRetryPath,
   resolveFilePreviewPath,
   shouldShowFileExplorer,
   workspaceAssetResource,
@@ -93,6 +94,22 @@ describe("resolveFilePreviewPath", () => {
         shouldShowFileExplorer({ relativePath, explorerOpen: false, attachmentOpen: false }),
       ).toBe(true);
     }
+  });
+});
+
+describe("repeatedWorkspacePrefixRetryPath", () => {
+  const cwd = "/repo/project/worktrees/juan";
+  it.each([
+    ["worktrees/juan/docs/a.md", "operation_failed", "docs/a.md"],
+    ["worktrees/juan/docs/a.md", "missing", "docs/a.md"],
+    ["juan/docs/a.md", "operation_failed", "docs/a.md"],
+    ["worktrees/juan/docs/a.md", null, null],
+    ["worktrees/juan/docs", "path_not_file", null],
+    ["worktrees/juan/a.bin", "binary_file", null],
+    ["docs/a.md", "operation_failed", null],
+    ["/repo/project/worktrees/juan/docs/a.md", "operation_failed", null],
+  ] as const)("retries %s after %s as %s", (path, failure, expected) => {
+    expect(repeatedWorkspacePrefixRetryPath(path, cwd, failure)).toBe(expected);
   });
 });
 

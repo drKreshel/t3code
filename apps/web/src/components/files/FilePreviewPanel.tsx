@@ -114,6 +114,7 @@ import { projectFileCacheKey } from "./fileContentRevision";
 import {
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
+  repeatedWorkspacePrefixRetryPath,
   resolveFilePreviewPath,
   shouldShowFileExplorer,
   workspaceAssetResource,
@@ -1061,6 +1062,24 @@ export default function FilePreviewPanel({
   );
   const [fileRefreshRevision, setFileRefreshRevision] = useState(0);
   const attemptedPath = file.readError?.resolvedPath ?? file.readError?.operationPath;
+  const retryPath =
+    attachment === undefined
+      ? repeatedWorkspacePrefixRetryPath(
+          relativePath,
+          cwd,
+          file.readError
+            ? (file.readError.failure ?? "operation_failed")
+            : file.error !== null && file.data === null
+              ? "missing"
+              : null,
+        )
+      : null;
+  const retryFile = useProjectFileQuery(environmentId, cwd, retryPath, retryPath !== null);
+  const retryFound = retryPath !== null && (retryFile.data !== null || retryFile.isNotFile);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves the tab once the host confirms the path without the repeated workspace prefix exists
+  useEffect(() => {
+    if (retryFound) onNavigateFolder(retryPath, retryPath, false);
+  }, [retryFound, retryPath, onNavigateFolder]);
   // Folder links fail file reads; retain mutation refresh to detect conversion to files. Host folders own
   // roots; folderTrail keeps descendants.
   const breadcrumbPath =
