@@ -1,10 +1,28 @@
-import type { AssetResource, ProjectReadFileError, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  AssetResource,
+  ProjectFileFailure,
+  ProjectReadFileError,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
+import { stripRepeatedWorkspacePrefix } from "@t3tools/client-runtime/workspace-basename-lookup";
 import { isHostPath, workspaceRelativeFilePath } from "@t3tools/shared/path";
 
 export function resolveFilePreviewPath(path: string | null, cwd: string): string | null {
   if (path === null) return null;
   return path === "." || workspaceRelativeFilePath(path, cwd) === "." ? null : path;
+}
+
+// Paths stored relative to an enclosing folder (a project root holding its own
+// worktrees, or a tab opened before the chat moved) repeat the cwd's tail.
+export function repeatedWorkspacePrefixRetryPath(
+  relativePath: string | null,
+  cwd: string,
+  failure: ProjectFileFailure | "missing" | null,
+): string | null {
+  if (relativePath === null || failure === null || isHostPath(relativePath)) return null;
+  if (failure === "path_not_file" || failure === "binary_file") return null;
+  return stripRepeatedWorkspacePrefix(relativePath, cwd);
 }
 
 export const isMarkdownPreviewFile = (path: string): boolean =>
