@@ -1901,7 +1901,7 @@ describe("PreviewManager", () => {
   );
 
   effectIt.effect(
-    "asks the client to paint a navigated server tab while the agent captures it",
+    "paints a navigated server tab, even in a hidden window, while the agent captures it",
     () =>
       Effect.gen(function* () {
         const host = yield* DesktopBrowserHost.DesktopBrowserHost;
@@ -1941,6 +1941,12 @@ describe("PreviewManager", () => {
         yield* manager.createTab("tab_1", { serverTab });
         yield* manager.registerWebview("tab_1", 42);
         yield* Deferred.await(attached);
+        const windowThrottling = vi.fn<(enabled: boolean) => void>();
+        yield* manager.setMainWindow({
+          isDestroyed: () => false,
+          once: vi.fn(),
+          webContents: { setBackgroundThrottling: windowThrottling },
+        } as never);
         // Navigating rebuilds the tab's state, which must keep the server tab it answers for.
         yield* manager.navigate("tab_1", "https://example.com/next");
         yield* Queue.clear(capturing);
@@ -1957,8 +1963,12 @@ describe("PreviewManager", () => {
           }),
         );
         expect(yield* Queue.take(capturing)).toBe(true);
+        expect(windowThrottling.mock.calls).toEqual([[false]]);
+        expect(contents.setBackgroundThrottling.mock.calls).toEqual([[false]]);
         screenshot.resolve({ data: "" });
         expect(yield* Queue.take(capturing)).toBe(false);
+        expect(windowThrottling.mock.calls).toEqual([[false], [true]]);
+        expect(contents.setBackgroundThrottling.mock.calls).toEqual([[false], [true]]);
       }).pipe(Effect.provide(managerLayer()), Effect.scoped),
   );
 

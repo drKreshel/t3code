@@ -453,7 +453,7 @@ interface ManagedListeners {
   readonly webContents: Electron.WebContents;
 }
 
-type FrameCaptureConsumer = "picture-in-picture" | "recording";
+type FrameCaptureConsumer = "picture-in-picture" | "recording" | "server-capture";
 
 interface FrameCaptureSession {
   readonly recordingInputOptions?: RecordingInputOptions;
@@ -1858,9 +1858,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         cancelPickElement(tabId),
         closePictureInPicture(tabId),
         stopFrameCapture(tabId, "recording"),
+        stopFrameCapture(tabId, "server-capture"),
       ],
       {
-        concurrency: 3,
+        concurrency: 4,
         discard: true,
       },
     );
@@ -3490,6 +3491,19 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           candidate.serverTab.tabId === painting.key.tabId,
       );
       if (tab && tab.capturing !== painting.active) {
+        // A hidden or minimized window draws no frames, so the capture would wait forever.
+        if (painting.active) {
+          yield* startFrameCapture(tab.tabId, "server-capture").pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Failed to keep a captured preview tab painting.", {
+                tabId: tab.tabId,
+                error,
+              }),
+            ),
+          );
+        } else {
+          yield* stopFrameCapture(tab.tabId, "server-capture");
+        }
         yield* update(tab.tabId, { capturing: painting.active });
       }
     },
