@@ -598,6 +598,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       : null;
   const backgroundWorkNow = activeThread
     ? backgroundWorkNowItem({
+        environmentId,
         threadId: activeThread.id,
         tasks: activeBackgroundTasks,
         turnItems,

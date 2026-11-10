@@ -9,7 +9,6 @@ import { createModelSelection } from "./model.ts";
 import {
   clearProjectSettingsOverrides,
   hasProjectSettingsOverrides,
-  projectAutoSettleConfigured,
   resolveNewThreadEnvMode,
   resolveProjectSettings,
   resolveSendEnvMode,
@@ -156,31 +155,6 @@ describe("resolveProjectSettings", () => {
     expect(
       resolveProjectSettings(settings, projectId).settings.textGenerationModelSelection.instanceId,
     ).toBe(codexWork);
-  });
-});
-
-describe("projectAutoSettleConfigured", () => {
-  const off = {
-    ...DEFAULT_SERVER_SETTINGS,
-    sidebarAutoSettleAfterDays: null,
-    sidebarAutoSettleOnMerge: false,
-  };
-
-  it("is off only when neither inactivity nor merge settles the project", () => {
-    expect(projectAutoSettleConfigured(off, projectId)).toBe(false);
-    expect(projectAutoSettleConfigured({ ...off, sidebarAutoSettleOnMerge: true }, projectId)).toBe(
-      true,
-    );
-    expect(projectAutoSettleConfigured({ ...off, sidebarAutoSettleAfterDays: 3 }, null)).toBe(true);
-  });
-
-  it("follows the project's own override", () => {
-    const settings = {
-      ...off,
-      projectSettingsOverrides: { [projectId]: { sidebarAutoSettleAfterDays: 7 } },
-    };
-    expect(projectAutoSettleConfigured(settings, projectId)).toBe(true);
-    expect(projectAutoSettleConfigured(settings, otherProjectId)).toBe(false);
   });
 });
 

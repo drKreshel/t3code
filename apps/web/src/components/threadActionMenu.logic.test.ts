@@ -9,7 +9,6 @@ const baseState: ThreadActionMenuState = {
   isPinned: false,
   isSettled: false,
   autoSettleEnabled: true,
-  autoSettleConfigured: true,
   isSnoozed: false,
   canSnoozeNow: true,
   isRegeneratingTitle: false,
@@ -74,14 +73,5 @@ describe("buildThreadActionMenuItems", () => {
     });
     expect(items.find((item) => item.id === "archive")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
-  });
-
-  it("says when Settings keep the thread from auto-settling", () => {
-    const enabledLabel = (autoSettleConfigured: boolean) =>
-      buildThreadActionMenuItems({ ...baseState, autoSettleConfigured })
-        .find((item) => item.id === "auto-settle")
-        ?.children?.find((child) => child.id === "auto-settle:enabled")?.label;
-    expect(enabledLabel(true)).toBe("Enabled");
-    expect(enabledLabel(false)).toBe("Enabled (off in Settings)");
   });
 });

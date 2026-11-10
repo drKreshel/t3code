@@ -30,7 +30,6 @@ import { readEnvironmentScope } from "../state/session";
 import {
   readEnvironmentServerConfigLoaded,
   readEnvironmentSupportsAutoSettleOptOut,
-  readProjectAutoSettleConfigured,
   readThreadShell,
   useProjects,
 } from "../state/entities";
@@ -142,10 +141,6 @@ export function useThreadActionMenu(input: {
         isPinned: thread.pinnedAt != null,
         isSettled: supports.settlement && thread.settledOverride === "settled",
         autoSettleEnabled: thread.autoSettleDisabledAt == null,
-        autoSettleConfigured: readProjectAutoSettleConfigured(
-          threadRef.environmentId,
-          thread.projectId,
-        ),
         isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
         canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
         isRegeneratingTitle,

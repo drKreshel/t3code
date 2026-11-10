@@ -245,12 +245,3 @@ export function resolveWorktreeCleanup(
     worktreeUnchanged,
   };
 }
-
-/** Whether the settlement sweep may auto-settle this project's threads at all. */
-export function projectAutoSettleConfigured(
-  settings: ServerSettings,
-  projectId: ProjectId | null,
-): boolean {
-  const resolved = resolveProjectSettings(settings, projectId).settings;
-  return resolved.sidebarAutoSettleOnMerge || resolved.sidebarAutoSettleAfterDays !== null;
-}

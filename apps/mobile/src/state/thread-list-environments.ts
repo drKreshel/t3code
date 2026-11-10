@@ -2,12 +2,9 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentId,
   type EnvironmentMachineKind,
-  type ProjectId,
   type ServerConfig,
   type ServerProvider,
-  type ServerSettings,
 } from "@t3tools/contracts";
-import { projectAutoSettleConfigured } from "@t3tools/shared/projectSettings";
 import { Atom } from "effect/reactivity";
 
 export type ThreadListProvider = Pick<
@@ -16,18 +13,6 @@ export type ThreadListProvider = Pick<
 >;
 
 const capabilityKeys = ["threadAutoSettleOptOut"] as const;
-
-function autoSettleKey(settings: ServerSettings): string {
-  return JSON.stringify([
-    settings.sidebarAutoSettleOnMerge,
-    settings.sidebarAutoSettleAfterDays,
-    Object.entries(settings.projectSettingsOverrides).map(([projectId, entry]) => [
-      projectId,
-      entry.sidebarAutoSettleOnMerge,
-      entry.sidebarAutoSettleAfterDays,
-    ]),
-  ]);
-}
 
 function selectEnvironment(config: ServerConfig, isConnected: boolean) {
   return {
@@ -45,8 +30,6 @@ function selectEnvironment(config: ServerConfig, isConnected: boolean) {
     machineKind: resolveEnvironmentMachineKind(config),
     capabilities: config.environment.capabilities,
     snoozePresets: config.settings.snoozePresets,
-    settings: config.settings,
-    autoSettleKey: autoSettleKey(config.settings),
   };
 }
 
@@ -102,10 +85,6 @@ function collectEnvironments(environments: ReadonlyMap<EnvironmentId, ListEnviro
     activeReorderEnvironmentIds: reorderableEnvironmentIds,
     titleRegenerationEnvironmentIds: loadedEnvironmentIds,
     snoozePresetsByEnvironmentId,
-    autoSettleConfigured: (environmentId: EnvironmentId, projectId: ProjectId | null) => {
-      const settings = environments.get(environmentId)?.settings;
-      return settings === undefined || projectAutoSettleConfigured(settings, projectId);
-    },
   };
 }
 
@@ -135,7 +114,6 @@ export function createThreadListEnvironmentsAtom(
         prior.machineKind === selected.machineKind &&
         prior.isConnected === selected.isConnected &&
         prior.snoozePresets === selected.snoozePresets &&
-        prior.autoSettleKey === selected.autoSettleKey &&
         capabilityKeys.every(
           (key) => (prior.capabilities[key] === true) === (selected.capabilities[key] === true),
         );

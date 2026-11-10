@@ -23,10 +23,8 @@ import type {
   OrchestrationV2ProjectedTurnItem,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadShell,
-  ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { projectAutoSettleConfigured } from "@t3tools/shared/projectSettings";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -357,14 +355,6 @@ export function readEnvironmentSupportsServerBrowser(environmentId: EnvironmentI
 
 export function readEnvironmentServerConfigLoaded(environmentId: EnvironmentId): boolean {
   return appAtomRegistry.get(environmentServerConfigsAtom).has(environmentId);
-}
-
-export function readProjectAutoSettleConfigured(
-  environmentId: EnvironmentId,
-  projectId: ProjectId | null,
-): boolean {
-  const config = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId);
-  return config === undefined || projectAutoSettleConfigured(config.settings, projectId);
 }
 
 export function readEnvironmentSupportsAutoSettleOptOut(environmentId: EnvironmentId): boolean {
