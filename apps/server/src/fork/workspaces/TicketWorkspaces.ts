@@ -175,7 +175,7 @@ const make = Effect.gen(function* () {
   ) {
     const root = project.workspaceRoot;
     const workspace = yield* workspaceSetting(project);
-    if (yield* git.isRepository(root).pipe(Effect.orElseSucceed(() => false))) {
+    if ((yield* git.repositoryRoot(root).pipe(Effect.orElseSucceed(() => null))) !== null) {
       return { kind: "repo", repos: [], workspace } satisfies ProjectRepos;
     }
     const entries = yield* fs

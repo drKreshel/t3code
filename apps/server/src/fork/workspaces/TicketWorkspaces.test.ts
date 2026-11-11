@@ -41,7 +41,8 @@ function makeRepo(dir: string) {
 
 /** Just enough of the git service, backed by real git. */
 const fakeGit = Layer.mock(GitWorkflowService.GitWorkflowService)({
-  isRepository: (cwd) => Effect.sync(() => NodeFS.existsSync(NodePath.join(cwd, ".git"))),
+  repositoryRoot: (cwd) =>
+    Effect.sync(() => (NodeFS.existsSync(NodePath.join(cwd, ".git")) ? cwd : null)),
   hasCommit: ({ cwd, refName }) =>
     Effect.sync(() => {
       try {

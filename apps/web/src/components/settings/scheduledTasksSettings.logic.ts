@@ -1,3 +1,4 @@
+import { describeCron } from "@t3tools/shared/cronDescription";
 import { isListedThreadLineage, isWebhookDedupeTemplate } from "@t3tools/contracts";
 import {
   EnvironmentId,
@@ -5,6 +6,7 @@ import {
   type ProjectId,
   ScheduledTaskId,
   type ScheduledTask,
+  type ScheduledTaskSchedule,
   type ScheduledTaskThreadMode,
   type ScheduledTaskUpsertSchedule,
   scheduledTaskThreadMode,
@@ -22,6 +24,7 @@ import {
   webhookFilterDraftsChanged,
   type WebhookFilterDraft,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
+import { scheduleTimeZoneLabel } from "@t3tools/client-runtime/scheduled-task-time-zone";
 
 import {
   resolveProjectSettings,
@@ -36,6 +39,56 @@ import {
 import type { ProviderInstanceEntry } from "../../providerInstances";
 
 import type { ResolvedSettingsScope } from "./settingsScope";
+
+export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+const ONCE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+export function scheduleLabel(
+  schedule: ScheduledTaskSchedule,
+  timeZone?: string,
+  runAt?: string | null,
+): string {
+  if (schedule.type === "webhook") return "On webhook";
+  if (schedule.type === "once") {
+    // Fork: a one-off picked in a timezone reads in that zone.
+    if (!schedule.timezone || !isKnownTimeZone(schedule.timezone))
+      return `Once, ${ONCE_FORMATTER.format(new Date(schedule.runAt))}`;
+    const zoned = new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: schedule.timezone,
+    });
+    return `Once, ${zoned.format(new Date(schedule.runAt))} (${schedule.timezone})`;
+  }
+  if (schedule.type === "interval") {
+    const minutes = schedule.everyMs / 60_000;
+    return Number.isInteger(minutes)
+      ? `Every ${minutes} min`
+      : `Every ${Math.round(schedule.everyMs / 1000)} sec`;
+  }
+  // Fork: a schedule's own timezone names itself; otherwise the server zone's short name.
+  const serverZone = scheduleTimeZoneLabel(timeZone, runAt);
+  const zone = schedule.timezone
+    ? ` (${schedule.timezone})`
+    : serverZone === undefined
+      ? ""
+      : ` ${serverZone}`;
+  if (schedule.type === "cron") {
+    return `${describeCron(schedule.expression) ?? `Cron ${schedule.expression}`}${zone}`;
+  }
+  const weekdays = schedule.weekdays ?? [];
+  const days =
+    weekdays.length === 0
+      ? "Daily"
+      : weekdays.length === 5 && weekdays.every((day) => day >= 1 && day <= 5)
+        ? "Weekdays"
+        : weekdays.map((day) => WEEKDAY_LABELS[day]).join(", ");
+  return `${days} at ${schedule.timeOfDay}${zone}`;
+}
 
 export function matchesScheduledTaskScope(
   scope: ResolvedSettingsScope,

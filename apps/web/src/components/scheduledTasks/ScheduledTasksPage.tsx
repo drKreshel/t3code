@@ -12,8 +12,8 @@ import { BoardsPageFrame } from "../boards/BoardsPageFrame";
 import {
   ScheduledTaskEditorDialog,
   ScheduledRelativeLabel,
-  scheduleLabel,
 } from "../settings/ScheduledTasksSettings";
+import { scheduleLabel } from "../settings/scheduledTasksSettings.logic";
 import { SettingsScopeProvider } from "../settings/SettingsScopeContext";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
