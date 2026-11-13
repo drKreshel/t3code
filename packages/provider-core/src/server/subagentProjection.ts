@@ -256,12 +256,9 @@ export function subagentResultForRun(
   };
 }
 
-type NestedTask = Pick<
-  OrchestrationV2ThreadProjection["subagents"][number],
-  "status" | "completionDelivery"
->;
-
-function nestedTaskHoldsResult(task: NestedTask): boolean {
+export function subagentHoldsCompletion(
+  task: Pick<OrchestrationV2ThreadProjection["subagents"][number], "status" | "completionDelivery">,
+): boolean {
   return (
     isOrchestrationV2WorkActive(task.status) ||
     // Publishing a child's result precedes scheduling its parent's wake.
@@ -272,34 +269,14 @@ function nestedTaskHoldsResult(task: NestedTask): boolean {
   );
 }
 
-/**
- * Whether a follow-up task's runs still own live children. Their results wake
- * the child thread in a run of the same task, and that run supplies the result.
- */
-export function followupTaskAwaitsChildren(
-  projection: {
-    readonly runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "delegatedTaskId">>;
-    readonly subagents: ReadonlyArray<
-      NestedTask & Pick<OrchestrationV2ThreadProjection["subagents"][number], "runId">
-    >;
-  },
-  taskId: NodeId,
-): boolean {
-  const runIds = new Set(
-    projection.runs.flatMap((run) => (run.delegatedTaskId === taskId ? [run.id] : [])),
-  );
-  return projection.subagents.some(
-    (task) => task.runId !== null && runIds.has(task.runId) && nestedTaskHoldsResult(task),
-  );
-}
-
-/** A finished turn can still own live children or queued completion follow-ups. */
 export function delegatedTaskProgress(projection: {
   readonly runs: OrchestrationV2ThreadProjection["runs"];
   readonly messages: ReadonlyArray<
     Pick<OrchestrationV2ConversationMessage, "runId" | "notification">
   >;
-  readonly subagents: ReadonlyArray<NestedTask>;
+  readonly subagents: ReadonlyArray<
+    Pick<OrchestrationV2ThreadProjection["subagents"][number], "status" | "completionDelivery">
+  >;
   readonly providerThreads: ReadonlyArray<
     Pick<OrchestrationV2ThreadProjection["providerThreads"][number], "pendingBackgroundTasks">
   >;
@@ -318,7 +295,7 @@ export function delegatedTaskProgress(projection: {
     (run) => !terminal(run.status) && !(run.status === "queued" && run.queueHeld === true),
   );
   const children =
-    projection.subagents.some(nestedTaskHoldsResult) ||
+    projection.subagents.some(subagentHoldsCompletion) ||
     projection.providerThreads.some((thread) =>
       backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []),
     );

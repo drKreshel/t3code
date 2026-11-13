@@ -267,7 +267,9 @@ export type PreviewAutomationResizeInput = typeof PreviewAutomationResizeInput.T
 export const PreviewAutomationResizeResult = Schema.Struct({
   tabId: PreviewTabId,
   setting: PreviewViewportSetting,
-  viewport: PreviewRenderedViewportSize,
+  viewport: Schema.optional(PreviewRenderedViewportSize).annotate({
+    description: "Viewport size after the resize. Omitted when it could not be measured.",
+  }),
 });
 export type PreviewAutomationResizeResult = typeof PreviewAutomationResizeResult.Type;
 
@@ -799,6 +801,7 @@ export class PreviewAutomationTimeoutError extends Schema.TaggedError<PreviewAut
 
 export const PreviewAutomationControlReason = Schema.Literals([
   "agentMismatch",
+  "unclaimedTab",
   "humanControl",
   "tabRequired",
   "closed",
@@ -819,6 +822,8 @@ export class PreviewAutomationControlInterruptedError extends Schema.TaggedError
   override get message(): string {
     if (this.reason === "agentMismatch")
       return "This browser tab belongs to another agent session or a human. Open your own tab.";
+    if (this.reason === "unclaimedTab")
+      return "This tab has no agent owner. Ask the user to close it in the browser panel.";
     if (this.reason === "humanControl")
       return "A human controls this browser tab. Wait until they release control.";
     if (this.reason === "tabRequired")

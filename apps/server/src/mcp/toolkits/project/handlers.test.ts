@@ -101,8 +101,7 @@ it.effect("a launch joins the ticket it names, and a wrong ticket key creates no
       }),
       boardsLayerMemory.pipe(Layer.provide(NodeServices.layer)),
       Layer.mock(Project.ProjectService)({
-        getById: () =>
-          Effect.succeed(Option.some({ id: projectId, workspaceRoot: "/repo" } as never)),
+        getById: () => Effect.succeedSome({ id: projectId, workspaceRoot: "/repo" } as never),
       }),
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
@@ -234,10 +233,10 @@ it.effect("project scripts and defaults go where the app reads them", () =>
     );
     const run = <Name extends "t3_project_read" | "t3_project_update">(
       name: Name,
-      params: Parameters<typeof toolkit.handle<Name>>[1],
+      params: Record<string, unknown>,
     ) =>
       toolkit
-        .handle(name, params)
+        .handle(name, params as never)
         .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
     const overrides = ServerSettings.ServerSettingsService.pipe(
       Effect.flatMap((settings) => settings.getSettings),
@@ -1014,6 +1013,7 @@ it.effect("an agent's clone is not cut off while git is still transferring", () 
       ),
       Layer.provide(
         Layer.mock(GitVcsDriver.GitVcsDriver)({
+          invalidateRefs: () => Effect.void,
           // Like the real driver, the clone fails once it outlives the deadline it was given.
           execute: (input) =>
             Deferred.succeed(started, undefined).pipe(
