@@ -1961,10 +1961,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (
         projection.thread.archivedAt !== null ||
         projection.thread.deletedAt !== null ||
-        projection.runs.some(isActiveRun) ||
-        projection.runtimeRequests.some(
-          (request) => request.status === "pending" && request.blockingReason !== undefined,
-        )
+        projection.runs.some(isActiveRun)
       ) {
         return;
       }
@@ -1976,6 +1973,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               (run) => run.id === options.queuedRunId && run.status === "queued",
             );
       if (storedQueuedRun === undefined) {
+        return;
+      }
+      // A chat blocker holds queued work, but not the wake reporting the chat's own finished tasks.
+      if (
+        !isAutomaticCompletionRun(projection, storedQueuedRun) &&
+        projection.runtimeRequests.some(
+          (request) => request.status === "pending" && request.blockingReason !== undefined,
+        )
+      ) {
         return;
       }
       const queuedMessage = projection.messages.find(

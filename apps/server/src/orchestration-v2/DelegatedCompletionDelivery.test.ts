@@ -1122,6 +1122,87 @@ it.layer(layerTest)("delegated completion delivery repairs", (it) => {
     }),
   );
 
+  it.effect("starts a queued wake past a chat blocker that still holds other queued work", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const sink = yield* EventSink.EventSinkV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("blocked-wake-parent");
+      const runId = RunId.make("blocked-wake-origin");
+      const taskId = NodeId.make("blocked-wake-task");
+      yield* seedParentWithTerminalTask({
+        threadId,
+        projectId: ProjectId.make("blocked-wake-project"),
+        runId,
+        rootNodeId: NodeId.make("blocked-wake-root"),
+        taskId,
+        deliveryState: "claimed",
+        deliveryTaskIds: [taskId],
+        completionWake: "always",
+        now,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.request-human",
+        commandId: CommandId.make("blocked-wake-request"),
+        threadId,
+        reason: "Send the live test message.",
+      });
+      const queueMessage = (id: string) =>
+        orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "agent",
+          creationSource: "mcp",
+          commandId: CommandId.make(id),
+          threadId,
+          messageId: MessageId.make(id),
+          text: "Another agent's note",
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type: "queue_after_active" },
+        });
+      yield* queueMessage("blocked-wake-note");
+      const seeded = yield* orchestrator.getThreadProjection(threadId);
+      const origin = seeded.runs.find((run) => run.id === runId)!;
+      const delivery = origin.delegatedCompletion!.delivery!;
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "agent",
+        creationSource: "server",
+        commandId: CommandId.make("blocked-wake-wake"),
+        threadId,
+        messageId: delivery.messageId,
+        text: "Delegated task completed",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "queue_after_active" },
+        delegatedCompletion: {
+          parentRunId: runId,
+          generation: delivery.generation,
+          taskIds: delivery.taskIds,
+        },
+      });
+      yield* sink.write({
+        events: [
+          {
+            ...runEvent({ threadId, runId, ordinal: 1, status: "completed", now }),
+            payload: { ...origin, status: "completed", completedAt: now },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "queue.resume",
+        commandId: CommandId.make("blocked-wake-resume"),
+        threadId,
+      });
+
+      const after = yield* orchestrator.getThreadProjection(threadId);
+      const statusOf = (messageId: MessageId) =>
+        after.runs.find((run) => run.userMessageId === messageId)?.status;
+      assert.equal(statusOf(delivery.messageId), "starting");
+      assert.equal(statusOf(MessageId.make("blocked-wake-note")), "queued");
+    }),
+  );
+
   it.effect.each([
     { command: "acknowledge", before: "running", after: "failed", capture: false },
     { command: "acknowledge", before: "waiting", after: "completed", capture: true },
