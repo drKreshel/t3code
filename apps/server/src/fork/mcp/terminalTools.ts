@@ -7,6 +7,7 @@
 import { OrchestratorMcpFailure, ThreadId } from "@t3tools/contracts";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as McpSchema from "effect/ai/McpSchema";
 import * as Tool from "effect/ai/Tool";
 import * as Toolkit from "effect/ai/Toolkit";
 
@@ -79,7 +80,9 @@ const TerminalStartTool = Tool.make("t3_terminal_start", {
     terminalId: Schema.String,
     cwd: Schema.String,
   }),
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const TerminalReadTool = Tool.make("t3_terminal_read", {
   ...shared,
@@ -124,7 +127,9 @@ const TerminalStopTool = Tool.make("t3_terminal_stop", {
     }),
     closed: Schema.Boolean,
   }),
-}).annotate(Tool.Destructive, true);
+})
+  .annotate(Tool.Destructive, true)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 export const AgentTerminalToolkit = Toolkit.make(
   TerminalListTool,

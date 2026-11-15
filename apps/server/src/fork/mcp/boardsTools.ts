@@ -14,6 +14,7 @@ import {
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import * as McpSchema from "effect/ai/McpSchema";
 import * as Tool from "effect/ai/Tool";
 import * as Toolkit from "effect/ai/Toolkit";
 
@@ -515,7 +516,8 @@ const RequestHumanTool = Tool.make("request_human", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false)
-  .annotate(Tool.OpenWorld, false);
+  .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const LinkThreadTool = Tool.make("link_thread_to_ticket", {
   description:
@@ -531,7 +533,8 @@ const LinkThreadTool = Tool.make("link_thread_to_ticket", {
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
-  .annotate(Tool.OpenWorld, false);
+  .annotate(Tool.OpenWorld, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const RemoveWorkspaceTool = Tool.make("remove_ticket_workspace", {
   description:

@@ -1192,6 +1192,16 @@ const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   fresh_session: "One thread, fresh session each run",
 };
 
+function useScheduledTaskThread(environmentId: EnvironmentId, threadId: ThreadId | null) {
+  const ref = threadId === null ? null : scopeThreadRef(environmentId, threadId);
+  const shell = useThreadShell(ref);
+  // The shell can omit older settled threads; their family read still carries the row.
+  const family = useEnvironmentQuery(
+    ref !== null && shell === null ? threadFamilies.familyAtom(environmentId, ref.threadId) : null,
+  );
+  return shell ?? family.data?.threads.find((row) => row.id === threadId) ?? null;
+}
+
 function ScheduledTaskDestination({
   environmentId,
   projectId,
@@ -1213,12 +1223,7 @@ function ScheduledTaskDestination({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = threadId === null ? null : scopeThreadRef(environmentId, threadId);
-  const shell = useThreadShell(ref);
-  // The shell can omit older settled threads; their family read still carries the title.
-  const family = useEnvironmentQuery(
-    ref !== null && shell === null ? threadFamilies.familyAtom(environmentId, ref.threadId) : null,
-  );
-  const thread = shell ?? family.data?.threads.find((row) => row.id === threadId);
+  const thread = useScheduledTaskThread(environmentId, threadId);
   const currentLabel =
     ref !== null
       ? thread?.title.trim() || `Thread ${ref.threadId}`
@@ -1440,12 +1445,23 @@ function ScheduledTaskEditorForm({
     draft.baseModelSelection.model === activeSelection.model
       ? draft.baseModelSelection
       : activeSelection;
-  const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
+  const boundThread = useScheduledTaskThread(
+    environmentId,
+    draft.threadId ? (draft.threadId as ThreadId) : null,
+  );
+  // Bound runs use the thread's current model, so the locked picker shows that one.
+  const shownSelection = draft.threadId
+    ? (boundThread?.modelSelection ?? null)
+    : { instanceId: activeInstanceId, model: activeModel };
+  const shownInstanceId = shownSelection?.instanceId ?? activeInstanceId;
+  const shownModel = shownSelection?.model ?? "";
+  const shownModelSelection = draft.threadId ? shownSelection : activeModelSelection;
+  const shownEntry = instanceEntries.find((entry) => entry.instanceId === shownInstanceId);
   const modelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
     providers,
-    activeInstanceId,
-    activeModel,
+    shownInstanceId,
+    shownModel,
   );
 
   const reportFailure = (title: string, error: unknown) => {
@@ -1783,9 +1799,10 @@ function ScheduledTaskEditorForm({
           <Field label="Model">
             <SettingsModelPicker
               environmentId={environmentId}
-              disabled={saving || !connected}
-              activeInstanceId={activeInstanceId}
-              model={activeModel}
+              // The saved selection only seeds new threads; bound runs ignore it.
+              disabled={saving || !connected || draft.threadId !== ""}
+              activeInstanceId={shownInstanceId}
+              model={shownModel}
               lockedProvider={null}
               instanceEntries={instanceEntries}
               modelOptionsByInstance={modelOptionsByInstance}
@@ -1794,21 +1811,21 @@ function ScheduledTaskEditorForm({
                 setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
               }
               traits={
-                activeModelSelection !== null && activeEntry
+                shownModelSelection !== null && shownEntry
                   ? {
-                      provider: activeEntry.driverKind,
-                      instanceId: activeModelSelection.instanceId,
-                      models: activeEntry.models,
-                      model: activeModelSelection.model,
-                      modelOptions: activeModelSelection.options ?? [],
+                      provider: shownEntry.driverKind,
+                      instanceId: shownModelSelection.instanceId,
+                      models: shownEntry.models,
+                      model: shownModelSelection.model,
+                      modelOptions: shownModelSelection.options ?? [],
                       allowPromptInjectedEffort: false,
                       onModelOptionsChange: (options) =>
                         setDraft((current) => ({
                           ...current,
-                          modelKey: `${activeModelSelection.instanceId}:${activeModelSelection.model}`,
+                          modelKey: `${shownModelSelection.instanceId}:${shownModelSelection.model}`,
                           baseModelSelection: createModelSelection(
-                            activeModelSelection.instanceId,
-                            activeModelSelection.model,
+                            shownModelSelection.instanceId,
+                            shownModelSelection.model,
                             options,
                           ),
                         })),
