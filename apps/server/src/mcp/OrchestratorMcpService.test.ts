@@ -2854,6 +2854,10 @@ describe("OrchestratorMcpService provider resolution", () => {
               { slug: "claude-opus-4-1", isLegacy: true },
               ...Array.from({ length: 9 }, (_, index) => ({ slug: `claude-opus-5-${index + 1}` })),
             ].map((model) => ({ ...model, name: model.slug, isCustom: false, capabilities: null })),
+            version: "2.1.302",
+            updateRequiredModels: [
+              { slug: "claude-fable-5-2", name: "Claude Fable 5.2", minVersion: "2.1.321" },
+            ],
           },
         ]),
         adapterRegistryLayer([codexInstanceId]),
@@ -2891,6 +2895,11 @@ describe("OrchestratorMcpService provider resolution", () => {
             "claude-opus-5-6, claude-opus-5-7, claude-opus-5-8 and 2 more; " +
             "orchestrator_capabilities with search finds them.",
         );
+
+        const updateRequired = yield* refuse("claude-fable-5-2");
+        assert.equal(updateRequired.code, "model_unavailable");
+        assert.include(updateRequired.message, "v2.1.302");
+        assert.include(updateRequired.message, "2.1.321");
       }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
     }),
   );
@@ -3762,6 +3771,10 @@ describe("OrchestratorMcpService provider resolution", () => {
       upserted: Ref.Ref<number>,
       saved: ScheduledTask = tasks[0]!,
       inputs?: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput>>,
+      defaults: {
+        readonly project: ScheduledTask["modelSelection"] | null;
+        readonly environment?: ScheduledTask["modelSelection"];
+      } = { project: saved.modelSelection },
     ) =>
       OrchestratorMcpService.layer.pipe(
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
@@ -3780,7 +3793,11 @@ describe("OrchestratorMcpService provider resolution", () => {
               getThreadShell: (threadId) =>
                 Effect.succeed(threadId === boundThreadId ? boundThread : null),
             }),
-            ServerSettings.layerTest(),
+            ServerSettings.layerTest(
+              defaults.environment === undefined
+                ? {}
+                : { defaultModelSelection: defaults.environment },
+            ),
             Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
             Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
               list: () => Effect.succeed([]),
@@ -3790,7 +3807,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                 Effect.succeedSome({
                   id,
                   workspaceRoot: "/repo/scheduled",
-                  defaultModelSelection: saved.modelSelection,
+                  defaultModelSelection: defaults.project,
                 } as Project),
             }),
             Layer.mock(SecretRequests.SecretRequests)({}),
@@ -4010,6 +4027,34 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.deepEqual(
           (yield* Ref.get(inputs)).map((input) => input.title),
           [title],
+        );
+      }),
+    );
+
+    it.effect("uses the environment's default model when the project inherits it", () =>
+      Effect.gen(function* () {
+        const environmentDefault = {
+          instanceId: ProviderInstanceId.make("claudeAgent"),
+          model: "claude-opus-5-5",
+        };
+        const inputs = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        const timer = task({ schedule: { type: "interval", everyMs: 3_600_000 } });
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.provide(
+            service([timer], null, yield* Ref.make(0), timer, inputs, {
+              project: null,
+              environment: environmentDefault,
+            }),
+          ),
+        );
+        yield* mcp.scheduleTask(supervisedClient, {
+          projectId,
+          prompt: "Check the build",
+          schedule: { type: "interval", everyMs: 3_600_000 },
+        });
+        assert.deepEqual(
+          (yield* Ref.get(inputs)).map((input) => input.modelSelection),
+          [environmentDefault],
         );
       }),
     );
