@@ -85,6 +85,8 @@ import { AgentTerminalToolkitHandlersLive } from "../fork/mcp/terminalHandlers.t
 import { AgentTerminalToolkit } from "../fork/mcp/terminalTools.ts";
 import { ThreadPinsToolkitHandlersLive } from "../fork/mcp/pinsHandlers.ts";
 import { ThreadPinsToolkit } from "../fork/mcp/pinsTools.ts";
+import * as IssuesHandlers from "./toolkits/issues/handlers.ts";
+import { IssuesToolkit } from "./toolkits/issues/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -1299,6 +1301,8 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 ).pipe(Layer.provide(PullRequestWatchService.layer));
 
+const layerIssuesToolkit = toolkitRegistration(IssuesToolkit, IssuesHandlers.layer);
+
 const layerDeviceStandardToolkitRegistration = toolkitRegistration(
   DeviceStandardToolkit,
   DeviceHandlers.layerStandard,
@@ -1364,6 +1368,7 @@ export const layerTools = Layer.mergeAll(
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
   BoardsToolkitRegistrationLive,
+  layerIssuesToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
   layerMessageToolkit,

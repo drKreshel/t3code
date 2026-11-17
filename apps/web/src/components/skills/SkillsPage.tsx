@@ -6,8 +6,8 @@
  */
 import type { SkillEntry, SkillsList, SkillsProject, SkillsSettings } from "@t3tools/contracts";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { FolderCogIcon, RefreshCwIcon, SparklesIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { FolderCogIcon, RefreshCwIcon, BookOpenIcon } from "lucide-react";
+import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { useSkillFile, useSkillsCommands, useSkillsList } from "../../state/skills";
@@ -81,7 +81,7 @@ function SkillRow(props: { skill: SkillEntry; selected: boolean; onSelect: () =>
       <span className="w-full truncate font-mono text-xs">{props.skill.name}</span>
       <span className="w-full truncate text-2xs text-muted-foreground">
         {agents.length === 0 ? "Not synced to any agent" : agents.join(" · ")}
-        {props.skill.description ? ` — ${props.skill.description}` : ""}
+        {props.skill.description ? `: ${props.skill.description}` : ""}
       </span>
     </button>
   );
@@ -305,11 +305,8 @@ export function SkillsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const project = search.project ?? "all";
 
-  const groups = useMemo(
-    () => (list.status === "ready" ? groupSkills(list.value, project, query) : []),
-    [list, project, query],
-  );
-  const visible = useMemo(() => groups.flatMap((group) => group.skills), [groups]);
+  const groups = list.status === "ready" ? groupSkills(list.value, project, query) : [];
+  const visible = groups.flatMap((group) => group.skills);
   const selected =
     visible.find((skill) => skill.id === selectedId) ??
     visible.find((skill) => skill.name === query.trim()) ??
@@ -406,7 +403,7 @@ export function SkillsPage() {
           </aside>
           {selected === null ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-              <SparklesIcon className="size-6" />
+              <BookOpenIcon className="size-6" />
               <p className="text-sm">Pick a skill to read or edit it.</p>
             </div>
           ) : (
