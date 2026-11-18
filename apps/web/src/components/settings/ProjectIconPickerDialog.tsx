@@ -6,6 +6,7 @@ import {
   ProjectMonogramText,
   type ProjectIconColor,
 } from "@t3tools/contracts";
+import { T, useGT, useMessages } from "gt-react";
 import { createElement, useRef, useState } from "react";
 import {
   filterProjectIconNames,
@@ -95,6 +96,8 @@ function ProjectIconPickerBody({
   readonly onClose: () => void;
   readonly onSelect: (icon: OrganizingIconOverride) => void;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const automatic = deriveProjectIdentity(projectName);
   const [mode, setMode] = useState<OrganizingIconOverride["kind"]>(current?.kind ?? "lucide");
   const [iconName, setIconName] = useState<string>(
@@ -140,16 +143,20 @@ function ProjectIconPickerBody({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Choose {entityType} icon</DialogTitle>
+        <DialogTitle>
+          {entityType === "project" ? <T>Choose project icon</T> : <T>Choose board icon</T>}
+        </DialogTitle>
         <DialogDescription>
-          {entityType === "project"
-            ? "Choose an icon, emoji, or monogram."
-            : "Choose an icon, image, emoji, or monogram."}
+          {entityType === "project" ? (
+            <T>Choose an icon, emoji, or monogram.</T>
+          ) : (
+            <T>Choose an icon, image, emoji, or monogram.</T>
+          )}
         </DialogDescription>
       </DialogHeader>
       <DialogPanel className="flex min-h-0 flex-col">
         <ToggleGroup
-          aria-label="Icon type"
+          aria-label={gt("Icon type")}
           variant="segmented"
           value={[mode]}
           onValueChange={(next) => {
@@ -163,21 +170,33 @@ function ProjectIconPickerBody({
               setMode(value);
           }}
         >
-          <Toggle value="lucide">Icons</Toggle>
-          {entityType === "board" ? <Toggle value="image">Image</Toggle> : null}
-          <Toggle value="emoji">Emoji</Toggle>
-          <Toggle value="monogram">Monogram</Toggle>
+          <Toggle value="lucide">
+            <T>Icons</T>
+          </Toggle>
+          {entityType === "board" ? (
+            <Toggle value="image">
+              <T>Image</T>
+            </Toggle>
+          ) : null}
+          <Toggle value="emoji">
+            <T>Emoji</T>
+          </Toggle>
+          <Toggle value="monogram">
+            <T>Monogram</T>
+          </Toggle>
         </ToggleGroup>
 
         {mode !== "emoji" && mode !== "image" ? (
           <div>
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Color</div>
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Icon color">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              <T>Color</T>
+            </div>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label={gt("Icon color")}>
               {PROJECT_ICON_COLORS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  aria-label={option.label}
+                  aria-label={m(option.label)}
                   aria-pressed={color === option.value}
                   className={cn(
                     "flex size-6 items-center justify-center rounded-full border border-transparent outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -197,8 +216,8 @@ function ProjectIconPickerBody({
             <Input
               type="search"
               value={query}
-              aria-label="Search Lucide icons"
-              placeholder="Search all Lucide icons"
+              aria-label={gt("Search Lucide icons")}
+              placeholder={gt("Search all Lucide icons")}
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
             <ScrollArea scrollFade className="max-h-64">
@@ -222,7 +241,9 @@ function ProjectIconPickerBody({
               </div>
             </ScrollArea>
             {icons.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">No icons found.</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                <T>No icons found.</T>
+              </p>
             ) : null}
           </>
         ) : mode === "monogram" ? (
@@ -234,7 +255,7 @@ function ProjectIconPickerBody({
             />
             <div className="flex-1 space-y-2">
               <label htmlFor="project-monogram" className="text-sm font-medium">
-                Letters
+                <T>Letters</T>
               </label>
               <Input
                 id="project-monogram"
@@ -245,7 +266,7 @@ function ProjectIconPickerBody({
                 autoComplete="off"
               />
               <p id="project-monogram-hint" className="text-xs text-muted-foreground">
-                One or two letters or numbers.
+                <T>One or two letters or numbers.</T>
               </p>
             </div>
           </div>
@@ -259,7 +280,7 @@ function ProjectIconPickerBody({
               />
             ) : (
               <div className="flex size-20 items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground">
-                No image
+                <T>No image</T>
               </div>
             )}
             <input
@@ -289,11 +310,21 @@ function ProjectIconPickerBody({
               disabled={readingImage}
               onClick={() => imageInputRef.current?.click()}
             >
-              {readingImage ? "Preparing image…" : imageDataUrl ? "Replace image" : "Choose image"}
+              {readingImage ? (
+                <T>Preparing image…</T>
+              ) : imageDataUrl ? (
+                <T>Replace image</T>
+              ) : (
+                <T>Choose image</T>
+              )}
             </Button>
             {imageError ? <p className="text-xs text-destructive">{imageError}</p> : null}
             <p className="text-center text-xs text-muted-foreground">
-              T3 Code stores a small local copy for this {entityType}.
+              {entityType === "project" ? (
+                <T>T3 Code stores a small local copy for this project.</T>
+              ) : (
+                <T>T3 Code stores a small local copy for this board.</T>
+              )}
             </p>
           </div>
         ) : (
@@ -304,7 +335,7 @@ function ProjectIconPickerBody({
                   <button
                     key={option.emoji}
                     type="button"
-                    aria-label={option.label}
+                    aria-label={m(option.label)}
                     aria-pressed={emoji === option.emoji}
                     className={cn(
                       "flex aspect-square items-center justify-center rounded-md border border-transparent text-xl outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -319,12 +350,12 @@ function ProjectIconPickerBody({
             </ScrollArea>
             <div>
               <div className="mb-2 text-xs font-medium text-muted-foreground">
-                Or paste any emoji
+                <T>Or paste any emoji</T>
               </div>
               <Input
                 value={customEmoji}
-                aria-label="Custom emoji"
-                placeholder="Paste an emoji"
+                aria-label={gt("Custom emoji")}
+                placeholder={gt("Paste an emoji")}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
                   setCustomEmoji(value);
@@ -338,7 +369,7 @@ function ProjectIconPickerBody({
       </DialogPanel>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>
-          Cancel
+          <T>Cancel</T>
         </Button>
         <Button
           onClick={save}
@@ -347,7 +378,7 @@ function ProjectIconPickerBody({
             (mode === "image" && (imageDataUrl.length === 0 || readingImage))
           }
         >
-          Save icon
+          <T>Save icon</T>
         </Button>
       </DialogFooter>
     </>

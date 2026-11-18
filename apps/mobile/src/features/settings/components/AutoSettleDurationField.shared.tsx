@@ -5,6 +5,7 @@ import {
   preferredAutoSettleDurationUnit,
   type AutoSettleDurationUnit,
 } from "@t3tools/client-runtime/auto-settle-duration";
+import { useGT } from "gt-react-native";
 import { useState } from "react";
 import { View } from "react-native";
 
@@ -17,13 +18,17 @@ export interface AutoSettleDaysFieldProps {
   readonly disabled?: boolean;
 }
 
-const unitOptions = AUTO_SETTLE_DURATION_UNITS.map((unit) => ({
-  value: unit,
-  label: { minutes: "Min", hours: "Hours", days: "Days" }[unit],
-  accessibilityLabel: { minutes: "Minutes", hours: "Hours", days: "Days" }[unit],
-}));
-
 export function AutoSettleDaysField(props: AutoSettleDaysFieldProps) {
+  const gt = useGT();
+  const unitOptions = AUTO_SETTLE_DURATION_UNITS.map((unit) => ({
+    value: unit,
+    label: {
+      minutes: gt("Min", { $context: "abbreviation for minutes, duration unit" }),
+      hours: gt("Hours"),
+      days: gt("Days"),
+    }[unit],
+    accessibilityLabel: { minutes: gt("Minutes"), hours: gt("Hours"), days: gt("Days") }[unit],
+  }));
   const [unit, setUnit] = useState<AutoSettleDurationUnit>(() =>
     preferredAutoSettleDurationUnit(props.value),
   );
@@ -52,7 +57,7 @@ export function AutoSettleDaysField(props: AutoSettleDaysFieldProps) {
           commit(displayValue, unit);
           setDraft(null);
         }}
-        accessibilityLabel="Inactivity before auto-settle"
+        accessibilityLabel={gt("Inactivity before auto-settle")}
         editable={!props.disabled}
       />
       <SegmentedControl
