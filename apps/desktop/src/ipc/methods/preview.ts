@@ -22,6 +22,7 @@ import {
   DesktopPreviewImportCookiesInputSchema,
   DesktopPreviewCreateTabInputSchema,
   DesktopPreviewTabInputSchema,
+  DesktopPreviewTunnelAccessResolutionInputSchema,
   DesktopPreviewWebviewConfigSchema,
   PreviewAnnotationSubmissionResultSchema,
   PreviewCaptureFailure,
@@ -40,6 +41,7 @@ import * as NodeURL from "node:url";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as DesktopBrowserHost from "../../preview/DesktopBrowserHost.ts";
+import * as LoopbackTunnel from "../../preview/LoopbackTunnel.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import { normalizeCaptureFailure } from "../../preview/captureErrors.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
@@ -357,18 +359,39 @@ const getPreviewConfig = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_GET_CONFIG_CHANNEL,
   payload: DesktopPreviewConfigInputSchema,
   result: DesktopPreviewWebviewConfigSchema,
-  handler: Effect.fn("desktop.ipc.preview.getConfig")(function* ({ environmentId, profileId }) {
+  handler: Effect.fn("desktop.ipc.preview.getConfig")(function* ({
+    environmentId,
+    profileId,
+    tunnelLoopback,
+  }) {
     const manager = yield* PreviewManager.PreviewManager;
+    const tunnel = yield* LoopbackTunnel.LoopbackTunnel;
     const { scope, persistent, namespace } = resolvePartitionScope(environmentId, profileId);
     // Session creation installs permission and passkey handlers before a guest can attach.
     // Its native UA stays unchanged; WhatsApp's per-webview identity is returned separately.
     const browserSession = yield* manager.getBrowserSession(scope, persistent, namespace);
+    // Routed before the renderer learns the partition, so no guest loads loopback directly.
+    yield* tunnel.route({
+      environmentId,
+      session: browserSession,
+      tunnelled: tunnelLoopback === true,
+    });
     return {
       partition: yield* manager.getBrowserPartition(scope, persistent, namespace),
       whatsAppUserAgent: whatsAppChromeUserAgent(browserSession.getUserAgent()),
       webPreferences: PREVIEW_WEBVIEW_PREFERENCES,
       preloadUrl: NodeURL.pathToFileURL(`${__dirname}/preview-pick-preload.cjs`).href,
     };
+  }),
+});
+
+const resolveTunnelAccess = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_TUNNEL_ACCESS_RESOLVE_CHANNEL,
+  payload: DesktopPreviewTunnelAccessResolutionInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.resolveTunnelAccess")(function* (input) {
+    const tunnel = yield* LoopbackTunnel.LoopbackTunnel;
+    yield* tunnel.resolveAccess(input);
   }),
 });
 
@@ -515,6 +538,7 @@ export const methods = [
   clearCookies,
   clearCache,
   getPreviewConfig,
+  resolveTunnelAccess,
   setAnnotationTheme,
   setAnnotationSendEnabled,
   pickElement,

@@ -1259,18 +1259,15 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (
-    (thread.runtime?.status === "running" && thread.blockedOnThreadWait === true) ||
-    backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
-  ) {
-    return {
-      label: msg("Waiting"),
-      colorClass: "text-sidebar-muted-foreground",
-      dotClass: "bg-sidebar-muted-foreground",
-      pulse: false,
-    };
-  }
+  const waiting = {
+    label: msg("Waiting"),
+    colorClass: "text-sidebar-muted-foreground",
+    dotClass: "bg-sidebar-muted-foreground",
+    pulse: false,
+  };
+  if (thread.runtime?.status === "running" && thread.blockedOnThreadWait === true) return waiting;
 
+  // A failed run goes to the inbox even while background work holds the thread.
   const seen = thread.settledOverride === "settled";
   if (!seen && hasUnseenRunFailure(thread)) {
     return {
@@ -1280,6 +1277,8 @@ export function resolveThreadStatusPill(input: {
       pulse: false,
     };
   }
+
+  if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return waiting;
 
   const hasPlanReadyPrompt =
     !thread.hasPendingUserInput &&

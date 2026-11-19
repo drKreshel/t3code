@@ -161,6 +161,8 @@ const access = Effect.gen(function* () {
   yield* readCaller();
   return yield* Project.ProjectService;
 });
+
+/** Settings, not the project record, hold the project default model that new threads use. */
 export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   t3_thread_launch: McpToolAccess.startsThreads(
     (input) => input,

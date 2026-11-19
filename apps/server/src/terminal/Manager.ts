@@ -1635,6 +1635,7 @@ function createTerminalSpawnEnv(
   runtimeEnv: Record<string, string> | null | undefined,
   platform: NodeJS.Platform,
   home: string,
+  threadId: string,
 ): NodeJS.ProcessEnv {
   const spawnEnv: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(baseEnv)) {
@@ -1663,6 +1664,7 @@ function createTerminalSpawnEnv(
       );
     }
   }
+  spawnEnv[PortScanner.AGENT_THREAD_ENV] = threadId;
   if (!spawnEnv.COLORTERM && runtimeEnv?.COLORTERM === undefined) {
     spawnEnv.COLORTERM = "truecolor";
   }
@@ -1958,6 +1960,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
   yield* fileSystem.makeDirectory(logsDir, { recursive: true }).pipe(Effect.orDie);
 
+  const managerId = NodeCrypto.randomUUID();
   const managerStateRef = yield* SynchronizedRef.make<TerminalManagerState>({
     sessions: new Map(),
     killFibers: new Map(),
@@ -2193,6 +2196,17 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       Deferred.doneUnsafe(exited, Effect.void);
     });
     yield* Effect.gen(function* () {
+      // Interactive shells ignore SIGTERM but pass SIGHUP to their background jobs, skipping nohup'd and disowned ones.
+      // Windows ignores the signal and node-pty kills the whole tree there.
+      if (platform !== "win32") {
+        yield* Effect.sync(() => {
+          try {
+            process.kill("SIGHUP");
+          } catch {
+            // The SIGTERM below reports a shell that can no longer be signalled.
+          }
+        });
+      }
       const terminated = yield* Effect.try({
         try: () => process.kill("SIGTERM"),
         catch: (cause) =>
@@ -2884,6 +2898,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
               session.runtimeEnv,
               platform,
               yield* HostProcess.HomeDirectory,
+              session.threadId,
             );
             // Append managed install directories so agent commands resolve without shadowing user/system tools.
             if (
@@ -3759,6 +3774,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       yield* listener({
         type: "snapshot",
         terminals,
+        managerId,
       });
 
       for (const event of bufferedEvents) {
