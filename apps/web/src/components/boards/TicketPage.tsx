@@ -513,6 +513,7 @@ function CommentsSection({
                     {commentAuthorLabel(comment.author, threadTitleByKey)}
                   </span>
                   <span className="shrink-0">{formatRelativeTimeLabel(comment.createdAt)}</span>
+                  {comment.editedAt !== null ? <span className="shrink-0">edited</span> : null}
                   {comment.isHandoff ? (
                     <Badge variant="info" size="sm">
                       Handoff
