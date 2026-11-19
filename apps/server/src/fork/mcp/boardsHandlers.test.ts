@@ -44,25 +44,48 @@ const invocation: McpInvocationContext.McpInvocationScope = {
 
 const project = { id: PROJECT_ID, title: "Atlas" } as OrchestrationProjectShell;
 // A live run in full-access/default mode, so McpToolAccess lets it act.
-const thread = {
-  id: THREAD_ID,
-  projectId: PROJECT_ID,
-  title: "Plan atlas",
-  providerInstanceId: ProviderInstanceId.make("codex"),
-  activeRunId: RunId.make("run-1"),
-  runtimeMode: "full-access",
-  interactionMode: "default",
-  archivedAt: null,
-  deletedAt: null,
-} as unknown as OrchestrationV2ThreadShell;
+const liveThread = (id: ThreadId, parent: ThreadId | null) =>
+  ({
+    id,
+    projectId: PROJECT_ID,
+    title: "Plan atlas",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    activeRunId: RunId.make(`run-${id}`),
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    lineage: {
+      parentThreadId: parent,
+      relationshipToParent: parent === null ? null : "subagent",
+      rootThreadId: THREAD_ID,
+    },
+    archivedAt: null,
+    deletedAt: null,
+  }) as unknown as OrchestrationV2ThreadShell;
+const thread = liveThread(THREAD_ID, null);
+// THREAD_ID delegated CHILD_ID, which delegated GRANDCHILD_ID; OTHER_ID is an unrelated chat.
+const CHILD_ID = ThreadId.make("thread-child");
+const GRANDCHILD_ID = ThreadId.make("thread-grandchild");
+const OTHER_ID = ThreadId.make("thread-other");
+const threadShells = new Map(
+  [
+    thread,
+    liveThread(CHILD_ID, THREAD_ID),
+    liveThread(GRANDCHILD_ID, CHILD_ID),
+    liveThread(OTHER_ID, null),
+  ].map((shell) => [shell.id, shell]),
+);
+const scopeOf = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
+  ...invocation,
+  thread: { ...invocation.thread!, threadId },
+});
 
 const snapshotQuery = Layer.mergeAll(
   Layer.mock(OrchestratorV2)({
     dispatch: () => Effect.succeed({ sequence: 1, storedEvents: [] }),
-    getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? thread : null),
+    getThreadShell: (threadId) => Effect.succeed(threadShells.get(threadId) ?? null),
   }),
   Layer.mock(ThreadManagement.ThreadManagementService)({
-    getThreadShell: (threadId) => Effect.succeed(threadId === THREAD_ID ? thread : null),
+    getThreadShell: (threadId) => Effect.succeed(threadShells.get(threadId) ?? null),
   }),
   Layer.mock(ProjectStoreV2)({
     getShell: (projectId) =>
@@ -282,6 +305,60 @@ describe("boards toolkit handlers", () => {
       expect(checkEvents.map((event) => event.actor)).toEqual([
         `thread:${THREAD_KEY}`,
         `thread:${THREAD_KEY}`,
+      ]);
+    }).pipe(Effect.provide(BoardsTestLayer)),
+  );
+
+  it.effect("changes only comments this chat or its delegated sub-agents posted", () =>
+    Effect.gen(function* () {
+      const { call } = yield* makeHarness;
+      yield* call("create_board", { name: "Salon", key: "SALON" });
+      yield* call("create_ticket", { board: "SALON", title: "Quotes" });
+      const ticket = "SALON-1";
+      const own = (yield* call("add_comment", { ticket, body: "Mine" })).comment;
+      const fromGrandchild = (yield* call(
+        "add_comment",
+        { ticket, body: "Sub-agent note" },
+        scopeOf(GRANDCHILD_ID),
+      )).comment;
+      const fromOther = (yield* call("add_comment", { ticket, body: "Other" }, scopeOf(OTHER_ID)))
+        .comment;
+      const boards = yield* BoardsService;
+      const ticketId = (yield* boards.snapshot).tickets[0]!.id;
+      const fromUser = (yield* boards.dispatch(
+        { type: "comment.add", ticketId, body: "User" },
+        "user",
+      )).id!;
+
+      const read = yield* call("get_ticket", { ticket });
+      expect(read.comments.map(({ id, author, editedAt }) => [id, author, editedAt])).toEqual([
+        [own, `thread:${THREAD_KEY}`, null],
+        [fromGrandchild, `thread:${ENVIRONMENT_ID}:${GRANDCHILD_ID}`, null],
+        [fromOther, `thread:${ENVIRONMENT_ID}:${OTHER_ID}`, null],
+        [fromUser, "user", null],
+      ]);
+
+      yield* call("update_comment", { ticket, comment: own, body: "Mine, reworded" });
+      yield* call("update_comment", { ticket, comment: fromGrandchild, handoff: true });
+      const afterEdits = yield* call("get_ticket", { ticket });
+      expect(afterEdits.comments[0]).toMatchObject({ body: "Mine, reworded" });
+      expect(afterEdits.comments[0]!.editedAt).not.toBeNull();
+      expect(afterEdits.latestHandoff).toBe("Sub-agent note");
+      yield* call("delete_comment", { ticket, comment: fromGrandchild });
+
+      for (const [comment, scope] of [
+        [fromOther, invocation],
+        [fromUser, invocation],
+        // A sub-agent cannot change the comments of the chat that delegated it.
+        [own, scopeOf(CHILD_ID)],
+      ] as const) {
+        const error = yield* call("delete_comment", { ticket, comment }, scope).pipe(Effect.flip);
+        expect(error).toMatchObject({ code: "blocked" });
+      }
+      expect((yield* call("get_ticket", { ticket })).comments.map(({ id }) => id)).toEqual([
+        own,
+        fromOther,
+        fromUser,
       ]);
     }).pipe(Effect.provide(BoardsTestLayer)),
   );
