@@ -250,6 +250,10 @@ export function describeTicketEvent(event: Pick<TicketEvent, "kind" | "payload">
       return `Flagged: ${text("reason")}`;
     case "flag.resolved":
       return "Resolved the flag";
+    case "comment.edited":
+      return "Edited a comment";
+    case "comment.deleted":
+      return "Deleted a comment";
     case "thread.linked":
       return "Linked a chat";
     case "thread.unlinked":
