@@ -888,21 +888,26 @@ const make = Effect.gen(function* () {
           readonly ticket_id: string;
           readonly body: string;
           readonly is_handoff: number;
-        }>`SELECT ticket_id, body, is_handoff FROM fork_ticket_comments WHERE id = ${command.commentId}`;
+          readonly edited_at: string | null;
+        }>`SELECT ticket_id, body, is_handoff, edited_at FROM fork_ticket_comments
+          WHERE id = ${command.commentId}`;
         const comment = rows[0];
         if (!comment) return yield* fail("not-found", "That comment no longer exists.");
         if (command.type === "comment.delete") {
           yield* sql`DELETE FROM fork_ticket_comments WHERE id = ${command.commentId}`;
+          yield* recordEvent(comment.ticket_id, "comment.deleted", {}, actor, at);
         } else {
+          const bodyChanged = command.body !== undefined && command.body !== comment.body;
           yield* sql`
               UPDATE fork_ticket_comments
               SET body = ${command.body ?? comment.body},
                 is_handoff = ${
                   command.isHandoff === undefined ? comment.is_handoff : command.isHandoff ? 1 : 0
                 },
-                edited_at = ${command.body !== undefined ? at : null}
+                edited_at = ${bodyChanged ? at : comment.edited_at}
               WHERE id = ${command.commentId}
             `;
+          if (bodyChanged) yield* recordEvent(comment.ticket_id, "comment.edited", {}, actor, at);
         }
         return { id: null, touched: [comment.ticket_id] };
       }

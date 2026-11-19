@@ -5,6 +5,7 @@ import {
   type TicketWorkspace,
   type BoardsCommand,
   type BoardsSnapshot,
+  type OrchestrationV2ThreadShell,
   ProjectId,
   ThreadId,
   type Ticket,
@@ -41,6 +42,7 @@ import {
 
 const notFound = (message: string) => new BoardsCommandError({ code: "not-found", message });
 const invalid = (message: string) => new BoardsCommandError({ code: "invalid", message });
+const blocked = (message: string) => new BoardsCommandError({ code: "blocked", message });
 const storage = (message: string) => () => new BoardsCommandError({ code: "storage", message });
 
 const unwrap = <A>(lookup: Lookup<A>): Effect.Effect<A, BoardsCommandError> =>
@@ -145,6 +147,46 @@ const make = Effect.gen(function* () {
     const board = snapshot.boards.find((candidate) => candidate.id === ticket.boardId);
     return board ? Effect.succeed(board) : Effect.fail(notFound("The ticket's board is missing."));
   };
+
+  /** Whether `author` is the calling chat or a delegated sub-agent below it, at any depth. */
+  const postedHere = Effect.fn("boardsHandlers.postedHere")(function* (author: string) {
+    const { scope, actor } = yield* caller;
+    if (author === actor) return true;
+    const prefix = `thread:${scope.environmentId}:`;
+    if (!author.startsWith(prefix)) return false;
+    const seen = new Set<string>();
+    let current: ThreadId | null = ThreadId.make(author.slice(prefix.length));
+    while (current !== null && !seen.has(current)) {
+      seen.add(current);
+      const shell: OrchestrationV2ThreadShell | null = yield* threads
+        .getThreadShell(current)
+        .pipe(Effect.orElseSucceed(() => null));
+      if (shell === null || shell.lineage.relationshipToParent !== "subagent") return false;
+      if (shell.lineage.parentThreadId === scope.thread.threadId) return true;
+      current = shell.lineage.parentThreadId;
+    }
+    return false;
+  });
+
+  /** A comment on `ticket` that this chat may change. */
+  const ownComment = Effect.fn("boardsHandlers.ownComment")(function* (
+    ticket: Ticket,
+    commentId: string,
+  ) {
+    const detail = yield* Stream.runHead(boards.ticketDetailStream(ticket.id));
+    const comment = Option.getOrUndefined(detail)?.comments.find(({ id }) => id === commentId);
+    if (!comment) {
+      return yield* notFound(
+        `No comment "${commentId}" on this ticket. get_ticket lists its comments with their ids.`,
+      );
+    }
+    if (!(yield* postedHere(comment.author))) {
+      return yield* blocked(
+        "Only comments this chat or its delegated sub-agents posted can be changed here. Ask the user to change this one on the ticket page.",
+      );
+    }
+    return comment;
+  });
 
   /** Re-reads the ticket after a write, for the reply. */
   const changed = Effect.fn("boardsHandlers.changed")(function* (ticketId: string) {
@@ -328,10 +370,12 @@ const make = Effect.gen(function* () {
           })),
           latestHandoff: comments.toReversed().find((comment) => comment.isHandoff)?.body ?? null,
           comments: comments.map((comment) => ({
+            id: comment.id,
             author: comment.author,
             body: comment.body,
             handoff: comment.isHandoff,
             createdAt: comment.createdAt,
+            editedAt: comment.editedAt,
           })),
           linkedChats,
           thisChatIsLinked: ticket.threadKeys.includes(threadKey),
@@ -649,12 +693,39 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const snapshot = yield* boards.snapshot;
         const ticket = yield* resolveTicket(snapshot, input.ticket);
-        yield* dispatch({
+        const { id } = yield* dispatch({
           type: "comment.add",
           ticketId: ticket.id,
           body: input.body,
           ...(input.handoff === true ? { isHandoff: true } : {}),
         });
+        if (id === null) return yield* storage("The comment was not saved.")();
+        return { ...(yield* changed(ticket.id)), comment: id };
+      }),
+    ),
+    update_comment: McpToolAccess.writes((input) =>
+      Effect.gen(function* () {
+        if (input.body === undefined && input.handoff === undefined) {
+          return yield* invalid("Pass body, handoff, or both.");
+        }
+        const snapshot = yield* boards.snapshot;
+        const ticket = yield* resolveTicket(snapshot, input.ticket);
+        const comment = yield* ownComment(ticket, input.comment);
+        yield* dispatch({
+          type: "comment.update",
+          commentId: comment.id,
+          ...(input.body !== undefined ? { body: input.body } : {}),
+          ...(input.handoff !== undefined ? { isHandoff: input.handoff } : {}),
+        });
+        return yield* changed(ticket.id);
+      }),
+    ),
+    delete_comment: McpToolAccess.writes((input) =>
+      Effect.gen(function* () {
+        const snapshot = yield* boards.snapshot;
+        const ticket = yield* resolveTicket(snapshot, input.ticket);
+        const comment = yield* ownComment(ticket, input.comment);
+        yield* dispatch({ type: "comment.delete", commentId: comment.id });
         return yield* changed(ticket.id);
       }),
     ),

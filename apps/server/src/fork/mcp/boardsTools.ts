@@ -135,10 +135,14 @@ export const TicketDetailResult = Schema.Struct({
   latestHandoff: Schema.NullOr(Schema.String),
   comments: Schema.Array(
     Schema.Struct({
-      author: Schema.String,
+      id: Schema.String.annotate({ description: "Pass to update_comment or delete_comment." }),
+      author: Schema.String.annotate({
+        description: "`user`, or `thread:<environmentId>:<threadId>` for the chat that posted it.",
+      }),
       body: Schema.String,
       handoff: Schema.Boolean,
       createdAt: Schema.String,
+      editedAt: Schema.NullOr(Schema.String),
     }),
   ),
   linkedChats: Schema.Array(Schema.Struct({ title: Schema.String, threadKey: Schema.String })),
@@ -215,7 +219,7 @@ const ListTicketsTool = Tool.make("list_tickets", {
 
 const GetTicketTool = Tool.make("get_ticket", {
   description:
-    "Read a ticket: description, acceptance criteria (numbered), requirements, parent and sub-tickets, comments, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
+    "Read a ticket: description, acceptance criteria (numbered), requirements, parent and sub-tickets, comments with their ids, the latest handoff note, and linked chats. Without a key, reads the ticket this chat is linked to.",
   parameters: Schema.Struct({ ticket: OptionalTicketRef }),
   success: TicketDetailResult,
   failure,
@@ -476,13 +480,53 @@ const AddCommentTool = Tool.make("add_comment", {
     body: TrimmedNonEmptyString.annotate({ description: "Markdown." }),
     handoff: Schema.optional(Schema.Boolean),
   }),
-  success: TicketChanged,
+  success: Schema.Struct({
+    ...TicketChanged.fields,
+    comment: Schema.String.annotate({ description: "The new comment's id." }),
+  }),
   failure,
   dependencies,
 })
   .annotate(Tool.Title, "Comment on ticket")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, false)
+  .annotate(Tool.OpenWorld, false);
+
+const CommentRef = TrimmedNonEmptyString.annotate({
+  description: "The comment's id, from get_ticket or add_comment.",
+});
+const ownCommentsOnly =
+  "Only comments this chat or its delegated sub-agents posted; the user changes any other comment on the ticket page.";
+
+const UpdateCommentTool = Tool.make("update_comment", {
+  description: `Rewrite a ticket comment's body, or mark or unmark it as the handoff. ${ownCommentsOnly}`,
+  parameters: Schema.Struct({
+    ticket: OptionalTicketRef,
+    comment: CommentRef,
+    body: Schema.optional(TrimmedNonEmptyString.annotate({ description: "Markdown." })),
+    handoff: Schema.optional(Schema.Boolean),
+  }),
+  success: TicketChanged,
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Update ticket comment")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
+const DeleteCommentTool = Tool.make("delete_comment", {
+  description: `Delete a ticket comment; the ticket's history records that it was deleted. ${ownCommentsOnly}`,
+  parameters: Schema.Struct({ ticket: OptionalTicketRef, comment: CommentRef }),
+  success: TicketChanged,
+  failure,
+  dependencies,
+})
+  .annotate(Tool.Title, "Delete ticket comment")
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
   .annotate(Tool.OpenWorld, false);
 
@@ -566,6 +610,8 @@ export const BoardsToolkit = Toolkit.make(
   UpdateTicketTool,
   MoveTicketTool,
   AddCommentTool,
+  UpdateCommentTool,
+  DeleteCommentTool,
   RequestHumanTool,
   LinkThreadTool,
   RemoveWorkspaceTool,

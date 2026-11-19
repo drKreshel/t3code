@@ -306,6 +306,38 @@ it.layer(TestLayer)("BoardsService", (it) => {
     }),
   );
 
+  it.effect("keeps a comment's edit time and records body edits and deletions", () =>
+    Effect.gen(function* () {
+      const boardId = yield* createdId({ type: "board.create", name: "Notes", key: "NOTE" });
+      const ticketId = yield* createdId({ type: "ticket.create", boardId, title: "Write" });
+      const commentId = yield* createdId({ type: "comment.add", ticketId, body: "Draft" });
+      const boards = yield* BoardsService;
+      const detail = Stream.runHead(boards.ticketDetailStream(ticketId)).pipe(
+        Effect.map(Option.getOrThrow),
+      );
+
+      yield* dispatch({ type: "comment.update", commentId, body: "Final" }, "thread:env-1:t-1");
+      const edited = (yield* detail).comments[0]!;
+      assert.equal(edited.body, "Final");
+      assert.isNotNull(edited.editedAt);
+      yield* dispatch({ type: "comment.update", commentId, isHandoff: true });
+      assert.equal((yield* detail).comments[0]!.editedAt, edited.editedAt);
+
+      yield* dispatch({ type: "comment.delete", commentId });
+      const after = yield* detail;
+      assert.deepEqual(after.comments, []);
+      assert.deepEqual(
+        after.events
+          .filter((event) => event.kind.startsWith("comment."))
+          .map((event) => [event.kind, event.actor]),
+        [
+          ["comment.edited", "thread:env-1:t-1"],
+          ["comment.deleted", "user"],
+        ],
+      );
+    }),
+  );
+
   it.effect("moves a deleted column's tickets to another column of the board", () =>
     Effect.gen(function* () {
       const boardId = yield* createdId({ type: "board.create", name: "Cols", key: "COLS" });
