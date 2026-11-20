@@ -1,16 +1,12 @@
-import * as Schema from "effect/Schema";
 import { deriveProjectIdentity } from "../../projectIdentity";
 import { ProjectMonogram } from "../ProjectMonogram";
-import {
-  type OrganizingIconOverride,
-  ProjectMonogramText,
-  type ProjectIconColor,
-} from "@t3tools/contracts";
+import type { OrganizingIconOverride, ProjectIconColor } from "@t3tools/contracts";
 import { T, useGT, useMessages } from "gt-react";
 import { createElement, useRef, useState } from "react";
 import {
   filterProjectIconNames,
   firstEmoji,
+  isValidProjectMonogram,
   PROJECT_EMOJIS,
   PROJECT_ICON_COLORS,
   projectIconColorClassName,
@@ -33,7 +29,6 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { createOrganizingIconImage, organizingIconImageError } from "../../organizingIconImage";
 
 const DEFAULT_ICON = "folder-code";
-const isMonogramText = Schema.is(ProjectMonogramText);
 
 function PickerIcon({ name }: { name: string }) {
   const icon = lucideIconByName(name);
@@ -124,7 +119,7 @@ function ProjectIconPickerBody({
   const icons = filterProjectIconNames(query);
   const selectedColorClassName = projectIconColorClassName(color);
   const monogram = letters.normalize("NFKC").trim().toUpperCase();
-  const validMonogram = isMonogramText(monogram);
+  const validMonogram = isValidProjectMonogram(monogram);
   const save = () => {
     if (mode === "monogram" && !validMonogram) return;
     if (mode === "image" && imageDataUrl.length === 0) return;

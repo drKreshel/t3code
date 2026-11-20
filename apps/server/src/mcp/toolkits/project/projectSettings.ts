@@ -73,3 +73,12 @@ export const projectSettingsView = Effect.gen(function* () {
     };
   };
 });
+
+// The project is already committed, so a failed Settings read must not report the create as failed.
+export const projectSettingsViewAfterCreate = projectSettingsView.pipe(
+  Effect.orElseSucceed(
+    () =>
+      (project: Project): Project =>
+        project,
+  ),
+);
