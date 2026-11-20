@@ -57,6 +57,7 @@ import {
   SortableHead,
   formatWhen,
   ModelText,
+  ScheduledTaskModelText,
   type ModelLabel,
   formatModelLabel,
   useModelLabel,
@@ -233,7 +234,11 @@ function TaskDetails({
           </span>
         </Detail>
         <Detail label="Model">
-          <ModelText label={modelLabel(task.modelSelection)} />
+          <ScheduledTaskModelText
+            environmentId={environmentId}
+            task={task}
+            modelLabel={modelLabel}
+          />
         </Detail>
       </dl>
       <details className="text-sm">

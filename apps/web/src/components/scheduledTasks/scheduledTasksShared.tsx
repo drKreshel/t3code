@@ -2,12 +2,22 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { formatModelSelectionEffort } from "@t3tools/client-runtime/state/thread-execution";
-import type { EnvironmentId, ModelSelection, ScheduledTaskRunState } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type {
+  EnvironmentId,
+  ModelSelection,
+  ScheduledTask,
+  ScheduledTaskRunState,
+  ThreadId,
+} from "@t3tools/contracts";
 import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
 import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import { Atom } from "effect/reactivity";
 
+import { useThreadShell } from "../../state/entities";
+import { useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
+import { threadFamilies } from "../../state/threads";
 import { getTriggerDisplayModelName } from "../chat/providerIconUtils";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Input } from "../ui/input";
@@ -79,6 +89,30 @@ export const formatModelLabel = (label: ModelLabel) =>
   label.effort ? `${label.model} · ${label.effort}` : label.model;
 
 /** The model with its effort quieter beside it. */
+export function useScheduledTaskThread(environmentId: EnvironmentId, threadId: ThreadId | null) {
+  const ref = threadId === null ? null : scopeThreadRef(environmentId, threadId);
+  const shell = useThreadShell(ref);
+  // The shell can omit older settled threads; their family read still carries the row.
+  const family = useEnvironmentQuery(
+    ref !== null && shell === null ? threadFamilies.familyAtom(environmentId, ref.threadId) : null,
+  );
+  return shell ?? family.data?.threads.find((row) => row.id === threadId) ?? null;
+}
+
+/** The model a task's runs use: a bound task runs on its thread's current model. */
+export function ScheduledTaskModelText({
+  environmentId,
+  task,
+  modelLabel,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly task: Pick<ScheduledTask, "threadId" | "modelSelection">;
+  readonly modelLabel: (selection: ModelSelection) => ModelLabel;
+}) {
+  const thread = useScheduledTaskThread(environmentId, task.threadId);
+  return <ModelText label={modelLabel(thread?.modelSelection ?? task.modelSelection)} />;
+}
+
 export function ModelText({ label }: { readonly label: ModelLabel }) {
   return (
     <span className="flex items-baseline gap-1.5 whitespace-nowrap">

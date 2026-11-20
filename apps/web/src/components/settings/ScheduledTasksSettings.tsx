@@ -70,20 +70,15 @@ import {
   useEnvironmentHttpBaseUrl,
   type EnvironmentPresentation,
 } from "../../state/environments";
-import {
-  useProjects,
-  useQuietThreadShell,
-  useThreadShell,
-  useVisibleThreadShells,
-} from "../../state/entities";
+import { useProjects, useQuietThreadShell, useVisibleThreadShells } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
 import { usePaginatedBranches, useThreadSearch } from "../../state/queries";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
-import { threadFamilies } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useScheduledTaskThread } from "../scheduledTasks/scheduledTasksShared";
 import { WorktreeBaseBranchPicker } from "../WorktreeBaseBranchPicker";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ConnectionStatusDot, connectionPhaseDotClassName } from "../ConnectionStatusDot";
@@ -1288,16 +1283,6 @@ const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   continue: msg("One thread, continuing the conversation"),
   fresh_session: msg("One thread, fresh session each run"),
 };
-
-function useScheduledTaskThread(environmentId: EnvironmentId, threadId: ThreadId | null) {
-  const ref = threadId === null ? null : scopeThreadRef(environmentId, threadId);
-  const shell = useThreadShell(ref);
-  // The shell can omit older settled threads; their family read still carries the row.
-  const family = useEnvironmentQuery(
-    ref !== null && shell === null ? threadFamilies.familyAtom(environmentId, ref.threadId) : null,
-  );
-  return shell ?? family.data?.threads.find((row) => row.id === threadId) ?? null;
-}
 
 function ScheduledTaskDestination({
   environmentId,
