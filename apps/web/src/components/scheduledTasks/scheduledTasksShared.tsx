@@ -99,17 +99,20 @@ export function useScheduledTaskThread(environmentId: EnvironmentId, threadId: T
   return shell ?? family.data?.threads.find((row) => row.id === threadId) ?? null;
 }
 
-/** The model a task's runs use: a bound task runs on its thread's current model. */
+/** The model a task's next run uses: a bound task's thread model, unless a switch is pending. */
 export function ScheduledTaskModelText({
   environmentId,
   task,
   modelLabel,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly task: Pick<ScheduledTask, "threadId" | "modelSelection">;
+  readonly task: Pick<ScheduledTask, "threadId" | "modelSelection" | "modelSwitchPending">;
   readonly modelLabel: (selection: ModelSelection) => ModelLabel;
 }) {
-  const thread = useScheduledTaskThread(environmentId, task.threadId);
+  const thread = useScheduledTaskThread(
+    environmentId,
+    task.modelSwitchPending === true ? null : task.threadId,
+  );
   return <ModelText label={modelLabel(thread?.modelSelection ?? task.modelSelection)} />;
 }
 

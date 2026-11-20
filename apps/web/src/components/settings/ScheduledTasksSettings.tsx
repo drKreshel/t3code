@@ -1562,13 +1562,18 @@ function ScheduledTaskEditorForm({
     environmentId,
     draft.threadId ? (draft.threadId as ThreadId) : null,
   );
-  // Bound runs use the thread's current model, so the locked picker shows that one.
-  const shownSelection = draft.threadId
+  // Bound runs use the thread's current model until the task's model is changed, which
+  // switches the thread on the next run.
+  const followsThread =
+    draft.threadId !== "" &&
+    draft.modelChosen !== true &&
+    !(task?.modelSwitchPending === true && draft.threadId === draft.savedThreadId);
+  const shownSelection = followsThread
     ? (boundThread?.modelSelection ?? null)
     : { instanceId: activeInstanceId, model: activeModel };
   const shownInstanceId = shownSelection?.instanceId ?? activeInstanceId;
   const shownModel = shownSelection?.model ?? "";
-  const shownModelSelection = draft.threadId ? shownSelection : activeModelSelection;
+  const shownModelSelection = followsThread ? shownSelection : activeModelSelection;
   const shownEntry = instanceEntries.find((entry) => entry.instanceId === shownInstanceId);
   const modelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
@@ -1599,7 +1604,9 @@ function ScheduledTaskEditorForm({
       automaticBaseRefLoading
     )
       return;
-    const selection = activeModelSelection;
+    const selection = followsThread
+      ? (boundThread?.modelSelection ?? activeModelSelection)
+      : activeModelSelection;
     if (
       !draft.title.trim() ||
       !draft.prompt.trim() ||
@@ -1932,11 +1939,15 @@ function ScheduledTaskEditorForm({
             />
           </Field>
 
-          <Field label={gt("Model")}>
+          <Field
+            label={gt("Model")}
+            {...(draft.threadId === ""
+              ? {}
+              : { hint: gt("A change switches the chat on the next run") })}
+          >
             <SettingsModelPicker
               environmentId={environmentId}
-              // The saved selection only seeds new threads; bound runs ignore it.
-              disabled={saving || !connected || draft.threadId !== ""}
+              disabled={saving || !connected}
               activeInstanceId={shownInstanceId}
               model={shownModel}
               lockedProvider={null}
@@ -1944,7 +1955,11 @@ function ScheduledTaskEditorForm({
               modelOptionsByInstance={modelOptionsByInstance}
               isComposerOwned={false}
               onInstanceModelChange={(instanceId, model) =>
-                setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
+                setDraft((current) => ({
+                  ...current,
+                  modelKey: `${instanceId}:${model}`,
+                  modelChosen: true,
+                }))
               }
               traits={
                 shownModelSelection !== null && shownEntry
@@ -1959,6 +1974,7 @@ function ScheduledTaskEditorForm({
                         setDraft((current) => ({
                           ...current,
                           modelKey: `${shownModelSelection.instanceId}:${shownModelSelection.model}`,
+                          modelChosen: true,
                           baseModelSelection: createModelSelection(
                             shownModelSelection.instanceId,
                             shownModelSelection.model,

@@ -66,11 +66,7 @@ import {
   resolveProjectProviderInstanceEnabled,
   SECRET_REQUEST_UNSAVED_NOTE,
 } from "@t3tools/contracts";
-import {
-  getProviderOptionCurrentValue,
-  modelSelectionsEqual,
-  withLegacyUltracodeEffort,
-} from "@t3tools/shared/model";
+import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -2292,9 +2288,9 @@ const make = Effect.gen(function* () {
     },
   );
 
-  // Bound runs use the thread's current model, so that is the model the task runs on.
+  // Bound runs use the thread's current model, unless a changed task model switches it next run.
   const scheduledTaskRunSelection = (task: ScheduledTask) =>
-    task.threadId === null
+    task.threadId === null || task.modelSwitchPending === true
       ? Effect.succeed(task.modelSelection)
       : threadManagement.getThreadShell(task.threadId).pipe(
           Effect.map((shell) =>
@@ -2302,12 +2298,6 @@ const make = Effect.gen(function* () {
           ),
           Effect.orElseSucceed(() => task.modelSelection),
         );
-
-  const boundTargetIgnored = (current: ScheduledTask["modelSelection"]) =>
-    failure(
-      "invalid_request",
-      `This task is bound to a thread, and its runs use that thread's model (${current.instanceId} / ${current.model}), not \`target\`. To change it, set the thread's model with t3_thread_configure, or save the task with bindToCurrentThread: false so each run starts a new thread on \`target\`.`,
-    );
 
   const withinLimits = (
     limits: {
@@ -2409,14 +2399,6 @@ const make = Effect.gen(function* () {
               providers: yield* loadProviders,
               cwd: project.workspaceRoot,
             })).modelSelection;
-      if (
-        bindToCurrentThread &&
-        parent !== undefined &&
-        input.target !== undefined &&
-        !modelSelectionsEqual(modelSelection, parent.thread.modelSelection)
-      ) {
-        return yield* boundTargetIgnored(parent.thread.modelSelection);
-      }
       const workspaceStrategy = input.workspaceStrategy ?? { type: "root" };
       yield* assertScheduledWorkspace(project.workspaceRoot, workspaceStrategy);
       // Never end on a lone high surrogate, which renders as a broken character.
@@ -2537,11 +2519,6 @@ const make = Effect.gen(function* () {
                 providers: yield* loadProviders,
                 cwd: (yield* requireProject(existing.projectId)).workspaceRoot,
               })).modelSelection;
-        if (threadId !== null && input.target !== undefined) {
-          const current = yield* scheduledTaskRunSelection({ ...existing, threadId });
-          if (!modelSelectionsEqual(modelSelection, current))
-            return yield* boundTargetIgnored(current);
-        }
         const upsertInput: ScheduledTaskUpsertInput = {
           id: existing.id,
           title: input.title ?? existing.title,

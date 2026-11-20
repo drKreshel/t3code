@@ -9556,6 +9556,7 @@
   "8b724804e55e48e6": "Caminho do checkout",
   "074bdabe78bea12d": "Prompt",
   "297673223a27dbea": "O que o agente deve fazer a cada execução?",
+  "f7d5e10d12749bd8": "Uma alteração troca o chat na próxima execução",
   "584c1f819fa0994e": "{webhookDenial} Mude esta tarefa para um horário ou intervalo, ou desative-a, para salvá-la.",
   "240f05be00adba61": "Cada requisição executa o prompt. Use {bodyPath}, {headerName}, {queryName}, {body} ou {request} no prompt; só o que ele nomeia chega ao agente.",
   "35392e3532a2d798": "Ignorar requisições com mais de",

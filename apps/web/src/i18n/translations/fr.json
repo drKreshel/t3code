@@ -9557,6 +9557,7 @@
   "8b724804e55e48e6": "Chemin du checkout",
   "074bdabe78bea12d": "Prompt",
   "297673223a27dbea": "Que doit faire l’agent à chaque exécution ?",
+  "f7d5e10d12749bd8": "Un changement bascule le chat à la prochaine exécution",
   "584c1f819fa0994e": "{webhookDenial} Passez cette tâche sur une heure ou un intervalle, ou désactivez-la, pour l’enregistrer.",
   "240f05be00adba61": "Chaque requête exécute le prompt. Utilisez {bodyPath}, {headerName}, {queryName}, {body} ou {request} dans le prompt ; seul ce qu’il nomme parvient à l’agent.",
   "35392e3532a2d798": "Ignorer les requêtes de plus de",

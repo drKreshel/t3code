@@ -235,6 +235,8 @@ export type ScheduledTaskDraft = {
   readonly threadId: ThreadId | null;
   readonly modelSelection: ModelSelection | null;
   readonly modelSelectionIsExplicit: boolean;
+  /** Picked in this edit. A bound task's untouched model keeps following its thread. */
+  readonly modelChosen?: boolean;
   readonly schedule: ScheduleDraft;
   readonly threadMode: ScheduledTaskThreadMode;
   readonly workspace: Workspace;

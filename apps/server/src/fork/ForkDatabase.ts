@@ -360,6 +360,16 @@ const MIGRATIONS: ReadonlyArray<{ readonly version: number; readonly statements:
     version: 19,
     statements: [`ALTER TABLE fork_tickets ADD COLUMN parent_id TEXT`],
   },
+  {
+    // A thread-bound scheduled task whose model changed: its next run switches the thread.
+    version: 20,
+    statements: [
+      `CREATE TABLE fork_scheduled_task_model_switches (
+        task_id TEXT PRIMARY KEY,
+        requested_at TEXT NOT NULL
+      )`,
+    ],
+  },
 ];
 
 export const runForkMigrations = Effect.gen(function* () {

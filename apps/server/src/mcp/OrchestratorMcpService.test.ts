@@ -4408,22 +4408,22 @@ describe("OrchestratorMcpService provider resolution", () => {
               target: { driverKind: ProviderDriverKind.make("codex") },
             });
             assert.equal(saved.modelSelection?.instanceId, altInstanceId);
-            // A bound run uses its thread's model, so a different target is refused, not dropped.
+            // A bound task reports its thread's model until a changed model is pending.
             saved = { ...saved, threadId: boundThreadId };
-            const ignored = yield* mcp
-              .updateScheduledTask(scope, {
-                scheduledTaskId: saved.id,
-                target: { driverKind: ProviderDriverKind.make("codex") },
-              })
-              .pipe(Effect.flip);
-            assert.equal(ignored.code, "invalid_request");
+            yield* mcp.updateScheduledTask(scope, {
+              scheduledTaskId: saved.id,
+              target: { driverKind: ProviderDriverKind.make("codex") },
+            });
             assert.equal(saved.modelSelection?.instanceId, altInstanceId);
             const listed = yield* mcp.listScheduledTasks(scope, { projectId });
             assert.deepEqual(listed.tasks[0]?.target, {
               providerInstanceId: codexInstanceId,
               model: "gpt-5",
             });
-            saved = { ...saved, threadId: null };
+            saved = { ...saved, modelSwitchPending: true };
+            const pending = yield* mcp.listScheduledTasks(scope, { projectId });
+            assert.equal(pending.tasks[0]?.target.providerInstanceId, altInstanceId);
+            saved = { ...saved, threadId: null, modelSwitchPending: undefined };
             allDisabled = true;
             yield* mcp.updateScheduledTask(scope, { scheduledTaskId: saved.id, title: "Renamed" });
             assert.equal(saved.title, "Renamed");
