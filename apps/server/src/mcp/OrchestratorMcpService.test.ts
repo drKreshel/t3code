@@ -4337,6 +4337,8 @@ describe("OrchestratorMcpService provider resolution", () => {
                       thread: { ...parent.thread, archivedAt: null },
                     });
                   },
+                  getThreadShell: (threadId) =>
+                    Effect.succeed(threadId === boundThreadId ? liveThreadShell(threadId) : null),
                   isProviderInstanceEnabledForProject: (input) =>
                     Effect.succeed(
                       !allDisabled &&
@@ -4406,6 +4408,22 @@ describe("OrchestratorMcpService provider resolution", () => {
               target: { driverKind: ProviderDriverKind.make("codex") },
             });
             assert.equal(saved.modelSelection?.instanceId, altInstanceId);
+            // A bound run uses its thread's model, so a different target is refused, not dropped.
+            saved = { ...saved, threadId: boundThreadId };
+            const ignored = yield* mcp
+              .updateScheduledTask(scope, {
+                scheduledTaskId: saved.id,
+                target: { driverKind: ProviderDriverKind.make("codex") },
+              })
+              .pipe(Effect.flip);
+            assert.equal(ignored.code, "invalid_request");
+            assert.equal(saved.modelSelection?.instanceId, altInstanceId);
+            const listed = yield* mcp.listScheduledTasks(scope, { projectId });
+            assert.deepEqual(listed.tasks[0]?.target, {
+              providerInstanceId: codexInstanceId,
+              model: "gpt-5",
+            });
+            saved = { ...saved, threadId: null };
             allDisabled = true;
             yield* mcp.updateScheduledTask(scope, { scheduledTaskId: saved.id, title: "Renamed" });
             assert.equal(saved.title, "Renamed");

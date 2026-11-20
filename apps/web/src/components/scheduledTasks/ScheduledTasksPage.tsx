@@ -39,6 +39,7 @@ import {
   formatWhen,
   ModelText,
   ProjectIcon,
+  ScheduledTaskModelText,
   formatModelLabel,
   useModelLabel,
   stateVariant,
@@ -199,7 +200,15 @@ export function ScheduledTasksPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <ModelText label={modelLabel(task.modelSelection)} />
+                    {environmentId === null ? (
+                      <ModelText label={modelLabel(task.modelSelection)} />
+                    ) : (
+                      <ScheduledTaskModelText
+                        environmentId={environmentId}
+                        task={task}
+                        modelLabel={modelLabel}
+                      />
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className="flex items-center gap-2">

@@ -66,7 +66,11 @@ import {
   resolveProjectProviderInstanceEnabled,
   SECRET_REQUEST_UNSAVED_NOTE,
 } from "@t3tools/contracts";
-import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3tools/shared/model";
+import {
+  getProviderOptionCurrentValue,
+  modelSelectionsEqual,
+  withLegacyUltracodeEffort,
+} from "@t3tools/shared/model";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -295,7 +299,11 @@ function errorMessage(error: unknown): string {
  * run it: a webhook's URL carries the secret that starts the task's runs, so
  * only such a caller sees it.
  */
-function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): OrchestratorMcpScheduledTask {
+function scheduledTaskSummary(
+  task: ScheduledTask,
+  mayRun: boolean,
+  runSelection: ScheduledTask["modelSelection"] = task.modelSelection,
+): OrchestratorMcpScheduledTask {
   return {
     scheduledTaskId: task.id,
     title: task.title,
@@ -307,11 +315,9 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     freshSession: scheduledTaskThreadMode(task) === "fresh_session",
     schedule: task.schedule,
     target: {
-      providerInstanceId: task.modelSelection.instanceId,
-      model: task.modelSelection.model,
-      ...(task.modelSelection.options === undefined
-        ? {}
-        : { options: task.modelSelection.options }),
+      providerInstanceId: runSelection.instanceId,
+      model: runSelection.model,
+      ...(runSelection.options === undefined ? {} : { options: runSelection.options }),
     },
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
@@ -2286,6 +2292,23 @@ const make = Effect.gen(function* () {
     },
   );
 
+  // Bound runs use the thread's current model, so that is the model the task runs on.
+  const scheduledTaskRunSelection = (task: ScheduledTask) =>
+    task.threadId === null
+      ? Effect.succeed(task.modelSelection)
+      : threadManagement.getThreadShell(task.threadId).pipe(
+          Effect.map((shell) =>
+            shell === null || shell.deletedAt !== null ? task.modelSelection : shell.modelSelection,
+          ),
+          Effect.orElseSucceed(() => task.modelSelection),
+        );
+
+  const boundTargetIgnored = (current: ScheduledTask["modelSelection"]) =>
+    failure(
+      "invalid_request",
+      `This task is bound to a thread, and its runs use that thread's model (${current.instanceId} / ${current.model}), not \`target\`. To change it, set the thread's model with t3_thread_configure, or save the task with bindToCurrentThread: false so each run starts a new thread on \`target\`.`,
+    );
+
   const withinLimits = (
     limits: {
       readonly runtimeMode: RuntimeMode;
@@ -2322,6 +2345,7 @@ const make = Effect.gen(function* () {
         live &&
           Option.isSome(modes) &&
           modes.value.every((mode) => withinLimits(caller.limits, mode)),
+        yield* scheduledTaskRunSelection(task),
       );
     },
   );
@@ -2385,6 +2409,14 @@ const make = Effect.gen(function* () {
               providers: yield* loadProviders,
               cwd: project.workspaceRoot,
             })).modelSelection;
+      if (
+        bindToCurrentThread &&
+        parent !== undefined &&
+        input.target !== undefined &&
+        !modelSelectionsEqual(modelSelection, parent.thread.modelSelection)
+      ) {
+        return yield* boundTargetIgnored(parent.thread.modelSelection);
+      }
       const workspaceStrategy = input.workspaceStrategy ?? { type: "root" };
       yield* assertScheduledWorkspace(project.workspaceRoot, workspaceStrategy);
       // Never end on a lone high surrogate, which renders as a broken character.
@@ -2443,13 +2475,17 @@ const make = Effect.gen(function* () {
             ),
           );
         return {
-          tasks: tasks
-            .filter(
+          tasks: yield* Effect.forEach(
+            tasks.filter(
               (task) =>
                 (projectId === undefined || task.projectId === projectId) &&
                 (input.scheduledTaskId === undefined || task.id === input.scheduledTaskId),
-            )
-            .map((task) => scheduledTaskSummary(task, false)),
+            ),
+            (task) =>
+              scheduledTaskRunSelection(task).pipe(
+                Effect.map((selection) => scheduledTaskSummary(task, false, selection)),
+              ),
+          ),
         };
       },
     ),
@@ -2491,6 +2527,21 @@ const make = Effect.gen(function* () {
           const project = yield* requireProject(existing.projectId);
           yield* assertScheduledWorkspace(project.workspaceRoot, input.workspaceStrategy);
         }
+        const modelSelection =
+          input.target === undefined
+            ? existing.modelSelection
+            : (yield* resolveTargetRechecking({
+                inherited: existing.modelSelection,
+                projectId: existing.projectId,
+                target: input.target,
+                providers: yield* loadProviders,
+                cwd: (yield* requireProject(existing.projectId)).workspaceRoot,
+              })).modelSelection;
+        if (threadId !== null && input.target !== undefined) {
+          const current = yield* scheduledTaskRunSelection({ ...existing, threadId });
+          if (!modelSelectionsEqual(modelSelection, current))
+            return yield* boundTargetIgnored(current);
+        }
         const upsertInput: ScheduledTaskUpsertInput = {
           id: existing.id,
           title: input.title ?? existing.title,
@@ -2512,16 +2563,7 @@ const make = Effect.gen(function* () {
                   ? "new_thread"
                   : "continue",
           workspaceStrategy: input.workspaceStrategy ?? existing.workspaceStrategy,
-          modelSelection:
-            input.target === undefined
-              ? existing.modelSelection
-              : (yield* resolveTargetRechecking({
-                  inherited: existing.modelSelection,
-                  projectId: existing.projectId,
-                  target: input.target,
-                  providers: yield* loadProviders,
-                  cwd: (yield* requireProject(existing.projectId)).workspaceRoot,
-                })).modelSelection,
+          modelSelection,
           runtimeMode: existing.runtimeMode,
           interactionMode: existing.interactionMode,
           createdBy: existing.createdBy,
@@ -2534,7 +2576,7 @@ const make = Effect.gen(function* () {
               failure("orchestration_error", `Could not update scheduled task: ${error.message}`),
             ),
           );
-        return scheduledTaskSummary(task, false);
+        return scheduledTaskSummary(task, false, yield* scheduledTaskRunSelection(task));
       },
     ),
     deleteScheduledTask: Effect.fn("OrchestratorMcpService.deleteScheduledTask")(
