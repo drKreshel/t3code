@@ -793,9 +793,15 @@ function TaskForm({
   const config = useEnvironmentServerConfig(environmentId);
   const destinationLabel = useScheduledTaskDestinationLabel(environmentId, draft.threadId);
   const boundThread = useScheduledTaskThread(environmentId, draft.threadId);
-  // Bound runs use the thread's current model, so the locked row shows that one.
-  const shownSelection =
-    draft.threadId === null ? draft.modelSelection : (boundThread?.modelSelection ?? null);
+  // Bound runs use the thread's current model until the task's model is changed, which
+  // switches the thread on the next run.
+  const followsThread =
+    draft.threadId !== null &&
+    draft.modelChosen !== true &&
+    !(draft.task?.modelSwitchPending === true && draft.threadId === draft.task.threadId);
+  const shownSelection = followsThread
+    ? (boundThread?.modelSelection ?? null)
+    : draft.modelSelection;
   const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
   // Existing webhook tasks keep the option so they can still switch to a timer.
   const webhookDenial = managedCapabilityDenial(config?.managedPolicy, "webhookTasks", m);
@@ -908,7 +914,10 @@ function TaskForm({
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
       projectId: draft.projectId,
-      modelSelection: withImplicitFastModeSelection(draft.modelSelection, config?.providers ?? []),
+      modelSelection: withImplicitFastModeSelection(
+        (followsThread ? boundThread?.modelSelection : undefined) ?? draft.modelSelection,
+        config?.providers ?? [],
+      ),
       schedule,
       enabled: draft.enabled,
       threadId: draft.threadId,
@@ -1002,7 +1011,12 @@ function TaskForm({
           {promptField}
         </SettingsSection>
 
-        <SettingsSection title={gt("Context", { $context: "section heading: project and model" })}>
+        <SettingsSection
+          title={gt("Context", { $context: "section heading: project and model" })}
+          {...(draft.threadId === null
+            ? {}
+            : { footer: gt("A model change switches the chat on the next run.") })}
+        >
           <SelectRow
             label={gt("Project")}
             value={
@@ -1049,11 +1063,13 @@ function TaskForm({
               shownSelection?.model ??
               (modelOptions.length ? gt("Choose model") : gt("No models available"))
             }
-            onPress={() => navigation.navigate("SettingsScheduledTaskModel")}
-            // The saved selection only seeds new threads; bound runs ignore it.
-            disabled={
-              saving || dictationPending || environmentUnavailable || draft.threadId !== null
-            }
+            onPress={() => {
+              // The picker opens on the model the runs use now.
+              if (followsThread && boundThread !== null)
+                setDraft((current) => ({ ...current, modelSelection: boundThread.modelSelection }));
+              navigation.navigate("SettingsScheduledTaskModel");
+            }}
+            disabled={saving || dictationPending || environmentUnavailable}
           />
         </SettingsSection>
 

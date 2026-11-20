@@ -9565,6 +9565,7 @@
   "8b724804e55e48e6": "Sökväg till utcheckning",
   "074bdabe78bea12d": "Prompt",
   "297673223a27dbea": "Vad ska agenten göra varje gång den här körs?",
+  "f7d5e10d12749bd8": "En ändring byter chattens modell vid nästa körning",
   "584c1f819fa0994e": "{webhookDenial} Byt uppgiften till en tid eller ett intervall, eller stäng av den, för att spara den.",
   "240f05be00adba61": "Varje begäran kör prompten. Använd {bodyPath}, {headerName}, {queryName}, {body} eller {request} i prompten; bara det den nämner når agenten.",
   "35392e3532a2d798": "Hoppa över begäranden äldre än",

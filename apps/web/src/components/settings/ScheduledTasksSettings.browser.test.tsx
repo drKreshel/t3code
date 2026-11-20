@@ -251,17 +251,17 @@ describe("ScheduledTasksSettings", () => {
     await expect.element(name).toHaveValue("Review stale issues");
   });
 
-  it("offers no model choice for a task bound to a thread, whose runs use the thread's model", async () => {
+  it("offers a bound task's model choice starting from the thread's model", async () => {
     setup();
     await using _screen = await render(<ScheduledTasksSettings taskId={task.id} />);
-    await expect.element(page.getByRole("dialog").getByText("Fix login bug")).toBeVisible();
-    const enabledPicker = document.querySelector(
-      '[role="dialog"] [data-chat-provider-model-picker]:not(:disabled)',
-    );
-    expect(enabledPicker).toBeNull();
+    const dialog = page.getByRole("dialog");
+    await expect.element(dialog.getByText("Fix login bug")).toBeVisible();
     await expect
-      .element(page.getByRole("dialog").getByRole("button", { name: "gpt-5.5", exact: true }))
-      .toBeDisabled();
+      .element(dialog.getByRole("button", { name: "gpt-5.5", exact: true }))
+      .toBeEnabled();
+    await expect
+      .element(dialog.getByText("A change switches the chat on the next run"))
+      .toBeVisible();
   });
 
   it("keeps an editor the user opened when the linked task loads later", async () => {

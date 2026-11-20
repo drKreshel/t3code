@@ -9559,6 +9559,7 @@
   "8b724804e55e48e6": "Checkout-Pfad",
   "074bdabe78bea12d": "Prompt",
   "297673223a27dbea": "Was soll der Agent bei jeder Ausführung tun?",
+  "f7d5e10d12749bd8": "Eine Änderung wechselt den Chat beim nächsten Lauf",
   "584c1f819fa0994e": "{webhookDenial} Stelle diese Aufgabe auf eine Uhrzeit oder ein Intervall um oder schalte sie aus, um sie zu speichern.",
   "240f05be00adba61": "Jede Anfrage führt den Prompt aus. Verwende {bodyPath}, {headerName}, {queryName}, {body} oder {request} im Prompt; nur was er nennt, erreicht den Agenten.",
   "35392e3532a2d798": "Anfragen überspringen, die älter sind als",

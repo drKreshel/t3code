@@ -9567,6 +9567,7 @@
   "8b724804e55e48e6": "Checkout path",
   "074bdabe78bea12d": "Prompt",
   "297673223a27dbea": "What should the agent do each time this runs?",
+  "f7d5e10d12749bd8": "A change switches the chat on the next run",
   "584c1f819fa0994e": "{webhookDenial} Switch this task to a time or an interval, or turn it off, to save it.",
   "240f05be00adba61": "Each request runs the prompt. Use {bodyPath}, {headerName}, {queryName}, {body} or {request} in the prompt; only what it names reaches the agent.",
   "35392e3532a2d798": "Skip requests older than",

@@ -65,6 +65,8 @@ import * as DueHint from "../scheduling/DueHint.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import { latestRootProviderFailure } from "@t3tools/shared/orchestrationV2ThreadError";
 import { migrateLegacyOnceSchedules } from "../fork/scheduledTasks/legacyOnceSchedules.ts";
+import { ScheduledTaskModelSwitches } from "../fork/scheduledTasks/ModelSwitches.ts";
+import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
   isMissedFixedTimeRun,
   isSameSchedule,
@@ -548,6 +550,12 @@ export const layer = Layer.effect(
     const scheduler = yield* Scheduler.Scheduler;
     const readWebhookOrigin = yield* ScheduledTaskWebhookOrigin;
     const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
+    const modelSwitches = Option.getOrUndefined(
+      yield* Effect.serviceOption(ScheduledTaskModelSwitches),
+    );
+    const pendingModelSwitches = modelSwitches?.pending() ?? Effect.succeed(new Set<string>());
+    const withModelSwitch = (task: ScheduledTask, pending: ReadonlySet<string>): ScheduledTask =>
+      task.threadId !== null && pending.has(task.id) ? { ...task, modelSwitchPending: true } : task;
     const webhookPolicyOrganization = ManagedPolicy.deniedBy(managedPolicy, "webhookTasks");
     // Existing webhook tasks stay stored but report why they do not run.
     const webhookPolicyBlock =
@@ -620,9 +628,13 @@ export const layer = Layer.effect(
     const listRows = Effect.fn("ScheduledTaskService.listRows")(function* () {
       const rows = yield* selectAllRows();
       const origin = yield* readWebhookOrigin;
+      const pending = yield* pendingModelSwitches;
       return yield* Effect.forEach(
         rows,
-        (row) => decodeRow(row, origin).pipe(Effect.map(withPolicy)),
+        (row) =>
+          decodeRow(row, origin).pipe(
+            Effect.map((task) => withModelSwitch(withPolicy(task), pending)),
+          ),
         { concurrency: 1 },
       );
     });
@@ -665,7 +677,10 @@ export const layer = Layer.effect(
       );
       const row = rows[0];
       if (row === undefined) return null;
-      return withPolicy(yield* decodeRow(row, yield* readWebhookOrigin));
+      return withModelSwitch(
+        withPolicy(yield* decodeRow(row, yield* readWebhookOrigin)),
+        yield* pendingModelSwitches,
+      );
     });
 
     const findWebhookCredentials = (id: ScheduledTaskId) =>
@@ -1150,6 +1165,9 @@ export const layer = Layer.effect(
               attachments: [],
               mode: "queue",
               ...(threadMode === "fresh_session" ? { freshContext: true } : {}),
+              ...(active.modelSwitchPending === true
+                ? { modelSelection: active.modelSelection }
+                : {}),
               createdBy: active.createdBy,
               creationSource: active.creationSource,
             })
@@ -1199,9 +1217,14 @@ export const layer = Layer.effect(
                   ),
               )
             : yield* Effect.exit(
-                // The stored selection only seeds fresh threads. A bound run
-                // follows the thread's current provider, so it passes none.
+                // A bound run follows the thread's current model, unless the task's
+                // model changed since: then this run carries it once and switches the thread.
                 sendBound(ThreadId.make(active.threadId), active.projectId, 2).pipe(
+                  Effect.tap(() =>
+                    active.modelSwitchPending === true && modelSwitches !== undefined
+                      ? modelSwitches.clear(active.id)
+                      : Effect.void,
+                  ),
                   Effect.as(ThreadId.make(active.threadId)),
                 ),
               );
@@ -1682,6 +1705,21 @@ export const layer = Layer.effect(
         threadId === null && input.unbindThread === true ? (existingTask?.threadId ?? null) : null,
         webhook,
       );
+      if (modelSwitches !== undefined) {
+        if (threadId === null) yield* modelSwitches.clear(id);
+        else if (
+          existingTask === null ||
+          !modelSelectionsEqual(existingTask.modelSelection, input.modelSelection)
+        ) {
+          const thread = yield* threadManagement
+            .getThreadShell(threadId)
+            .pipe(Effect.orElseSucceed(() => null));
+          // Choosing the model the thread already uses cancels a pending switch.
+          if (thread !== null && modelSelectionsEqual(thread.modelSelection, input.modelSelection))
+            yield* modelSwitches.clear(id);
+          else yield* modelSwitches.request(id);
+        }
+      }
       yield* notifyChanged;
       return { task: (yield* findTask(id)) ?? task };
     });
@@ -1770,6 +1808,7 @@ export const layer = Layer.effect(
     const deleteTask: ScheduledTaskService["Service"]["delete"] = (input) =>
       deleteRow(input.id).pipe(
         Effect.andThen(forgetWebhookTask(input.id)),
+        Effect.andThen(modelSwitches?.clear(input.id) ?? Effect.void),
         Effect.andThen(notifyChanged),
         Effect.as({ id: input.id }),
       );

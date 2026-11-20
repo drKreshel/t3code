@@ -56,6 +56,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ScheduledTaskModelSwitches from "../fork/scheduledTasks/ModelSwitches.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
@@ -533,6 +534,7 @@ it.effect("runs a thread-bound automation on the provider the thread uses now", 
         Scheduler.layer,
         Layer.mock(SecretRequests.SecretRequests)({}),
         ManagedPolicy.layerTest(),
+        ScheduledTaskModelSwitches.layerMemory,
       ),
     ),
   );
@@ -572,6 +574,42 @@ it.effect("runs a thread-bound automation on the provider the thread uses now", 
     const run = projection.runs.find((item) => item.id === message?.runId);
     assert.deepStrictEqual(run?.modelSelection, claudeModelSelection);
     assert.deepStrictEqual(projection.thread.modelSelection, claudeModelSelection);
+
+    // Changing the task's own model switches the thread on its next run, once.
+    const { task: changed } = yield* tasks.upsert({
+      id: task.id,
+      title: task.title,
+      prompt: task.prompt,
+      enabled: false,
+      schedule: task.schedule,
+      projectId,
+      workspaceStrategy: { type: "root" },
+      modelSelection: claudeModelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    });
+    assert.equal(changed.modelSwitchPending, undefined);
+    const { task: switched } = yield* tasks.upsert({
+      id: task.id,
+      title: task.title,
+      prompt: task.prompt,
+      enabled: false,
+      schedule: task.schedule,
+      projectId,
+      workspaceStrategy: { type: "root" },
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    });
+    assert.equal(switched.modelSwitchPending, true);
+    yield* TestClock.adjust("1 minute");
+    const next = yield* tasks.runNow({ id: task.id });
+    assert.equal(next.task.lastRunStatus, "succeeded");
+    assert.equal(next.task.modelSwitchPending, undefined);
+    const after = yield* threads.getThreadProjection(launched.threadId);
+    const nextMessage = after.messages.findLast((item) => item.scheduledTaskId === task.id);
+    const nextRun = after.runs.find((item) => item.id === nextMessage?.runId);
+    assert.deepStrictEqual(nextRun?.modelSelection, modelSelection);
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
 });
 
