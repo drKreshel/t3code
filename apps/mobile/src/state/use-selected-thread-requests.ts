@@ -16,6 +16,7 @@ import {
   clearComposerDraft,
   composerDraftsAtom,
   questionAttachmentDraftsAtom,
+  releaseComposerDraftModelSelection,
 } from "./use-composer-drafts";
 import {
   composerAttachmentUploadsAtom,
@@ -412,6 +413,11 @@ export function useSelectedThreadRequests() {
     }
     userInputResponsesInFlight.current.add(responseKey);
     setRespondingUserInputId(activePendingUserInput.requestId);
+    const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
+    const modelSelection =
+      activePendingUserInput.responseCapability === "message"
+        ? appAtomRegistry.get(composerDraftsAtom)[threadKey]?.modelSelection
+        : undefined;
     const result = await respondToUserInput({
       environmentId: selectedThreadShell.environmentId,
       input: {
@@ -421,6 +427,7 @@ export function useSelectedThreadRequests() {
         ...(attachmentsByQuestionId.size > 0
           ? { attachmentsByQuestionId: Object.fromEntries(attachmentsByQuestionId) }
           : {}),
+        ...(modelSelection === undefined ? {} : { modelSelection }),
       },
     });
     userInputResponsesInFlight.current.delete(responseKey);
@@ -428,6 +435,9 @@ export function useSelectedThreadRequests() {
       current === activePendingUserInput.requestId ? null : current,
     );
     if (result._tag === "Success") {
+      if (modelSelection !== undefined) {
+        releaseComposerDraftModelSelection(threadKey, modelSelection);
+      }
       collectAnsweredRequestDrafts(
         selectedThreadShell.environmentId,
         selectedThreadShell.id,
