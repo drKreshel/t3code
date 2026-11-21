@@ -106,6 +106,8 @@ interface AttachedTab {
   focusReleasing: boolean;
   /** The sessions sharing the guest's one Chromium screencast; it stops with the last of them. */
   readonly screencasts: Map<string | undefined, { started: boolean; pending: number }>;
+  /** Child sessions the debugger has attached, by target id. */
+  readonly frameSessions: Map<string, string>;
   readonly onMessage: (
     event: Electron.Event,
     method: string,
@@ -402,7 +404,14 @@ export const make = Effect.gen(function* () {
     if (tab.relay) return tab.relay;
     const { webContents, debugger: debuggee, cookiesCleared } = tab.debuggee;
     const send = async (method: string, params: Record<string, unknown>, sessionId?: string) => {
-      const result = await sendPageCommand(webContents, debuggee, method, params, sessionId);
+      const result = await sendPageCommand(
+        webContents,
+        debuggee,
+        method,
+        params,
+        sessionId,
+        tab.frameSessions,
+      );
       if (method === "Network.clearBrowserCookies") await cookiesCleared?.();
       return result;
     };
@@ -587,8 +596,17 @@ export const make = Effect.gen(function* () {
       agentUsed: false,
       focusReleasing: false,
       screencasts: new Map(),
+      frameSessions: new Map(),
       onMessage: (_event, method, params, sessionId) => {
-        if (method === "Page.downloadWillBegin") {
+        if (method === "Target.attachedToTarget") {
+          const attached = params as { sessionId: string; targetInfo: { targetId: string } };
+          tab.frameSessions.set(attached.targetInfo.targetId, attached.sessionId);
+        } else if (method === "Target.detachedFromTarget") {
+          const detachedSession = (params as { sessionId?: unknown }).sessionId;
+          for (const [targetId, child] of tab.frameSessions) {
+            if (child === detachedSession) tab.frameSessions.delete(targetId);
+          }
+        } else if (method === "Page.downloadWillBegin") {
           const guid = (params as { guid?: unknown } | undefined)?.guid;
           tab.pendingDownloadGuid = typeof guid === "string" ? guid : null;
         }
