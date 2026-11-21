@@ -1,6 +1,7 @@
 import {
   CommandId,
   type GitCommandError,
+  type TaskFolderError,
   MessageId,
   type ProjectId,
   type ThreadId,
@@ -32,6 +33,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
+import * as TaskFolders from "../workspace/TaskFolders.ts";
 import type { McpInvocationScope, McpThreadInvocationScope } from "./McpInvocationContext.ts";
 
 export class WorktreeMcpService extends Context.Service<
@@ -73,6 +75,7 @@ type HandoffPlan =
       readonly baseRef: string;
       readonly worktreeBaseRef: string;
       readonly baseRefName: string;
+      readonly startFromOrigin: boolean;
       readonly startedFromOrigin: boolean;
     }
   | {
@@ -99,6 +102,7 @@ const make = Effect.gen(function* () {
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+  const taskFolders = yield* TaskFolders.TaskFolders;
 
   // Serialize handoffs per thread to avoid creating two worktrees and orphaning one.
   const handoffThreadsInFlight = new Set<string>();
@@ -183,6 +187,7 @@ const make = Effect.gen(function* () {
   const planCreate = Effect.fn("WorktreeMcpService.planCreate")(function* (
     projectId: ProjectId,
     projectCwd: string,
+    projectIsRepository: boolean,
     currentBranch: string | null,
     input: WorktreeMcpHandoffInput,
   ) {
@@ -197,9 +202,11 @@ const make = Effect.gen(function* () {
     // Fail fast on an existing branch: the git driver keeps stderr out of its
     // errors, so `git worktree add` would fail opaquely. Existence uses the full
     // local branch list; the paginated search only adds the checkout location.
-    const localBranchNames = yield* gitWorkflow
-      .listLocalBranchNames(projectCwd)
-      .pipe(asOperationFailed("Unable to list branches"));
+    const localBranchNames = projectIsRepository
+      ? yield* gitWorkflow
+          .listLocalBranchNames(projectCwd)
+          .pipe(asOperationFailed("Unable to list branches"))
+      : [];
     if (localBranchNames.includes(branch)) {
       const existingRef = yield* gitWorkflow
         .listRefs({ cwd: projectCwd, query: branch, refKind: "local" })
@@ -221,7 +228,10 @@ const make = Effect.gen(function* () {
     }
 
     let baseRef = input.baseRef;
-    if (baseRef === undefined) {
+    if (baseRef === undefined && !projectIsRepository) {
+      // Each repository starts from its own default branch.
+      baseRef = "HEAD";
+    } else if (baseRef === undefined) {
       if (currentBranch === null) {
         return yield* failure(
           "invalid_request",
@@ -236,7 +246,7 @@ const make = Effect.gen(function* () {
     let worktreeBaseRef = baseRef;
     let baseRefName = baseRef;
     let startedFromOrigin = false;
-    if (startFromOrigin) {
+    if (startFromOrigin && projectIsRepository) {
       const resolvedRemoteBase = yield* gitWorkflow
         .fetchWorktreeBaseCommit({ cwd: projectCwd, refName: baseRef })
         .pipe(asOperationFailed(`Unable to fetch the remote base of '${baseRef}'`));
@@ -253,6 +263,7 @@ const make = Effect.gen(function* () {
       baseRef,
       worktreeBaseRef,
       baseRefName,
+      startFromOrigin,
       startedFromOrigin,
     } as const;
   });
@@ -346,10 +357,16 @@ const make = Effect.gen(function* () {
     const project = yield* loadProject(targetThreadId, projection.thread.projectId);
     const projectCwd = project.workspaceRoot;
 
+    // A project that tracks repositories moves into a task folder: its own folder, which need
+    // not be a repository, and a worktree of each tracked one. Attaching still needs a repository.
+    const taskPlan = yield* taskFolders
+      .plan({ projectId: project.id })
+      .pipe(asOperationFailed("Unable to read the project's repositories"));
+    const projectIsRepository = taskPlan === null || taskPlan.projectIsRepository;
     const localStatus = yield* gitWorkflow
       .localStatus({ cwd: projectCwd })
       .pipe(asOperationFailed("Unable to read git status"));
-    if (!localStatus.isRepo) {
+    if ((input.attach === true || projectIsRepository) && !localStatus.isRepo) {
       return yield* failure(
         "invalid_request",
         `Project workspace '${projectCwd}' is not a git repository.`,
@@ -359,7 +376,13 @@ const make = Effect.gen(function* () {
     const plan: HandoffPlan =
       input.attach === true
         ? yield* planAttach(projectCwd, input)
-        : yield* planCreate(project.id, projectCwd, localStatus.refName, input);
+        : yield* planCreate(
+            project.id,
+            projectCwd,
+            projectIsRepository,
+            localStatus.refName,
+            input,
+          );
 
     const ids = yield* handoffIds(scope);
 
@@ -368,24 +391,61 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const checkout =
           plan.kind === "attach"
-            ? plan.checkout
+            ? { ...plan.checkout, taskFolder: null, startedFromOrigin: false }
             : yield* restore(
-                gitWorkflow
-                  .createWorktree({
-                    cwd: projectCwd,
-                    refName: plan.worktreeBaseRef,
-                    newRefName: plan.branch,
-                    baseRefName: plan.baseRefName,
-                    path: null,
-                  })
-                  .pipe(
-                    asOperationFailed("Unable to create the worktree"),
-                    Effect.map(({ worktree }) => ({
-                      path: worktree.path,
-                      worktreePath: worktree.path,
-                      refName: worktree.refName,
-                    })),
-                  ),
+                Effect.suspend(
+                  (): Effect.Effect<
+                    {
+                      readonly path: string;
+                      readonly worktreePath: string;
+                      readonly refName: string;
+                      readonly taskFolder: string | null;
+                      readonly startedFromOrigin: boolean;
+                    },
+                    GitCommandError | TaskFolderError
+                  > =>
+                    taskPlan === null
+                      ? gitWorkflow
+                          .createWorktree({
+                            cwd: projectCwd,
+                            refName: plan.worktreeBaseRef,
+                            newRefName: plan.branch,
+                            baseRefName: plan.baseRefName,
+                            path: null,
+                          })
+                          .pipe(
+                            Effect.map(({ worktree }) => ({
+                              path: worktree.path,
+                              worktreePath: worktree.path,
+                              refName: worktree.refName,
+                              taskFolder: null,
+                              startedFromOrigin: plan.startedFromOrigin,
+                            })),
+                          )
+                      : taskFolders
+                          .create({
+                            plan: taskPlan,
+                            branch: plan.branch,
+                            projectStart: {
+                              refName: plan.worktreeBaseRef,
+                              baseRefName: plan.baseRefName,
+                            },
+                            baseBranch: input.baseRef,
+                            startFromOrigin: plan.startFromOrigin,
+                          })
+                          .pipe(
+                            Effect.map((created) => ({
+                              path: created.taskFolder.projectPath,
+                              worktreePath: created.taskFolder.projectPath,
+                              refName: created.branch,
+                              taskFolder: created.taskFolder.root,
+                              // A layout command is handed the branch name, not the fetched commit.
+                              startedFromOrigin:
+                                !created.laidOutByProject &&
+                                (plan.startedFromOrigin || created.repositoriesStartedFromOrigin),
+                            })),
+                          ),
+                ).pipe(asOperationFailed("Unable to create the worktree")),
               );
         const checkoutPath = checkout.path;
         const worktreePath = checkout.worktreePath;
@@ -400,18 +460,28 @@ const make = Effect.gen(function* () {
             }).pipe(Effect.as({ status: "failed", detail } as const));
           });
 
-        const removeCreatedWorktree = Effect.suspend(() =>
-          gitWorkflow.removeWorktree({ cwd: projectCwd, path: checkoutPath, force: true }).pipe(
-            Effect.andThen(
-              Effect.suspend(() =>
-                gitWorkflow.deleteLocalBranch({
-                  cwd: projectCwd,
-                  refName: checkout.refName,
+        const removeCreatedWorktree = Effect.suspend(
+          (): Effect.Effect<unknown, GitCommandError | TaskFolderError> =>
+            checkout.taskFolder === null
+              ? gitWorkflow
+                  .removeWorktree({ cwd: projectCwd, path: checkoutPath, force: true })
+                  .pipe(
+                    Effect.andThen(
+                      Effect.suspend(() =>
+                        gitWorkflow.deleteLocalBranch({
+                          cwd: projectCwd,
+                          refName: checkout.refName,
+                          force: true,
+                        }),
+                      ),
+                    ),
+                  )
+              : taskFolders.remove({
+                  root: checkout.taskFolder,
                   force: true,
+                  forget: true,
+                  deleteBranch: checkout.refName,
                 }),
-              ),
-            ),
-          ),
         ).pipe(Effect.ignoreCause({ log: true }));
 
         const recheckAndBind = Effect.gen(function* () {
@@ -526,7 +596,7 @@ const make = Effect.gen(function* () {
           worktreePath,
           branch: checkout.refName,
           baseRef: plan.kind === "create" ? plan.baseRef : null,
-          startedFromOrigin: plan.kind === "create" && plan.startedFromOrigin,
+          startedFromOrigin: plan.kind === "create" && checkout.startedFromOrigin,
           setupScript,
           continuation,
           note:
@@ -616,4 +686,5 @@ export const layer: Layer.Layer<
   | GitVcsDriver.GitVcsDriver
   | ProjectSetupScriptRunner.ProjectSetupScriptRunner
   | VcsStatusBroadcaster.VcsStatusBroadcaster
+  | TaskFolders.TaskFolders
 > = Layer.effect(WorktreeMcpService, make);

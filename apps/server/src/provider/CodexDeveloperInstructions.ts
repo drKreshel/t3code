@@ -31,6 +31,21 @@ const toolInstructions = (availability: boolean | T3CodeToolAvailability): strin
     .join("\n\n");
 };
 
+/** Packs whole paragraphs into values under the per-entry cap. */
+const splitUnderCap = (text: string): ReadonlyArray<string> => {
+  const chunks: Array<string> = [];
+  let current = "";
+  for (const paragraph of text.split("\n\n")) {
+    const next = current === "" ? paragraph : `${current}\n\n${paragraph}`;
+    if (current !== "" && Buffer.byteLength(next) > CODEX_ADDITIONAL_CONTEXT_VALUE_MAX_BYTES) {
+      chunks.push(current);
+      current = paragraph;
+    } else current = next;
+  }
+  if (current !== "") chunks.push(current);
+  return chunks;
+};
+
 export interface CodexRuntimeInfo {
   readonly model: string;
   readonly modelName?: string | undefined;
@@ -51,10 +66,15 @@ export function buildCodexAdditionalContext(
         { kind: "application" as const, value: section },
       ]),
     ),
-    t3_code_runtime: {
-      kind: "application",
-      value: buildRuntimeInstructions({ harness: "Codex", ...runtime }),
-    },
+    // Fork: board instructions push the runtime text past the cap, so later paragraphs get their own keys.
+    ...Object.fromEntries(
+      splitUnderCap(buildRuntimeInstructions({ harness: "Codex", ...runtime })).map(
+        (value, index) => [
+          index === 0 ? "t3_code_runtime" : `t3_code_runtime_${String(index + 1).padStart(2, "0")}`,
+          { kind: "application" as const, value },
+        ],
+      ),
+    ),
     ...(tools ? { t3_code_tools: { kind: "application", value: tools } } : {}),
   };
 }
