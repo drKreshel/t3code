@@ -33,8 +33,10 @@ Fork code lives in new files: `apps/server/src/fork/**`, `packages/provider-core
 
 Small fixes to upstream behavior. When upstream fixes the same thing, take upstream's version and drop ours.
 
+- Codex receives the runtime instructions (with the board instructions) split into entries under its 4,000-byte cap, so it no longer truncates them: `server/src/provider/CodexDeveloperInstructions.ts`.
 - Codex native subagents keep the model and reasoning effort reported by newer `SubAgentActivity` notifications: `effect-codex-app-server/_internal/shared.ts`, `orchestration-v2/Adapters/CodexAdapterV2.ts`.
 - Agents can permanently delete chats through `t3_thread_organize`: `mcp/toolkits/thread/{tools,handlers}.ts`.
+- The stable build ships without the Apple Speech helper (on-device Mac dictation) when this Mac has no Xcode 26, instead of failing: `T3CODE_APPLE_SPEECH_OPTIONAL` in `apps/desktop/scripts/build-apple-speech.mjs`, set by `scripts/fork/stable-app.sh`.
 - `list_scheduled_tasks` says `lastRunStatus` reports dispatch, not the agent turn: `contracts/orchestratorMcp.ts`.
 - A chat scrolled up into history no longer jumps to the bottom when rows change under it (rows re-keyed and laid out from estimated sizes, rows removed): only scrolling toward the end turns live-follow back on, not content bringing the end into view. `apps/web/src/components/chat/useTimelineFollow.ts` (`onIsAtEndChange`), test in `useTimelineFollow.browser.test.tsx`.
 - A chat scrolled up into history no longer jumps to the bottom when a new turn starts: the previous turn's opened "Worked for" fold stays open unless the chat follows the end, so a reader inside it keeps their place. `apps/web/src/components/chat/MessagesTimeline.tsx` (`observedLatestRun`), test in `MessagesTimeline.browser.test.tsx` ("turn folds").

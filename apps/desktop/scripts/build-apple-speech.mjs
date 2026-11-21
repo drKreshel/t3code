@@ -13,7 +13,8 @@ const { values } = NodeUtil.parseArgs({
   options: { output: { type: "string" }, arch: { type: "string", default: hostArch } },
 });
 // Packaging passes --output and must not ship without the helper; dev builds only lose the option.
-const required = values.output !== undefined;
+// Fork: the stable build on a Mac without Xcode 26 ships without the helper instead of failing.
+const required = values.output !== undefined && process.env.T3CODE_APPLE_SPEECH_OPTIONAL !== "1";
 
 if (hostPlatform !== "darwin") {
   if (required) throw new Error("The Apple Speech helper can only be built on macOS.");
