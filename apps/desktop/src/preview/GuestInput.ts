@@ -6,7 +6,6 @@ const FOCUS_ROUTED_INPUT = new Set([
   "Input.imeSetComposition",
 ]);
 
-/** Direct input reaches only the main-frame process; insertText crashes when a cross-site frame has focus. */
 const FOCUSED_DOCUMENT = `(() => {
   let doc = document;
   for (;;) {
@@ -20,8 +19,52 @@ const FOCUSED_DOCUMENT = `(() => {
 /** Electron runs editing commands only for CDP keys; exclude clipboard commands to preserve the user's clipboard. */
 const EDITING_COMMANDS = new Set(["selectAll", "undo", "redo"]);
 
-const CROSS_SITE_FOCUS_MESSAGE =
-  "The page's focus is inside a cross-site frame, which takes typed input only while the preview has focus. Click the field first.";
+/** The frame element holding focus whose document this one cannot reach, or null. */
+const UNREACHABLE_FOCUSED_FRAME = `(() => {
+  let doc = document;
+  for (;;) {
+    const active = doc.activeElement;
+    if (active?.tagName !== "IFRAME" && active?.tagName !== "FRAME") return null;
+    if (!active.contentDocument) return active;
+    doc = active.contentDocument;
+  }
+})()`;
+
+const FOCUS_LOOKUP_GROUP = "t3-preview-focus";
+
+const UNREACHABLE_FOCUS_MESSAGE =
+  "The page's focus is inside a cross-origin frame that takes typed input only while the preview has focus.";
+
+/**
+ * Direct input reaches only the main-frame process, and insertText crashes the guest when a
+ * cross-site frame has focus. That frame's own session takes CDP input without following
+ * window focus, so input goes there: the innermost session holding focus, undefined for the
+ * page itself, or null for a frame with no session, such as a same-site cross-origin one.
+ */
+const focusedSession = async (
+  debuggee: Electron.Debugger,
+  frameSessions: ReadonlyMap<string, string>,
+  sessionId?: string,
+): Promise<string | undefined | null> => {
+  const reply = (await debuggee.sendCommand(
+    "Runtime.evaluate",
+    { expression: UNREACHABLE_FOCUSED_FRAME, objectGroup: FOCUS_LOOKUP_GROUP },
+    sessionId,
+  )) as { readonly result?: { readonly objectId?: string } };
+  const objectId = reply.result?.objectId;
+  if (objectId === undefined) return sessionId;
+  try {
+    const { node } = (await debuggee.sendCommand("DOM.describeNode", { objectId }, sessionId)) as {
+      readonly node: { readonly frameId?: string };
+    };
+    const child = node.frameId === undefined ? undefined : frameSessions.get(node.frameId);
+    return child === undefined ? null : await focusedSession(debuggee, frameSessions, child);
+  } finally {
+    void debuggee
+      .sendCommand("Runtime.releaseObjectGroup", { objectGroup: FOCUS_LOOKUP_GROUP }, sessionId)
+      .catch(() => {});
+  }
+};
 
 const ARROW_KEYS: Record<string, string> = {
   ArrowUp: "Up",
@@ -174,6 +217,8 @@ export const sendPageCommand = async (
   method: string,
   params: Record<string, unknown>,
   sessionId?: string,
+  /** Auto-attached child sessions by target id; a cross-site frame's target id is its frame id. */
+  frameSessions: ReadonlyMap<string, string> = new Map(),
 ): Promise<unknown> => {
   if (method === "Input.dispatchMouseEvent" || method === "Input.dispatchTouchEvent") {
     return sendPointerCommand(webContents, debuggee, method, params, sessionId);
@@ -192,9 +237,9 @@ export const sendPageCommand = async (
   if (!FOCUS_ROUTED_INPUT.has(method) || webContents.focusedFrame) {
     return debuggee.sendCommand(method, params);
   }
-  if ((await evaluate(debuggee, `${FOCUSED_DOCUMENT} !== null`)) !== true) {
-    throw new Error(CROSS_SITE_FOCUS_MESSAGE);
-  }
+  const focused = await focusedSession(debuggee, frameSessions);
+  if (focused === null) throw new Error(UNREACHABLE_FOCUS_MESSAGE);
+  if (focused !== undefined) return debuggee.sendCommand(method, params, focused);
   switch (method) {
     case "Input.insertText":
       await webContents.insertText(typeof params["text"] === "string" ? params["text"] : "");
