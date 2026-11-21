@@ -3227,6 +3227,74 @@ it.layer(layerTest)("OrchestrationV2LayerLive", (it) => {
     }),
   );
 
+  it.effect("applies modelSelection when answering a message user-input request", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const now = yield* DateTime.now;
+      const projectId = ProjectId.make("runtime-message-question-model-project");
+      const threadId = ThreadId.make("runtime-message-question-model-thread");
+      const initialModelSelection = {
+        instanceId: claudeInstanceId,
+        model: "claude-sonnet-4-6",
+      };
+      const targetModelSelection = {
+        instanceId: modelSelection.instanceId,
+        model: "gpt-5.4",
+      };
+
+      yield* seedProject({
+        projectId,
+        title: "Message question model switch project",
+        workspaceRoot: process.cwd(),
+        defaultModelSelection: initialModelSelection,
+        createdAt: DateTime.formatIso(now),
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("runtime-message-question-model-create"),
+        threadId,
+        projectId,
+        title: "Message question model switch",
+        modelSelection: initialModelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: process.cwd(),
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.request-human",
+        commandId: CommandId.make("runtime-message-question-model-human"),
+        threadId,
+        reason: "Which approach should we take?",
+        options: [{ label: "Ship it", description: "Proceed with the change" }],
+      });
+
+      const pendingProjection = yield* orchestrator.getThreadProjection(threadId);
+      const pendingRequest = pendingProjection.runtimeRequests.find(
+        (request) => request.status === "pending",
+      );
+      assert.isDefined(pendingRequest);
+
+      yield* orchestrator.dispatch({
+        type: "runtime-request.respond",
+        commandId: CommandId.make("runtime-message-question-model-respond"),
+        threadId,
+        requestId: pendingRequest!.id,
+        answers: { decision: "Ship it" },
+        modelSelection: targetModelSelection,
+      });
+
+      const answeredProjection = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(answeredProjection.runtimeRequests[0]?.status, "resolved");
+      assert.deepStrictEqual(answeredProjection.thread.modelSelection, targetModelSelection);
+      assert.equal(answeredProjection.thread.providerInstanceId, targetModelSelection.instanceId);
+      assert.deepStrictEqual(answeredProjection.runs[0]?.modelSelection, targetModelSelection);
+      assert.equal(answeredProjection.runs[0]?.providerInstanceId, targetModelSelection.instanceId);
+    }),
+  );
+
   it.effect("refuses busy merge-back targets without blocking the queue", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

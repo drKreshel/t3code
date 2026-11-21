@@ -11317,11 +11317,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .getThread(command.threadId)
           .pipe(mapDispatchError(command));
         const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+        const effectiveModelSelection = command.modelSelection ?? thread.modelSelection;
         if (
           !resolveProjectProviderInstanceEnabled(
             settings,
             thread.projectId,
-            thread.providerInstanceId,
+            effectiveModelSelection.instanceId,
           )
         ) {
           return yield* new OrchestratorDispatchError({
@@ -11553,6 +11554,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           messageId: MessageId.make(`async-answer:${command.requestId}`),
           text: replies.join("\n\n"),
           attachments: [],
+          ...(command.modelSelection === undefined
+            ? {}
+            : { modelSelection: command.modelSelection }),
           createdBy: "user" as const,
           creationSource: "server" as const,
           dispatchMode,

@@ -219,6 +219,7 @@ export interface RespondToThreadUserInputInput extends ThreadCommandInput {
   readonly requestId: RuntimeRequestId;
   readonly answers: ProviderUserInputAnswers;
   readonly attachmentsByQuestionId?: import("@t3tools/contracts").UserInputAttachments;
+  readonly modelSelection?: ModelSelection;
 }
 
 export interface DismissThreadUserInputInput extends ThreadCommandInput {
@@ -1001,6 +1002,7 @@ export const respondToThreadUserInput = Effect.fn("EnvironmentCommands.respondTo
       ...(input.attachmentsByQuestionId === undefined
         ? {}
         : { attachmentsByQuestionId: input.attachmentsByQuestionId }),
+      ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
     });
   },
 );

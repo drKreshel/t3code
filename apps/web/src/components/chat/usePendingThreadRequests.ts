@@ -59,6 +59,7 @@ import {
   derivePendingUserInputs,
   type PendingUserInput,
 } from "../../session-logic";
+import { NO_PROVIDER_MODEL_SELECTION } from "../../providerInstances";
 import { readEnvironmentScope } from "../../state/session";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -470,6 +471,15 @@ export function usePendingThreadRequests(input: {
         );
         return;
       }
+      const candidateModelSelection =
+        pendingInput.responseCapability === "message"
+          ? composerRef.current?.getSendContext().selectedModelSelection
+          : undefined;
+      const modelSelection =
+        candidateModelSelection &&
+        candidateModelSelection.instanceId !== NO_PROVIDER_MODEL_SELECTION.instanceId
+          ? candidateModelSelection
+          : undefined;
       const result = await respondToThreadUserInput({
         environmentId,
         input: {
@@ -479,9 +489,16 @@ export function usePendingThreadRequests(input: {
           ...(attachmentsByQuestionId.size > 0
             ? { attachmentsByQuestionId: Object.fromEntries(attachmentsByQuestionId) }
             : {}),
+          ...(modelSelection === undefined ? {} : { modelSelection }),
         },
       });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      if (result._tag === "Success") {
+        if (modelSelection !== undefined && typeof composerDraftTarget !== "string") {
+          useComposerDraftStore
+            .getState()
+            .releaseModelSelection(composerDraftTarget, modelSelection);
+        }
+      } else if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         setThreadError(
           activeThreadId,
