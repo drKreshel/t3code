@@ -146,7 +146,7 @@ cmd_build() {
   (cd "$STABLE_DIR" && pnpm install --frozen-lockfile)
   log "Building the desktop app (takes a few minutes)"
   rm -rf "$STABLE_DIR/release"
-  (cd "$STABLE_DIR" && pnpm exec vp run dist:desktop:dmg)
+  (cd "$STABLE_DIR" && T3CODE_APPLE_SPEECH_OPTIONAL=1 pnpm exec vp run dist:desktop:dmg)
   printf '%s %s\n' "$sha" "$ref" >"$STABLE_DIR/release/BUILT_FROM"
   log "Built: $(latest_zip)"
   log "Next: quit T3 Code (⌘Q), then run: $0 install"
