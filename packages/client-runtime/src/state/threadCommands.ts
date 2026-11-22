@@ -36,6 +36,7 @@ import {
   markThreadUnread,
   mergeThreadBack,
   promoteQueuedRun,
+  relocateThread,
   resumeThreadQueue,
   retryWorkspacePreparation,
   linkThreadPullRequest,
@@ -292,6 +293,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     markUnread: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:mark-unread",
       execute: markThreadUnread,
+      scheduler,
+      concurrency,
+    }),
+    relocate: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:relocate",
+      execute: relocateThread,
       scheduler,
       concurrency,
     }),

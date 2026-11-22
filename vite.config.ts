@@ -596,7 +596,7 @@ export default defineConfig({
           "apps/mobile/src/features/development/**",
           "packages/client-runtime/src/rpc/**",
           // Fork: its own UI stays English (Kreshel, 2026-11-19); upstream files keep the rule.
-          "apps/web/src/components/{boards,skills,scheduledTasks,agentContext,threadPins}/**",
+          "apps/web/src/components/{boards,skills,scheduledTasks,agentContext,threadPins,threadRelocation}/**",
           "apps/web/src/state/{boards,workspaces,skills,threadPins,templates,agentContext}.ts",
           "apps/web/src/organizingIconImage.ts",
           "apps/web/src/components/OrganizingIconSetting.tsx",

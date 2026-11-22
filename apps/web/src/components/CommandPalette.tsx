@@ -65,6 +65,7 @@ import {
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
+  CornerDownRightIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
@@ -271,6 +272,8 @@ import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { openRelocateThreadDialog } from "./threadRelocation/relocateThreadDialogState";
+import { canMoveThreadToTopLevel, canRelocateThread } from "./threadRelocation/relocateThreadLogic";
 import { openUseInAnotherApp } from "./mcp/UseInAnotherAppDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { settingsForThisPlatform, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -493,6 +496,9 @@ function OpenCommandPaletteDialog(props: {
     reportFailure: false,
   });
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, {
+    reportFailure: false,
+  });
+  const relocateThread = useAtomCommand(threadEnvironment.relocate, {
     reportFailure: false,
   });
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -1549,6 +1555,40 @@ function OpenCommandPaletteDialog(props: {
         useRightPanelStore.getState().open(threadRef, "agent-context");
       },
     });
+  }
+
+  if (activeThread !== null && canRelocateThread(activeThread)) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:relocate-thread-under-parent",
+      searchTerms: ["relocate", "move", "parent", "subagent", "sub-agent", "nest", "child"],
+      title: gt("Move thread under parent…"),
+      icon: <CornerDownRightIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openRelocateThreadDialog([threadRef]);
+      },
+    });
+    if (canMoveThreadToTopLevel(activeThread)) {
+      actionItems.push({
+        kind: "action",
+        value: "action:move-thread-to-top-level",
+        searchTerms: ["relocate", "move", "top level", "detach", "unparent", "promote", "subagent"],
+        title: gt("Move thread to top level"),
+        icon: <CornerLeftUpIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          const result = await relocateThread({
+            environmentId: threadRef.environmentId,
+            input: { threadId: threadRef.threadId, parentThreadId: null },
+          });
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+          toastManager.add({
+            type: "success",
+            title: gt("Moved thread to top level"),
+          });
+        },
+      });
+    }
   }
 
   if (activeThread !== null && canShareActiveThreadWithGuest) {

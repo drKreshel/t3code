@@ -119,6 +119,57 @@ describe("thread relationships", () => {
     ]);
   });
 
+  it("uses lineage.parentThreadId when a forked thread is relocated as a subagent or moved to top level", () => {
+    const forkOrigin = ThreadId.make("fork-origin");
+    const newParent = ThreadId.make("new-parent");
+    const child = ThreadId.make("relocated-fork");
+
+    const relocatedGraph = deriveThreadRelationshipGraph({
+      threads: [
+        {
+          id: child,
+          title: "Relocated fork",
+          status: "completed",
+          forkedFrom: { type: "run", threadId: forkOrigin, runId: "run-1" },
+          lineage: {
+            rootThreadId: newParent,
+            parentThreadId: newParent,
+            relationshipToParent: "subagent",
+          },
+        },
+      ] as never,
+      projection: null,
+    });
+
+    expect(relocatedGraph.edges).toEqual([
+      {
+        sourceThreadId: newParent,
+        targetThreadId: child,
+        kind: "subagent",
+        status: "completed",
+      },
+    ]);
+
+    const topLevelGraph = deriveThreadRelationshipGraph({
+      threads: [
+        {
+          id: child,
+          title: "Detached fork",
+          status: "completed",
+          forkedFrom: { type: "run", threadId: forkOrigin, runId: "run-1" },
+          lineage: {
+            rootThreadId: child,
+            parentThreadId: null,
+            relationshipToParent: null,
+          },
+        },
+      ] as never,
+      projection: null,
+    });
+
+    expect(topLevelGraph.edges).toEqual([]);
+  });
+
   it("keeps missing parents and cycles navigable without recursive traversal", () => {
     const root = ThreadId.make("thread-root");
     const child = ThreadId.make("thread-child");

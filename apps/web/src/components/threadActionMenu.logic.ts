@@ -23,6 +23,8 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "relocate-under-parent"
+  | "move-to-top-level"
   | "share-guest"
   | "copy"
   | "copy-path"
@@ -124,6 +126,9 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /** Fork: relocatable threads can nest under a parent as a sub-agent, and sub-agents can return to top level. */
+  readonly canRelocate?: boolean;
+  readonly canMoveToTopLevel?: boolean;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -221,6 +226,24 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: resolve(msg("Mark unread")), icon: "mail-open" },
+    ...(state.canRelocate
+      ? [
+          {
+            id: "relocate-under-parent" as const,
+            label: resolve(msg("Move under parent…")),
+            icon: "corner-down-right",
+          },
+        ]
+      : []),
+    ...(state.canMoveToTopLevel
+      ? [
+          {
+            id: "move-to-top-level" as const,
+            label: resolve(msg("Move to top level")),
+            icon: "corner-left-up",
+          },
+        ]
+      : []),
     ...(state.canShareWithGuest
       ? [{ id: "share-guest" as const, label: resolve(msg("Share with guest")), icon: "user-plus" }]
       : []),

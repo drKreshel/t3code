@@ -35,6 +35,14 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     },
     { tag: "path", attrs: { d: "m15 5 4 4" } },
   ],
+  "corner-down-right": [
+    { tag: "polyline", attrs: { points: "15 10 20 15 15 20" } },
+    { tag: "path", attrs: { d: "M4 4v7a4 4 0 0 0 4 4h12" } },
+  ],
+  "corner-left-up": [
+    { tag: "polyline", attrs: { points: "14 9 9 4 4 9" } },
+    { tag: "path", attrs: { d: "M20 20h-7a4 4 0 0 1-4-4V4" } },
+  ],
   copy: [
     { tag: "rect", attrs: { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" } },
     { tag: "path", attrs: { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" } },

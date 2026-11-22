@@ -2,6 +2,11 @@ import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
+import { openRelocateThreadDialog } from "../components/threadRelocation/relocateThreadDialogState";
+import {
+  canMoveThreadToTopLevel,
+  canRelocateThread,
+} from "../components/threadRelocation/relocateThreadLogic";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
@@ -90,6 +95,7 @@ export function useThreadActionMenu(input: {
     archiveThread,
     deleteThread,
     markThreadUnread,
+    relocateThread,
     turnThreadIntoProject,
   } = useThreadActions();
   const regenerateThreadTitle = useOrchestrationCommand(threadEnvironment.regenerateTitle, {
@@ -154,6 +160,8 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        canRelocate: canRelocateThread(thread),
+        canMoveToTopLevel: canMoveThreadToTopLevel(thread),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -269,6 +277,14 @@ export function useThreadActionMenu(input: {
         }
         case "mark-unread":
           markThreadUnread(threadRef);
+          return;
+        case "relocate-under-parent":
+          openRelocateThreadDialog([threadRef]);
+          return;
+        case "move-to-top-level":
+          await reportFailure(m(msg("Failed to move thread to top level")), () =>
+            relocateThread(threadRef, null),
+          );
           return;
         case "share-guest":
           openGuestShareDialog(threadRef);

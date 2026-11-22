@@ -328,6 +328,9 @@ export function useThreadActions() {
   const reorderPinnedThreadMutation = useOrchestrationCommand(threadEnvironment.reorderPin, {
     reportFailure: false,
   });
+  const relocateThreadMutation = useOrchestrationCommand(threadEnvironment.relocate, {
+    reportFailure: false,
+  });
   const reorderActiveThreadMutation = useOrchestrationCommand(threadEnvironment.reorderActive, {
     reportFailure: false,
   });
@@ -1061,6 +1064,11 @@ export function useThreadActions() {
     reorderActiveThread,
     markThreadUnread,
     setThreadAutoSettle,
+    relocateThread: (target: ScopedThreadRef, parentThreadId: ThreadId | null) =>
+      relocateThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, parentThreadId },
+      }),
     turnThreadIntoProject: (target: ScopedThreadRef) =>
       createProjectFromThread({
         environmentId: target.environmentId,

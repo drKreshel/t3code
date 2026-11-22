@@ -407,49 +407,59 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       }),
     ),
   ),
-  t3_thread_organize: writesThread((input) =>
-    Effect.gen(function* () {
-      const { threads, projection, caller } = yield* readThread(input.threadId);
-      const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
-      const byOwnAgent = caller?.id === projection.thread.id;
-      if (input.action === "settle") {
-        return yield* threads
-          .settleThread({ ...common, byOwnAgent })
-          .pipe(Effect.mapError(dispatchFailure));
-      }
-      if (input.action === "mark_unread") {
-        return yield* threads
-          .markThreadUnread({ ...common, byOwnAgent })
-          .pipe(Effect.mapError(dispatchFailure));
-      }
-      let command: OrchestrationV2Command;
-      switch (input.action) {
-        case "snooze":
-          if (input.snoozedUntil === undefined) {
-            return yield* new OrchestratorMcpFailure({
-              code: "invalid_request",
-              message: "snooze requires snoozedUntil.",
-            });
-          }
-          command = { ...common, type: "thread.snooze", snoozedUntil: input.snoozedUntil };
-          break;
-        case "unsnooze":
-        case "unsettle":
-          command = { ...common, type: `thread.${input.action}`, reason: "user" };
-          break;
-        case "pin": {
-          // Always send a key, as the client does: the reducer ignores it for a
-          // thread that is already pinned, and a projection read before this
-          // command can be stale if an unpin commits in between.
-          const orderKey = yield* topOfPinnedRunKey(threads);
-          command = { ...common, type: "thread.pin", ...(orderKey ? { orderKey } : {}) };
-          break;
+  t3_thread_organize: McpToolAccess.writesThreads(
+    (input) => [input.threadId, input.parentThreadId ?? undefined],
+    (input) =>
+      Effect.gen(function* () {
+        const { threads, projection, caller } = yield* readThread(input.threadId);
+        const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
+        const byOwnAgent = caller?.id === projection.thread.id;
+        if (input.action === "settle") {
+          return yield* threads
+            .settleThread({ ...common, byOwnAgent })
+            .pipe(Effect.mapError(dispatchFailure));
         }
-        default:
-          command = { ...common, type: `thread.${input.action}` };
-      }
-      const result = yield* threads.dispatch(command).pipe(Effect.mapError(dispatchFailure));
-      return { sequence: result.sequence };
-    }),
+        if (input.action === "mark_unread") {
+          return yield* threads
+            .markThreadUnread({ ...common, byOwnAgent })
+            .pipe(Effect.mapError(dispatchFailure));
+        }
+        let command: OrchestrationV2Command;
+        switch (input.action) {
+          case "snooze":
+            if (input.snoozedUntil === undefined) {
+              return yield* new OrchestratorMcpFailure({
+                code: "invalid_request",
+                message: "snooze requires snoozedUntil.",
+              });
+            }
+            command = { ...common, type: "thread.snooze", snoozedUntil: input.snoozedUntil };
+            break;
+          case "relocate": {
+            const parentThreadId = yield* required(input.parentThreadId, "parentThreadId");
+            if (parentThreadId !== null) {
+              yield* readThread(parentThreadId);
+            }
+            command = { ...common, type: "thread.relocate", parentThreadId };
+            break;
+          }
+          case "unsnooze":
+          case "unsettle":
+            command = { ...common, type: `thread.${input.action}`, reason: "user" };
+            break;
+          case "pin": {
+            // Always send a key, as the client does: the reducer ignores it for a
+            // thread that is already pinned, and a projection read before this
+            // command can be stale if an unpin commits in between.
+            const orderKey = yield* topOfPinnedRunKey(threads);
+            command = { ...common, type: "thread.pin", ...(orderKey ? { orderKey } : {}) };
+            break;
+          }
+          default:
+            command = { ...common, type: `thread.${input.action}` };
+        }
+        const result = yield* threads.dispatch(command).pipe(Effect.mapError(dispatchFailure));
+        return { sequence: result.sequence };
+      }),
   ),
 });

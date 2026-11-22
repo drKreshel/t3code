@@ -88,6 +88,7 @@ import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { expandAssistantCitationsForProvider } from "@t3tools/shared/assistantCitations";
 import { modelSwitchSince } from "./modelSwitch.ts";
+import { planThreadRelocation } from "../fork/threadRelocation.ts";
 import { contextBoundaryOrdinal, isScheduledFreshRun } from "./contextBoundary.ts";
 import { isPlaceholderThreadTitle } from "./placeholderThreadTitle.ts";
 import { combinePullRequestWatchWakes, type PullRequestWatchWake } from "./pullRequestWatch.ts";
@@ -662,6 +663,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.tag.set":
     case "thread.visit":
     case "thread.mark-unread":
+    case "thread.relocate":
     case "thread.metadata.update":
     case "thread.pull-request.link":
     case "thread.pull-request.unlink":
@@ -5927,6 +5929,62 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       occurredAt: now,
       payload: { ...thread, projectId: command.projectId, worktreePath: null, updatedAt: now },
     });
+  });
+
+  // Fork: relocate a thread under a parent as a subagent, or move it back to top level.
+  const dispatchThreadRelocate = Effect.fn("orchestrationV2.dispatch.threadRelocate")(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.relocate" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore.getThread(command.threadId).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestratorProjectionError({
+            threadId: command.threadId,
+            cause,
+          }),
+      ),
+    );
+    const parent =
+      command.parentThreadId === null ? null : yield* findThread(command.parentThreadId);
+    const parentAncestorIds = new Set<ThreadId>();
+    let cursor = parent;
+    while (cursor !== null && !parentAncestorIds.has(cursor.id)) {
+      parentAncestorIds.add(cursor.id);
+      cursor =
+        cursor.lineage.parentThreadId === null
+          ? null
+          : yield* findThread(cursor.lineage.parentThreadId);
+    }
+    const familyThreads = yield* projectionStore
+      .listFamilyThreads(thread.lineage.rootThreadId)
+      .pipe(mapDispatchError(command));
+    const plan = planThreadRelocation({
+      thread,
+      parentThreadId: command.parentThreadId,
+      parent,
+      parentAncestorIds,
+      familyThreads,
+    });
+    if (!plan.ok) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: plan.reason,
+      });
+    }
+    if (plan.updatedThreads.length === 0) return;
+    const now = yield* DateTime.now;
+    const emitEvent = emit(events, command);
+    for (const updated of plan.updatedThreads) {
+      yield* emitEvent({
+        type: "thread.lineage-updated",
+        threadId: updated.id,
+        providerInstanceId: updated.providerInstanceId,
+        occurredAt: now,
+        payload: updated,
+      });
+    }
   });
 
   const refuseAboveDispatchModeLimit = Effect.fn("orchestrationV2.dispatch.refuseAboveModeLimit")(
@@ -15893,6 +15951,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.project.adopt-folder":
         yield* dispatchThreadProjectAdoptFolder(command, events);
         break;
+      case "thread.relocate":
+        yield* dispatchThreadRelocate(command, events);
+        break;
       case "message.dispatch": {
         const thread = yield* refuseNativeSubagentMessage(command);
         const guestSend =
@@ -16514,6 +16575,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       commandThreadId(command),
       dispatchWithReceiptEffect(command),
     );
+    if (command.type === "thread.relocate" && command.parentThreadId !== null) {
+      const lockOrder = [...new Set([command.threadId, command.parentThreadId])].toSorted();
+      return yield* lockOrder.reduceRight(
+        (locked, id) => threadDispatch.withLock(id, locked),
+        dispatchWithReceiptEffect(command),
+      );
+    }
     // A fork holds its source's lock, so a source deletion and its fork never interleave. A
     // parent's lock comes before its side chats' locks. A side chat fork from a side chat or a
     // fork onto an existing thread would invert that order; dispatch rejects both, so they skip it.

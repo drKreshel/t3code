@@ -88,9 +88,11 @@ export function deriveThreadRelationshipGraph(input: {
       : threads;
   for (const thread of lineageThreads) {
     const parentThreadId =
-      thread.forkedFrom?.type === "run"
-        ? thread.forkedFrom.threadId
-        : thread.lineage.parentThreadId;
+      thread.lineage.relationshipToParent === "subagent"
+        ? thread.lineage.parentThreadId
+        : thread.lineage.relationshipToParent === "fork" && thread.forkedFrom?.type === "run"
+          ? thread.forkedFrom.threadId
+          : thread.lineage.parentThreadId;
     if (parentThreadId === null) continue;
     addEdge({
       sourceThreadId: parentThreadId,

@@ -714,6 +714,21 @@ export const markThreadUnread = Effect.fn("EnvironmentCommands.markThreadUnread"
   });
 });
 
+export interface RelocateThreadInput extends ThreadCommandInput {
+  readonly parentThreadId: ThreadId | null;
+}
+
+export const relocateThread = Effect.fn("EnvironmentCommands.relocateThread")(function* (
+  input: RelocateThreadInput,
+) {
+  return yield* dispatch({
+    type: "thread.relocate",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    parentThreadId: input.parentThreadId,
+  });
+});
+
 export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadMetadata")(
   function* (input: UpdateThreadMetadataInput) {
     const commandId = yield* allocateCommandId(input);

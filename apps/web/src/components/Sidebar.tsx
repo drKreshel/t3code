@@ -165,6 +165,8 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { canShareWithGuestAtom } from "./chat/guestShareAvailability";
 import { openGuestShareDialog } from "./chat/guestShareDialogState";
+import { openRelocateThreadDialog } from "./threadRelocation/relocateThreadDialogState";
+import { canMoveThreadToTopLevel, canRelocateThread } from "./threadRelocation/relocateThreadLogic";
 import {
   buildThreadRouteParams,
   resolveActiveThreadRouteRef,
@@ -943,6 +945,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
+    relocateThread,
     archiveThread,
     deleteThread,
   } = useThreadActions();
@@ -2335,6 +2338,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
+      const relocatableThreads = selectedThreads.filter(canRelocateThread);
+      const canRelocateSelection =
+        relocatableThreads.length > 0 &&
+        relocatableThreads.length === selectedThreads.length &&
+        new Set(relocatableThreads.map((thread) => thread.environmentId)).size === 1;
       // Presets sync across environments, so the first selected thread's stand for all.
       const menuOpenedAt = new Date();
       const snoozePresets = resolveSnoozePresets(
@@ -2387,6 +2395,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 ]
               : []),
             { id: "mark-unread", label: gt("Mark unread ({count})", { count }) },
+            ...(canRelocateSelection
+              ? [
+                  {
+                    id: "relocate-under-parent",
+                    label: gt("Move under parent… ({count})", { count }),
+                    icon: "corner-down-right",
+                    disabled: !canOperateThreads(relocatableThreads),
+                  },
+                ]
+              : []),
             {
               id: "delete",
               label: gt("Delete ({count})", { count }),
@@ -2497,6 +2515,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           if (thread) markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
         }
         clearSelection();
+        return;
+      }
+      if (clicked.value === "relocate-under-parent") {
+        if (canRelocateSelection) {
+          openRelocateThreadDialog(
+            relocatableThreads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
+          );
+          clearSelection();
+        }
         return;
       }
       if (clicked.value !== "delete") return;
@@ -2682,6 +2709,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              canRelocate: canRelocateThread(thread),
+              canMoveToTopLevel: canMoveThreadToTopLevel(thread),
               canRename: !fromSearch,
               supports: {
                 settlement: configLoaded,
@@ -2822,6 +2851,23 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "mark-unread":
             markThreadUnread(threadRef);
             return;
+          case "relocate-under-parent":
+            openRelocateThreadDialog([threadRef]);
+            return;
+          case "move-to-top-level": {
+            const result = await relocateThread(threadRef, null);
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: gt("Failed to move thread to top level"),
+                  description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
+                }),
+              );
+            }
+            return;
+          }
           case "copy-path":
             if (!threadWorkspacePath) {
               toastManager.add(
