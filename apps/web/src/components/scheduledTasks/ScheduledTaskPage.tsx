@@ -37,6 +37,7 @@ import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
+import { useClientSettings } from "../../hooks/useSettings";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
   DEFAULT_RUN_SORT,
@@ -197,6 +198,7 @@ function TaskDetails({
 }) {
   const projects = useProjects();
   const modelLabel = useModelLabel(environmentId);
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const project = projects.find(
     (candidate) => candidate.environmentId === environmentId && candidate.id === task.projectId,
   );
@@ -204,7 +206,7 @@ function TaskDetails({
     <section className="flex flex-col gap-4">
       <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
         <Detail label="Schedule">
-          {scheduleLabel(task.schedule)}
+          {scheduleLabel(task.schedule, timestampFormat)}
           {task.schedule.type === "cron" ? (
             <code className="ms-2 text-xs text-muted-foreground">{task.schedule.expression}</code>
           ) : null}

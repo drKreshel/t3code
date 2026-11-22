@@ -25,6 +25,7 @@ import {
   type WebhookFilterDraft,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
 import { scheduleTimeZoneLabel } from "@t3tools/client-runtime/scheduled-task-time-zone";
+import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { msg } from "gt-react";
 
 import {
@@ -39,6 +40,7 @@ import {
 } from "@t3tools/shared/zonedDateTime";
 import { getActiveLocale, m, type MessageResolver } from "../../i18n/messages";
 import type { ProviderInstanceEntry } from "../../providerInstances";
+import { formatDateTimeTimestamp, formatTimeOfDay } from "../../timestampFormat";
 
 import type { ResolvedSettingsScope } from "./settingsScope";
 
@@ -50,13 +52,9 @@ export function weekdayShortLabel(day: number, locale: string = getActiveLocale(
   );
 }
 
-const ONCE_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
 export function scheduleLabel(
   schedule: ScheduledTaskSchedule,
+  timestampFormat: TimestampFormat,
   timeZone?: string,
   runAt?: string | null,
   resolve: MessageResolver = m,
@@ -67,13 +65,14 @@ export function scheduleLabel(
     // Fork: a one-off picked in a timezone reads in that zone.
     if (!schedule.timezone || !isKnownTimeZone(schedule.timezone)) {
       return resolve(
-        msg("Once, {time}", { time: ONCE_FORMATTER.format(new Date(schedule.runAt)) }),
+        msg("Once, {time}", { time: formatDateTimeTimestamp(schedule.runAt, timestampFormat) }),
       );
     }
     const zoned = new Intl.DateTimeFormat(undefined, {
       dateStyle: "medium",
       timeStyle: "short",
       timeZone: schedule.timezone,
+      ...(timestampFormat === "locale" ? {} : { hour12: timestampFormat === "12-hour" }),
     });
     return resolve(
       msg("Once, {time} ({zone})", {
@@ -99,7 +98,7 @@ export function scheduleLabel(
     return zone === undefined ? description : `${description} ${zone}`;
   }
   const weekdays = schedule.weekdays ?? [];
-  const time = schedule.timeOfDay;
+  const time = formatTimeOfDay(schedule.timeOfDay, timestampFormat);
   if (weekdays.length === 0) {
     return zone === undefined
       ? resolve(msg("Daily at {time}", { time }))

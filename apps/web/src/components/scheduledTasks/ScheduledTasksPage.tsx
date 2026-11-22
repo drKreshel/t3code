@@ -21,6 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { useProjects } from "../../state/entities";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
+import { useClientSettings } from "../../hooks/useSettings";
 import { serverEnvironment } from "../../state/server";
 import {
   DEFAULT_TASK_SORT,
@@ -52,6 +53,7 @@ export interface ScheduledTasksSearch {
 
 export function ScheduledTasksPage() {
   const navigate = useNavigate();
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const search = useSearch({ from: "/scheduled/" });
   const environmentId = usePrimaryEnvironmentId();
   const tasksQuery = useEnvironmentQuery(
@@ -68,7 +70,7 @@ export function ScheduledTasksPage() {
   const projectTitle = (projectId: string) => projectOf(projectId)?.title ?? projectId;
   const labels = (task: ScheduledTask): TaskLabels => ({
     project: projectTitle(task.projectId),
-    schedule: scheduleLabel(task.schedule),
+    schedule: scheduleLabel(task.schedule, timestampFormat),
     model: formatModelLabel(modelLabel(task.modelSelection)),
   });
   const projectId = search.project ?? null;
@@ -196,7 +198,7 @@ export function ScheduledTasksPage() {
                   </TableCell>
                   <TableCell>
                     <span className="block max-w-64 whitespace-normal text-muted-foreground">
-                      {scheduleLabel(task.schedule)}
+                      {scheduleLabel(task.schedule, timestampFormat)}
                     </span>
                   </TableCell>
                   <TableCell>
