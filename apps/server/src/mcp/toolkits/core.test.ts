@@ -1679,3 +1679,74 @@ it.effect(
     );
   },
 );
+
+it.effect(
+  "t3_thread_organize relocate dispatches thread.relocate with parentThreadId or null",
+  () => {
+    const seenCommands: Array<unknown> = [];
+    const childId = ThreadId.make("child-chat");
+    const parentId = ThreadId.make("parent-chat");
+    const threadRecord = (id: ThreadId) => ({
+      id,
+      projectId: ProjectId.make("project-1"),
+      modelSelection: { instanceId: "codex", model: "gpt-5" },
+      runtimeMode: "auto",
+      interactionMode: "default",
+      deletedAt: null,
+    });
+    return Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const call = (args: Record<string, unknown>) =>
+        server
+          .callTool({ name: "t3_thread_organize", arguments: args })
+          .pipe(
+            Effect.provideService(
+              McpInvocationContext.McpInvocationContext,
+              clientScope("full-access"),
+            ),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+
+      const missingParent = yield* call({ action: "relocate", threadId: childId });
+      expect(declaredFailure(missingParent)).toMatchObject({ code: "invalid_request" });
+
+      const attached = yield* call({
+        action: "relocate",
+        threadId: childId,
+        parentThreadId: parentId,
+      });
+      expect(attached.isError).toBe(false);
+
+      const detached = yield* call({
+        action: "relocate",
+        threadId: childId,
+        parentThreadId: null,
+      });
+      expect(detached.isError).toBe(false);
+
+      expect(seenCommands).toMatchObject([
+        { type: "thread.relocate", threadId: childId, parentThreadId: parentId },
+        { type: "thread.relocate", threadId: childId, parentThreadId: null },
+      ]);
+    }).pipe(
+      Effect.provide(
+        layerThreadToolkit.pipe(
+          Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+          Layer.provide(NodeCrypto.layer),
+          Layer.provide(
+            Layer.mock(ThreadManagement.ThreadManagementService)({
+              getThreadShell: (id) => Effect.succeed(threadRecord(id) as never),
+              getProjectThreadRecords: (input) =>
+                Effect.succeed({ thread: threadRecord(input.threadId) } as never),
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  seenCommands.push(command);
+                  return { sequence: seenCommands.length } as never;
+                }),
+            }),
+          ),
+        ),
+      ),
+    );
+  },
+);

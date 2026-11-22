@@ -496,9 +496,12 @@ export function ThreadRelationshipsPanel(props: {
     relationshipShells.find((thread) => thread.id === props.threadId) ??
     archivedShells?.find((thread) => thread.id === props.threadId);
   const parentThreadId =
-    currentThread?.forkedFrom?.type === "run"
-      ? currentThread.forkedFrom.threadId
-      : currentThread?.lineage.parentThreadId;
+    currentThread?.lineage.relationshipToParent === "subagent"
+      ? currentThread.lineage.parentThreadId
+      : currentThread?.lineage.relationshipToParent === "fork" &&
+          currentThread.forkedFrom?.type === "run"
+        ? currentThread.forkedFrom.threadId
+        : currentThread?.lineage.parentThreadId;
   const parentShell = parentThreadId
     ? (relationshipShells.find((thread) => thread.id === parentThreadId) ??
       archivedShells?.find((thread) => thread.id === parentThreadId))

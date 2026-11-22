@@ -32,7 +32,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
   description:
-    "Pin, snooze, settle, archive, permanently delete, or mark a thread unread. Omit `threadId` for this thread. `snooze` needs `snoozedUntil`. `delete` erases its history for good. Settling this thread applies at turn end. A failed turn or queued message leaves it active.",
+    "Pin, snooze, settle, archive, relocate, permanently delete, or mark a thread unread. Omit `threadId` for this thread. `snooze` needs `snoozedUntil`. `relocate` needs `parentThreadId` (a parent thread to nest under as a subagent, or null to move to top level). `delete` erases its history for good. Settling this thread applies at turn end. A failed turn or queued message leaves it active.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     threadId: Schema.optional(ThreadId),
@@ -45,10 +45,12 @@ const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
       "unsettle",
       "archive",
       "unarchive",
+      "relocate",
       "delete",
       "mark_unread",
     ]),
     snoozedUntil: Schema.optional(IsoDateTime),
+    parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   }),
   success: Schema.Union([
     OrchestrationV2DispatchCommandResult,

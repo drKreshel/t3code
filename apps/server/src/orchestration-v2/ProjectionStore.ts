@@ -671,6 +671,10 @@ export interface ProjectionStoreV2Shape {
   readonly findThread: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2AppThread | null, ProjectionStoreV2Error>;
+  /** Fork: every non-deleted thread sharing `rootThreadId`, for lineage relocation cascades. */
+  readonly listFamilyThreads: (
+    rootThreadId: ThreadId,
+  ) => Effect.Effect<ReadonlyArray<OrchestrationV2AppThread>, ProjectionStoreV2Error>;
   readonly getLimitRecoveryCandidates: (options: {
     readonly now: DateTime.Utc;
     readonly autoResume: boolean;
@@ -1076,6 +1080,7 @@ export function applyToProjection(
     // Reordering and PR refreshes preserve the orchestrator's activity timestamp.
     case "thread.active-reordered":
     case "thread.tags-updated":
+    case "thread.lineage-updated":
     case "thread.pull-request-synced":
     case "thread.issue-synced":
       return {
@@ -2521,6 +2526,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             case "thread.visited":
             case "thread.marked-unread":
             case "thread.metadata-updated":
+            case "thread.lineage-updated":
             case "thread.pull-request-synced":
             case "thread.issue-synced":
             case "thread.runtime-mode-updated":
@@ -3375,6 +3381,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             event.type !== "thread.visit-recorded" &&
             event.type !== "thread.marked-unread" &&
             event.type !== "thread.metadata-updated" &&
+            event.type !== "thread.lineage-updated" &&
             event.type !== "thread.pull-request-synced" &&
             event.type !== "thread.issue-synced" &&
             event.type !== "thread.pull-request-link-updated" &&
@@ -5997,6 +6004,23 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
     const findThread: ProjectionStoreV2Shape["findThread"] = Effect.fn(
       "ProjectionStore.findThread",
     )(selectThread);
+
+    const listFamilyThreads: ProjectionStoreV2Shape["listFamilyThreads"] = Effect.fn(
+      "ProjectionStore.listFamilyThreads",
+    )((rootThreadId) =>
+      sql<{ readonly payload_json: string }>`
+        SELECT payload_json
+        FROM orchestration_v2_projection_threads
+        WHERE deleted_at IS NULL
+          AND CASE WHEN json_valid(payload_json)
+            THEN json_extract(payload_json, '$.lineage.rootThreadId') END = ${rootThreadId}
+      `.pipe(
+        Effect.flatMap((rows) =>
+          Effect.forEach(rows, (row) => decodeThreadPayload(row.payload_json)),
+        ),
+        Effect.mapError((cause) => new ProjectionStoreReadError({ threadId: rootThreadId, cause })),
+      ),
+    );
 
     const requireThread = Effect.fn("ProjectionStore.requireThread")(function* (
       threadId: ThreadId,
@@ -9856,6 +9880,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       findGuestShareThreadId: readOnReader(findGuestShareThreadId),
       getThread: readOnReader(getThread),
       findThread: readOnReader(findThread),
+      listFamilyThreads: readOnReader(listFamilyThreads),
       getSettlementCandidates: readOnReader(getSettlementCandidates),
       getThreadsWithPullRequests: readOnReader(getThreadsWithPullRequests),
       getThreadTitles: readOnReader(getThreadTitles),

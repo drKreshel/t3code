@@ -2149,6 +2149,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.visited",
       "thread.marked-unread",
       "thread.metadata-updated",
+      "thread.lineage-updated",
       "thread.pull-request-synced",
       "thread.issue-synced",
       "thread.runtime-mode-updated",
@@ -3105,6 +3106,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.pull-request-synced",
       "thread.issue-synced",
       "thread.metadata-updated",
+      "thread.lineage-updated",
       "thread.runtime-mode-updated",
       "thread.interaction-mode-updated",
       "thread.model-selection-updated",
@@ -3406,6 +3408,13 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.mark-unread"),
     commandId: CommandId,
     threadId: ThreadId,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.relocate"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    /** Parent thread to nest this thread under as a subagent, or null to move it to top level. */
+    parentThreadId: Schema.NullOr(ThreadId),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.metadata.update"),

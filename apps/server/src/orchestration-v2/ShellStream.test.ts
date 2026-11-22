@@ -215,6 +215,51 @@ describe("omitIdleSubagentShells", () => {
       ),
     ).toBe(false);
   });
+
+  it("updates subagent transcript filtering when thread.lineage-updated moves a thread in or out of a parent", () => {
+    const subagentThreadIds = new Set<string>();
+    const moveUnderParent = {
+      event: {
+        threadId: "chat-1",
+        type: "thread.lineage-updated",
+        payload: {
+          lineage: {
+            parentThreadId: "parent-1",
+            relationshipToParent: "subagent",
+            rootThreadId: "parent-1",
+          },
+        },
+      },
+    } as ApplicationStoredEvent;
+    const messageUpdate = {
+      event: {
+        threadId: "chat-1",
+        type: "message.updated",
+        payload: {},
+      },
+    } as ApplicationStoredEvent;
+    const moveToTopLevel = {
+      event: {
+        threadId: "chat-1",
+        type: "thread.lineage-updated",
+        payload: {
+          lineage: {
+            parentThreadId: null,
+            relationshipToParent: null,
+            rootThreadId: "chat-1",
+          },
+        },
+      },
+    } as ApplicationStoredEvent;
+
+    expect(shouldPublishShellApplicationEvent(moveUnderParent, subagentThreadIds)).toBe(true);
+    expect(subagentThreadIds.has("chat-1")).toBe(true);
+    expect(shouldPublishShellApplicationEvent(messageUpdate, subagentThreadIds)).toBe(false);
+
+    expect(shouldPublishShellApplicationEvent(moveToTopLevel, subagentThreadIds)).toBe(true);
+    expect(subagentThreadIds.has("chat-1")).toBe(false);
+    expect(shouldPublishShellApplicationEvent(messageUpdate, subagentThreadIds)).toBe(true);
+  });
 });
 
 describe("omitOlderSettledShells", () => {
