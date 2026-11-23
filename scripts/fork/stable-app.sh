@@ -152,7 +152,8 @@ cmd_build() {
   (cd "$STABLE_DIR" && pnpm install --frozen-lockfile)
   log "Building the desktop app (takes a few minutes)"
   rm -rf "$STABLE_DIR/release"
-  (cd "$STABLE_DIR" && T3CODE_APPLE_SPEECH_OPTIONAL=1 pnpm exec vp run dist:desktop:dmg)
+  # Agent chats can inherit a TMPDIR under $HOME, where ~/node_modules fails the bundle self-check.
+  (cd "$STABLE_DIR" && TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)" T3CODE_APPLE_SPEECH_OPTIONAL=1 pnpm exec vp run dist:desktop:dmg)
   # The build runner can exit 0 after a failed step, so check for the artifact itself.
   compgen -G "$STABLE_DIR/release/*.zip" >/dev/null || die "The desktop build produced no app; see the output above."
   printf '%s %s\n' "$sha" "$ref" >"$STABLE_DIR/release/BUILT_FROM"
