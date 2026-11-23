@@ -587,6 +587,10 @@
       "types": "./src/atomicWrite.ts",
       "import": "./src/atomicWrite.ts"
     },
+    "./mcpHttpFetch": {
+      "types": "./src/mcpHttpFetch.ts",
+      "import": "./src/mcpHttpFetch.ts"
+    },
     "./mcpResponsePayloads": {
       "types": "./src/mcpResponsePayloads.ts",
       "import": "./src/mcpResponsePayloads.ts"

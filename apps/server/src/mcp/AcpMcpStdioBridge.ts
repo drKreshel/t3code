@@ -7,6 +7,7 @@ import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import { mcpHttpFetch } from "@t3tools/shared/mcpHttpFetch";
 import { discardResponseBody, responsePayloads } from "@t3tools/shared/mcpResponsePayloads";
 
 /** ACP mandates stdio MCP support; HTTP/SSE support varies. */
@@ -86,7 +87,7 @@ export interface McpToolSession {
 export const mcpToolSession = (
   options: McpToolSessionOptions,
 ): Effect.Effect<McpToolSession, AcpMcpBridgeError, Scope.Scope> => {
-  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const fetchImplementation = options.fetchImplementation ?? mcpHttpFetch;
   let sessionId: string | null = null;
   let protocolVersion: string | null = null;
   let nextId = 0;
@@ -193,7 +194,7 @@ function callAcpMcpTool(options: {
 }
 
 export function runAcpMcpStdioBridge(options: AcpMcpStdioBridgeOptions): Effect.Effect<void> {
-  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const fetchImplementation = options.fetchImplementation ?? mcpHttpFetch;
   return Effect.gen(function* () {
     let sessionId: string | null = null;
     let protocolVersion: string | null = null;
