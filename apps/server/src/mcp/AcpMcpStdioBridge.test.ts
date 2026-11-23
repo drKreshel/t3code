@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off globalTimers:off
+import * as NodeHttp from "node:http";
 import * as NodeStream from "node:stream";
 
 import { describe, expect, it } from "@effect/vitest";
@@ -40,6 +41,36 @@ function pendingFetch(started: Deferred.Deferred<AbortSignal | undefined>) {
   };
 }
 
+async function startMcpHttpFixture(
+  responder: (
+    request: {
+      readonly method: string;
+      readonly headers: NodeHttp.IncomingHttpHeaders;
+      readonly body: string;
+    },
+    response: NodeHttp.ServerResponse,
+  ) => Promise<void> | void,
+) {
+  const server = NodeHttp.createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += String(chunk);
+    await responder({ method: request.method ?? "GET", headers: request.headers, body }, response);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("Expected TCP listener address.");
+  }
+  return {
+    endpoint: `http://127.0.0.1:${address.port}/mcp`,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
 describe("AcpMcpStdioBridge", () => {
   it("prints structured results once in the terminal while retaining other content and errors", async () => {
     const originalEnvironment = process.env;
@@ -47,11 +78,6 @@ describe("AcpMcpStdioBridge", () => {
       [Symbol.dispose]: () => {
         process.env = originalEnvironment;
       },
-    };
-    process.env = {
-      ...originalEnvironment,
-      T3_ACP_MCP_ENDPOINT: "http://127.0.0.1:1/mcp",
-      T3_ACP_MCP_AUTHORIZATION: "Bearer bridge-test",
     };
     const structuredContent = { taskId: "task-1", status: "failed" };
     const explanation = { type: "text", text: "The command failed." };
@@ -61,32 +87,47 @@ describe("AcpMcpStdioBridge", () => {
       content: [{ type: "text", text: JSON.stringify(structuredContent) }, explanation, image],
       isError: true,
     };
-    using fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
-      if (init?.method === "DELETE") return new Response(null, { status: 204 });
-      const message = JSON.parse(String(init?.body)) as { id?: string; method: string };
-      if (message.method === "notifications/initialized") {
-        return new Response(null, { status: 202 });
+    const methods: Array<string> = [];
+    const fixture = await startMcpHttpFixture((request, response) => {
+      methods.push(request.method);
+      if (request.method === "DELETE") {
+        response.writeHead(204).end();
+        return;
       }
-      return Response.json(
-        {
+      const message = JSON.parse(request.body) as { id?: string; method: string };
+      if (message.method === "notifications/initialized") {
+        response.writeHead(202).end();
+        return;
+      }
+      response.writeHead(200, {
+        "content-type": "application/json",
+        "mcp-session-id": "session-42",
+      });
+      response.end(
+        JSON.stringify({
           jsonrpc: "2.0",
           id: message.id,
           result: message.method === "initialize" ? { protocolVersion: "2025-06-18" } : result,
-        },
-        { headers: { "mcp-session-id": "session-42" } },
+        }),
       );
     });
-    using output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    try {
+      process.env = {
+        ...originalEnvironment,
+        T3_ACP_MCP_ENDPOINT: fixture.endpoint,
+        T3_ACP_MCP_AUTHORIZATION: "Bearer bridge-test",
+      };
+      using output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 
-    await runAcpMcpCliFastPath("acp-mcp-call", ["task_status", '{"taskId":"task-1"}']);
+      await runAcpMcpCliFastPath("acp-mcp-call", ["task_status", '{"taskId":"task-1"}']);
 
-    expect(output).toHaveBeenCalledExactlyOnceWith(
-      `${JSON.stringify({ ...result, content: [explanation, image] })}\n`,
-    );
-    expect(fetch).toHaveBeenLastCalledWith(
-      "http://127.0.0.1:1/mcp",
-      expect.objectContaining({ method: "DELETE" }),
-    );
+      expect(output).toHaveBeenCalledExactlyOnceWith(
+        `${JSON.stringify({ ...result, content: [explanation, image] })}\n`,
+      );
+      expect(methods.at(-1)).toBe("DELETE");
+    } finally {
+      await fixture.close();
+    }
   });
 
   it("reads the arguments from stdin when given -", async () => {
@@ -96,42 +137,53 @@ describe("AcpMcpStdioBridge", () => {
         process.env = originalEnvironment;
       },
     };
-    process.env = {
-      ...originalEnvironment,
-      T3_ACP_MCP_ENDPOINT: "http://127.0.0.1:1/mcp",
-      T3_ACP_MCP_AUTHORIZATION: "Bearer bridge-test",
-    };
     const calls: Array<unknown> = [];
-    using _fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
-      if (init?.method === "DELETE") return new Response(null, { status: 204 });
-      const message = JSON.parse(String(init?.body)) as {
+    const fixture = await startMcpHttpFixture((request, response) => {
+      if (request.method === "DELETE") {
+        response.writeHead(204).end();
+        return;
+      }
+      const message = JSON.parse(request.body) as {
         id?: string;
         method: string;
         params?: unknown;
       };
       if (message.method === "notifications/initialized") {
-        return new Response(null, { status: 202 });
+        response.writeHead(202).end();
+        return;
       }
       if (message.method === "tools/call") calls.push(message.params);
-      return Response.json({
-        jsonrpc: "2.0",
-        id: message.id,
-        result:
-          message.method === "initialize" ? { protocolVersion: "2025-06-18" } : { content: [] },
-      });
-    });
-    using _output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-    using _stdin = vi
-      .spyOn(process, "stdin", "get")
-      .mockReturnValue(
-        NodeStream.Readable.from(['{"task":"say \\"hi\\"",', '"mode":"async"}\r\n']) as never,
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          result:
+            message.method === "initialize" ? { protocolVersion: "2025-06-18" } : { content: [] },
+        }),
       );
+    });
+    try {
+      process.env = {
+        ...originalEnvironment,
+        T3_ACP_MCP_ENDPOINT: fixture.endpoint,
+        T3_ACP_MCP_AUTHORIZATION: "Bearer bridge-test",
+      };
+      using _output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      using _stdin = vi
+        .spyOn(process, "stdin", "get")
+        .mockReturnValue(
+          NodeStream.Readable.from(['{"task":"say \\"hi\\"",', '"mode":"async"}\r\n']) as never,
+        );
 
-    await runAcpMcpCliFastPath("acp-mcp-call", ["delegate_task", "-"]);
+      await runAcpMcpCliFastPath("acp-mcp-call", ["delegate_task", "-"]);
 
-    expect(calls).toEqual([
-      { name: "delegate_task", arguments: { task: 'say "hi"', mode: "async" } },
-    ]);
+      expect(calls).toEqual([
+        { name: "delegate_task", arguments: { task: 'say "hi"', mode: "async" } },
+      ]);
+    } finally {
+      await fixture.close();
+    }
   });
 
   it.effect("forwards requests and replays the session id and protocol version", () =>
@@ -489,5 +541,116 @@ describe("AcpMcpStdioBridge", () => {
       yield* Fiber.interrupt(fiber);
       expect(signal?.aborted).toBe(true);
     }),
+  );
+
+  it.live(
+    "uses node:http instead of undici global fetch so long-blocking tool calls do not hit headers timeout",
+    () =>
+      Effect.gen(function* () {
+        const callStarted = yield* Deferred.make<void>();
+        const releaseCall = Promise.withResolvers<void>();
+        const server = yield* Effect.acquireRelease(
+          Effect.promise(async () => {
+            const listening = NodeHttp.createServer(async (request, response) => {
+              let body = "";
+              for await (const chunk of request) body += String(chunk);
+              if (request.method === "DELETE") {
+                response.writeHead(204).end();
+                return;
+              }
+              const message = JSON.parse(body) as { id?: unknown; method?: string };
+              if (message.method === "notifications/initialized") {
+                response.writeHead(202).end();
+                return;
+              }
+              if (message.method === "tools/call") {
+                Deferred.doneUnsafe(callStarted, Effect.void);
+                await releaseCall.promise;
+              }
+              response.writeHead(200, {
+                "content-type": "application/json",
+                "mcp-session-id": "session-live",
+              });
+              response.end(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: message.id,
+                  result:
+                    message.method === "initialize"
+                      ? { protocolVersion: "2025-06-18" }
+                      : { structuredContent: { status: "saved" }, content: [] },
+                }),
+              );
+            });
+            await new Promise<void>((resolve) => listening.listen(0, "127.0.0.1", resolve));
+            return listening;
+          }),
+          (listening) =>
+            Effect.promise(
+              () =>
+                new Promise<void>((resolve) => {
+                  listening.closeAllConnections();
+                  listening.close(() => resolve());
+                }),
+            ),
+        );
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          throw new Error("Expected TCP listener address.");
+        }
+        const endpoint = `http://127.0.0.1:${address.port}/mcp`;
+        using globalFetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(
+          Object.assign(new TypeError("fetch failed"), {
+            cause: Object.assign(new Error("Headers Timeout Error"), {
+              code: "UND_ERR_HEADERS_TIMEOUT",
+            }),
+          }),
+        );
+
+        const releaser = yield* Deferred.await(callStarted).pipe(
+          Effect.andThen(Effect.sync(() => releaseCall.resolve())),
+          Effect.forkChild,
+        );
+        const result = yield* mcpToolSession({
+          endpoint,
+          authorization: "Bearer bridge-test",
+          clientName: "t3-code-acp-cli",
+        }).pipe(
+          Effect.flatMap((session) => session.call("request_secret", { label: "API key" })),
+          Effect.scoped,
+        );
+        yield* Fiber.join(releaser);
+        expect(result).toEqual({
+          structuredContent: { status: "saved" },
+          content: [],
+        });
+
+        const input = new NodeStream.PassThrough();
+        const written: Array<string> = [];
+        const bridge = yield* Effect.forkChild(
+          runAcpMcpStdioBridge({
+            endpoint,
+            authorization: "Bearer bridge-test",
+            input,
+            output: { write: (chunk) => written.push(chunk) },
+          }),
+        );
+        input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" })}\n`);
+        input.write(
+          `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "request_secret", arguments: {} } })}\n`,
+        );
+        input.end();
+        yield* Fiber.join(bridge);
+
+        expect(written.map((chunk) => JSON.parse(chunk))).toEqual([
+          { jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-06-18" } },
+          {
+            jsonrpc: "2.0",
+            id: 2,
+            result: { structuredContent: { status: "saved" }, content: [] },
+          },
+        ]);
+        expect(globalFetch).not.toHaveBeenCalled();
+      }),
   );
 });

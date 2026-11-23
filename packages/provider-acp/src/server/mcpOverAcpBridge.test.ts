@@ -1,9 +1,14 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeHttp from "node:http";
+
 import { describe, expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
+import { vi } from "vite-plus/test";
 
 import { makeAcpMcpOverAcpBridge } from "./mcpOverAcpBridge.ts";
 
@@ -253,5 +258,89 @@ describe("AcpMcpOverAcpBridge", () => {
         .pipe(Effect.flip);
       expect(failure.message).toContain("exceeds 8 MiB");
     }),
+  );
+
+  it.live(
+    "uses node:http instead of undici global fetch so long-blocking tool calls do not hit headers timeout",
+    () =>
+      Effect.gen(function* () {
+        const callStarted = yield* Deferred.make<void>();
+        const releaseCall = Promise.withResolvers<void>();
+        const server = yield* Effect.acquireRelease(
+          Effect.promise(async () => {
+            const listening = NodeHttp.createServer(async (request, response) => {
+              let body = "";
+              for await (const chunk of request) body += String(chunk);
+              if (request.method === "DELETE") {
+                response.writeHead(204).end();
+                return;
+              }
+              const message = JSON.parse(body) as { id?: unknown; method?: string };
+              if (message.method === "tools/call") {
+                Deferred.doneUnsafe(callStarted, Effect.void);
+                await releaseCall.promise;
+              }
+              response.writeHead(200, {
+                "content-type": "application/json",
+                "mcp-session-id": "session-live",
+              });
+              response.end(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: message.id,
+                  result:
+                    message.method === "initialize"
+                      ? { protocolVersion: "2025-06-18" }
+                      : { content: [], structuredContent: { status: "saved" } },
+                }),
+              );
+            });
+            await new Promise<void>((resolve) => listening.listen(0, "127.0.0.1", resolve));
+            return listening;
+          }),
+          (listening) =>
+            Effect.promise(
+              () =>
+                new Promise<void>((resolve) => {
+                  listening.closeAllConnections();
+                  listening.close(() => resolve());
+                }),
+            ),
+        );
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          throw new Error("Expected TCP listener address.");
+        }
+        using globalFetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(
+          Object.assign(new TypeError("fetch failed"), {
+            cause: Object.assign(new Error("Headers Timeout Error"), {
+              code: "UND_ERR_HEADERS_TIMEOUT",
+            }),
+          }),
+        );
+        const bridge = yield* makeAcpMcpOverAcpBridge({
+          endpoint: `http://127.0.0.1:${address.port}/mcp`,
+          authorization: "Bearer bridge-test",
+          allocateConnectionId: Effect.succeed("connection-live"),
+        });
+        const connected = yield* bridge.connect({ serverId: "t3-code" });
+        yield* bridge.message({ connectionId: connected.connectionId, method: "initialize" });
+        const releaser = yield* Deferred.await(callStarted).pipe(
+          Effect.andThen(Effect.sync(() => releaseCall.resolve())),
+          Effect.forkChild,
+        );
+        const result = yield* bridge.message({
+          connectionId: connected.connectionId,
+          method: "tools/call",
+          params: { name: "request_secret", arguments: {} },
+        });
+        yield* Fiber.join(releaser);
+        expect(result).toEqual({
+          content: [],
+          structuredContent: { status: "saved" },
+        });
+        yield* bridge.disconnect({ connectionId: connected.connectionId });
+        expect(globalFetch).not.toHaveBeenCalled();
+      }),
   );
 });
