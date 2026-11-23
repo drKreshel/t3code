@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { GitRefName, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
  * Input for the `t3_worktree_handoff` MCP tool: creates a worktree, or with `attach` binds an
@@ -18,13 +18,13 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
     }),
   ),
   branch: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    GitRefName.annotate({
       description:
         "New branch name. Required unless `attach`; when attaching, must match the checked-out branch.",
     }),
   ),
   baseRef: Schema.optional(
-    TrimmedNonEmptyString.annotate({
+    GitRefName.annotate({
       description: "Default: checked-out branch.",
     }),
   ),
@@ -91,9 +91,9 @@ export const WorktreeMcpHandoffResult = Schema.Struct({
   threadId: ThreadId,
   /** Null means the thread now uses the project's main checkout. */
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  branch: TrimmedNonEmptyString,
+  branch: GitRefName,
   /** Null when an existing checkout was attached. */
-  baseRef: Schema.NullOr(TrimmedNonEmptyString),
+  baseRef: Schema.NullOr(GitRefName),
   startedFromOrigin: Schema.Boolean,
   setupScript: WorktreeMcpSetupScriptStatus,
   continuation: WorktreeMcpContinuationStatus,
@@ -114,7 +114,7 @@ export const WorktreeMcpStatusResult = Schema.Struct({
   threadId: ThreadId,
   attached: Schema.Boolean,
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-  branch: Schema.NullOr(TrimmedNonEmptyString),
+  branch: Schema.NullOr(GitRefName),
   projectWorkspaceRoot: TrimmedNonEmptyString,
   defaultStartFromOrigin: Schema.Boolean.annotate({
     description: "`startFromOrigin` default for `t3_worktree_handoff`.",

@@ -747,7 +747,8 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
       const queued = ThreadId.make("thread:queued");
       const stopped = ThreadId.make("thread:stopped");
       const recovered = ThreadId.make("thread:recovered");
-      const run = (owner: ThreadId, status: "rolled_back" | "cancelled") =>
+      const restarted = ThreadId.make("thread:restarted");
+      const run = (owner: ThreadId, status: "rolled_back" | "cancelled", started = true) =>
         ({
           id: EventId.make(`run:${owner}`),
           type: "run.created",
@@ -768,7 +769,7 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
             activeAttemptId: null,
             status,
             requestedAt: at(1),
-            startedAt: at(1),
+            startedAt: started ? at(1) : null,
             completedAt: at(2),
             checkpointId: null,
             contextHandoffId: null,
@@ -819,7 +820,7 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
             runId: RunId.make(`run:${rewound}`),
           }),
           thread(queued, project),
-          run(queued, "cancelled"),
+          run(queued, "cancelled", false),
           message(queued, "queued-prompt", "user", "then mount the albatross drive", {
             runId: RunId.make(`run:${queued}`),
           }),
@@ -841,6 +842,13 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
             runId: RunId.make(`run:${recovered}`),
           }),
           shown(recovered, "recovered-reply", "reply"),
+          // A restart cancels a turn that already took its queued prompt.
+          thread(restarted, project),
+          run(restarted, "cancelled"),
+          message(restarted, "delivered-prompt", "user", "then label the albatross drive", {
+            runId: RunId.make(`run:${restarted}`),
+          }),
+          shown(restarted, "delivered-prompt", "queued_turn"),
         ],
         projections.apply,
         { discard: true },
@@ -851,6 +859,7 @@ it.layer(layerTest)("ThreadSearch filters before it ranks", (it) => {
           .sort(),
         [
           MessageId.make("async-answer:request-1"),
+          MessageId.make("delivered-prompt"),
           MessageId.make("recovered-reply"),
           MessageId.make("stopped-prompt"),
         ],
