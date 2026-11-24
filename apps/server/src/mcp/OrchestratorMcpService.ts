@@ -2598,11 +2598,16 @@ const make = Effect.gen(function* () {
           const project = yield* requireProject(existing.projectId);
           yield* assertScheduledWorkspace(project.workspaceRoot, input.workspaceStrategy);
         }
+        // The model this task runs and shows now, so leaving `target` out changes nothing.
+        const currentSelection =
+          threadId === existing.threadId
+            ? yield* scheduledTaskRunSelection(existing)
+            : existing.modelSelection;
         const modelSelection =
           input.target === undefined
-            ? existing.modelSelection
+            ? currentSelection
             : (yield* resolveTargetRechecking({
-                inherited: existing.modelSelection,
+                inherited: currentSelection,
                 projectId: existing.projectId,
                 target: input.target,
                 providers: yield* loadProviders,

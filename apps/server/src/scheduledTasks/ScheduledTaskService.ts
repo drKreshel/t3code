@@ -1719,17 +1719,33 @@ export const layer = Layer.effect(
       );
       if (modelSwitches !== undefined) {
         if (threadId === null) yield* modelSwitches.clear(id);
-        else if (
-          existingTask === null ||
-          !modelSelectionsEqual(existingTask.modelSelection, input.modelSelection)
-        ) {
+        else {
           const thread = yield* threadManagement
             .getThreadShell(threadId)
             .pipe(Effect.orElseSucceed(() => null));
-          // Choosing the model the thread already uses cancels a pending switch.
-          if (thread !== null && modelSelectionsEqual(thread.modelSelection, input.modelSelection))
-            yield* modelSwitches.clear(id);
-          else yield* modelSwitches.request(id);
+          // Without a pending switch a bound task runs, and shows, its thread's model, so
+          // a save changes the model when it differs from that one, not the stored one.
+          const shownSelection =
+            existingTask === null
+              ? null
+              : existingTask.threadId === threadId &&
+                  existingTask.modelSwitchPending !== true &&
+                  thread !== null &&
+                  thread.deletedAt === null
+                ? thread.modelSelection
+                : existingTask.modelSelection;
+          if (
+            shownSelection === null ||
+            !modelSelectionsEqual(shownSelection, input.modelSelection)
+          ) {
+            // Choosing the model the thread already uses cancels a pending switch.
+            if (
+              thread !== null &&
+              modelSelectionsEqual(thread.modelSelection, input.modelSelection)
+            )
+              yield* modelSwitches.clear(id);
+            else yield* modelSwitches.request(id);
+          }
         }
       }
       yield* notifyChanged;
