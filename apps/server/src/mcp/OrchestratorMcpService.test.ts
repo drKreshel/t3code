@@ -4473,7 +4473,11 @@ describe("OrchestratorMcpService provider resolution", () => {
               providerInstanceId: codexInstanceId,
               model: "gpt-5",
             });
-            saved = { ...saved, modelSwitchPending: true };
+            // Leaving the target out keeps the model the task shows, so no switch starts.
+            const chosenSelection = saved.modelSelection;
+            yield* mcp.updateScheduledTask(scope, { scheduledTaskId: saved.id, title: "Bound" });
+            assert.equal(saved.modelSelection?.instanceId, codexInstanceId);
+            saved = { ...saved, modelSelection: chosenSelection, modelSwitchPending: true };
             const pending = yield* mcp.listScheduledTasks(scope, { projectId });
             assert.equal(pending.tasks[0]?.target.providerInstanceId, altInstanceId);
             saved = { ...saved, threadId: null, modelSwitchPending: undefined };

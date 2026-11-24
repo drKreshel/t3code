@@ -598,6 +598,21 @@ it.effect("runs a thread-bound automation on the provider the thread uses now", 
     assert.deepStrictEqual(run?.modelSelection, claudeModelSelection);
     assert.deepStrictEqual(projection.thread.modelSelection, claudeModelSelection);
 
+    // The task shows the thread's model, so choosing its stored model is a change too.
+    const { task: restored } = yield* tasks.upsert({
+      id: task.id,
+      title: task.title,
+      prompt: task.prompt,
+      enabled: false,
+      schedule: task.schedule,
+      projectId,
+      workspaceStrategy: { type: "root" },
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+    });
+    assert.equal(restored.modelSwitchPending, true);
+
     // Changing the task's own model switches the thread on its next run, once.
     const { task: changed } = yield* tasks.upsert({
       id: task.id,
