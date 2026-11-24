@@ -98,7 +98,6 @@ function FollowedTimeline({
         turnDiffSummaries={[]}
         runs={[]}
         routeThreadKey={routeThreadKey}
-        onOpenTurnDiff={() => {}}
         onOpenThread={() => {}}
         onForkFromRun={async () => {}}
         supportsConversationRollback={false}

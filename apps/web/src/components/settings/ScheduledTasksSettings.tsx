@@ -18,7 +18,6 @@ import {
 import { type ReactNode, useRef, useState } from "react";
 import type {
   EnvironmentId,
-  ModelSelection,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
   ProjectId,
   ScheduledTask,
@@ -57,7 +56,7 @@ import { formatRelativeTime } from "../../timestampFormat";
 import { describeCron } from "@t3tools/shared/cronDescription";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useClientSettings, useEnvironmentSettings } from "../../hooks/useSettings";
-import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import { getCustomModelOptionsByInstance, selectsPlanAgent } from "../../modelSelection";
 import { providerInstanceEntriesFor } from "../../providerInstances";
 import { usePrimaryCloudLinkState } from "../../cloud/cloudLinkState";
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -195,10 +194,9 @@ const EMPTY_DRAFT: DraftState = {
   baseRef: "",
   startFromOrigin: true,
   existingWorktreePath: "",
-  modelKey: "",
+  modelSelection: null,
   runtimeMode: "full-access",
   interactionMode: "default",
-  baseModelSelection: null,
   signatureEnabled: false,
   ...WEBHOOK_SIGNATURE_DEFAULTS,
   signatureSecret: "",
@@ -335,15 +333,6 @@ function Field({
       {children}
     </div>
   );
-}
-
-function splitModelKey(value: string): ModelSelection | null {
-  const index = value.indexOf(":");
-  if (index <= 0 || index === value.length - 1) return null;
-  return {
-    instanceId: ProviderInstanceId.make(value.slice(0, index)),
-    model: value.slice(index + 1),
-  };
 }
 
 /** IANA zones the browser knows, offered while typing a schedule's timezone. */
@@ -1552,7 +1541,7 @@ function ScheduledTaskEditorForm({
   );
 
   const firstInstance = instanceEntries[0];
-  const draftSelection = draft.modelKey ? splitModelKey(draft.modelKey) : null;
+  const draftSelection = draft.modelSelection;
   const activeSelection =
     draftSelection &&
     instanceEntries.some((entry) => entry.instanceId === draftSelection.instanceId && entry.enabled)
@@ -1561,14 +1550,6 @@ function ScheduledTaskEditorForm({
   const activeInstanceId =
     activeSelection?.instanceId ?? firstInstance?.instanceId ?? ("" as ProviderInstanceId);
   const activeModel = activeSelection?.model ?? "";
-  // The task's effort and other model options last while its model stays the same.
-  const activeModelSelection =
-    activeSelection !== null &&
-    draft.baseModelSelection !== null &&
-    draft.baseModelSelection.instanceId === activeSelection.instanceId &&
-    draft.baseModelSelection.model === activeSelection.model
-      ? draft.baseModelSelection
-      : activeSelection;
   const boundThread = useScheduledTaskThread(
     environmentId,
     draft.threadId ? (draft.threadId as ThreadId) : null,
@@ -1584,7 +1565,7 @@ function ScheduledTaskEditorForm({
     : { instanceId: activeInstanceId, model: activeModel };
   const shownInstanceId = shownSelection?.instanceId ?? activeInstanceId;
   const shownModel = shownSelection?.model ?? "";
-  const shownModelSelection = followsThread ? shownSelection : activeModelSelection;
+  const shownModelSelection = followsThread ? shownSelection : activeSelection;
   const shownEntry = instanceEntries.find((entry) => entry.instanceId === shownInstanceId);
   const modelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
@@ -1616,8 +1597,8 @@ function ScheduledTaskEditorForm({
     )
       return;
     const selection = followsThread
-      ? (boundThread?.modelSelection ?? activeModelSelection)
-      : activeModelSelection;
+      ? (boundThread?.modelSelection ?? activeSelection)
+      : activeSelection;
     if (
       !draft.title.trim() ||
       !draft.prompt.trim() ||
@@ -1748,8 +1729,7 @@ function ScheduledTaskEditorForm({
                 setDraft((current) => ({
                   ...unbindDraftFromThread(current),
                   projectId: defaultScheduledTaskProjectId(projectsOn(next.environmentId), scope),
-                  modelKey: "",
-                  baseModelSelection: null,
+                  modelSelection: null,
                   baseRef: "",
                   startFromOrigin: true,
                   existingWorktreePath: "",
@@ -1968,7 +1948,12 @@ function ScheduledTaskEditorForm({
               onInstanceModelChange={(instanceId, model) =>
                 setDraft((current) => ({
                   ...current,
-                  modelKey: `${instanceId}:${model}`,
+                  // The same model keeps its effort and other options.
+                  modelSelection:
+                    shownModelSelection?.instanceId === instanceId &&
+                    shownModelSelection.model === model
+                      ? shownModelSelection
+                      : createModelSelection(instanceId, model),
                   modelChosen: true,
                 }))
               }
@@ -1981,16 +1966,16 @@ function ScheduledTaskEditorForm({
                       model: shownModelSelection.model,
                       modelOptions: shownModelSelection.options ?? [],
                       allowPromptInjectedEffort: false,
+                      includePlanAgent: selectsPlanAgent(shownModelSelection.options),
                       onModelOptionsChange: (options) =>
                         setDraft((current) => ({
                           ...current,
-                          modelKey: `${shownModelSelection.instanceId}:${shownModelSelection.model}`,
-                          modelChosen: true,
-                          baseModelSelection: createModelSelection(
+                          modelSelection: createModelSelection(
                             shownModelSelection.instanceId,
                             shownModelSelection.model,
                             options,
                           ),
+                          modelChosen: true,
                         })),
                     }
                   : null

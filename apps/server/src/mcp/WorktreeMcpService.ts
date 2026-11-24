@@ -356,6 +356,7 @@ const make = Effect.gen(function* () {
 
     const project = yield* loadProject(targetThreadId, projection.thread.projectId);
     const projectCwd = project.workspaceRoot;
+    const projectCommands = TaskFolders.linkRunsProjectCommands(projection.thread.linkOrigin);
 
     // A project that tracks repositories moves into a task folder: its own folder, which need
     // not be a repository, and a worktree of each tracked one. Attaching still needs a repository.
@@ -432,6 +433,7 @@ const make = Effect.gen(function* () {
                             },
                             baseBranch: input.baseRef,
                             startFromOrigin: plan.startFromOrigin,
+                            projectCommands,
                           })
                           .pipe(
                             Effect.map((created) => ({
@@ -480,6 +482,7 @@ const make = Effect.gen(function* () {
                   root: checkout.taskFolder,
                   force: true,
                   forget: true,
+                  projectCommands,
                   deleteBranch: checkout.refName,
                 }),
         ).pipe(Effect.ignoreCause({ log: true }));

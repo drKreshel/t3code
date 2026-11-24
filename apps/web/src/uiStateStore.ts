@@ -5,7 +5,6 @@ import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
-const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
 const MAX_COLLAPSED_THREAD_PIN_NOTES = 1_000;
 const LEGACY_PERSISTED_STATE_KEYS = [
   "t3code:renderer-state:v8",
@@ -30,8 +29,6 @@ export interface PersistedUiState {
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
   sidebarProjectScopeKeys?: string[];
-  threadChangedFilesExpansionVersion?: number;
-  threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   collapsedThreadPinNoteKeys?: string[];
   pullRequestMergeMethod?: string;
 }
@@ -44,7 +41,6 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
-  threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
   collapsedThreadPinNoteKeys: string[];
 }
 
@@ -64,7 +60,6 @@ const initialState: UiState = {
   projectOrder: [],
   sidebarProjectScopeKeys: [],
   threadLastVisitedAtById: {},
-  threadChangedFilesExpandedById: {},
   collapsedThreadPinNoteKeys: [],
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
@@ -149,10 +144,6 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectExpandedById,
     projectOrder,
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
-    threadChangedFilesExpandedById:
-      parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
-        ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
-        : {},
     collapsedThreadPinNoteKeys: sanitizeStringArray(parsed.collapsedThreadPinNoteKeys).slice(
       -MAX_COLLAPSED_THREAD_PIN_NOTES,
     ),
@@ -188,34 +179,6 @@ function readPersistedState(): UiState {
   }
 }
 
-function sanitizePersistedThreadChangedFilesExpanded(
-  value: PersistedUiState["threadChangedFilesExpandedById"],
-): Record<string, Record<string, boolean>> {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-
-  const nextState: Record<string, Record<string, boolean>> = {};
-  for (const [threadId, turns] of Object.entries(value)) {
-    if (!threadId || !turns || typeof turns !== "object") {
-      continue;
-    }
-
-    const nextTurns: Record<string, boolean> = {};
-    for (const [turnId, expanded] of Object.entries(turns)) {
-      if (turnId && typeof expanded === "boolean") {
-        nextTurns[turnId] = expanded;
-      }
-    }
-
-    if (Object.keys(nextTurns).length > 0) {
-      nextState[threadId] = nextTurns;
-    }
-  }
-
-  return nextState;
-}
-
 export function persistState(state: UiState): void {
   if (typeof window === "undefined") {
     return;
@@ -234,8 +197,6 @@ export function persistState(state: UiState): void {
           state.sidebarProjectScopeKeys.length === 1
             ? (state.sidebarProjectScopeKeys[0] ?? null)
             : null,
-        threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
-        threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         collapsedThreadPinNoteKeys: state.collapsedThreadPinNoteKeys,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
       } satisfies PersistedUiState),
@@ -295,29 +256,6 @@ export function markThreadUnread(
     threadLastVisitedAtById: {
       ...state.threadLastVisitedAtById,
       [threadId]: unreadVisitedAt,
-    },
-  };
-}
-
-function setThreadChangedFilesExpanded(
-  state: UiState,
-  threadId: string,
-  turnId: string,
-  expanded: boolean,
-): UiState {
-  const currentThreadState = state.threadChangedFilesExpandedById[threadId] ?? {};
-  if (currentThreadState[turnId] === expanded) {
-    return state;
-  }
-
-  return {
-    ...state,
-    threadChangedFilesExpandedById: {
-      ...state.threadChangedFilesExpandedById,
-      [threadId]: {
-        ...currentThreadState,
-        [turnId]: expanded,
-      },
     },
   };
 }
@@ -451,7 +389,6 @@ export function reorderProjects(
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
-  setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setThreadPinNoteCollapsed: (noteKey: string, collapsed: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
@@ -470,8 +407,6 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => markThreadVisited(state, threadId, visitedAt)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
-  setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
-    set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   setThreadPinNoteCollapsed: (noteKey, collapsed) =>
     set((state) => setThreadPinNoteCollapsed(state, noteKey, collapsed)),
   setDefaultAdvertisedEndpointKey: (key) =>
