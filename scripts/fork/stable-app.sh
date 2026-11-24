@@ -109,10 +109,24 @@ stable_app_runs_previous_build() {
   return 1
 }
 
+# Sends Quit and logs why it was refused; the reply is otherwise lost.
+ask_app_to_quit() {
+  local reply
+  reply="$(osascript -e "tell application id \"$APP_ID\" to quit" 2>&1)" ||
+    log "Quit request refused: ${reply:-no reply}"
+}
+
+# The main executable, matched on its exact path, never on a name pattern. The backend
+# runs the same binary as its child, so only a process launchd started counts.
+stable_app_main_pids() {
+  local executable="$APP_PATH/Contents/MacOS/${APP_NAME%.app}"
+  ps -axo pid=,ppid=,comm= | awk -v exe="$executable" '{ pid = $1; ppid = $2; sub(/^[ ]*[0-9]+[ ]+[0-9]+[ ]+/, ""); if ($0 == exe && ppid == 1) print pid }'
+}
+
 quit_app() {
   stable_app_running || return 0
   log "Quitting T3 Code"
-  osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
+  ask_app_to_quit
   local waited=0
   while stable_app_running && [ "$waited" -lt 90 ]; do
     sleep 1
@@ -121,7 +135,15 @@ quit_app() {
     # escape hatch); a single Quit left it hanging until this gave up.
     if [ $((waited % 20)) -eq 0 ] && stable_app_running; then
       log "T3 Code is still quitting after ${waited}s; asking again"
-      osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
+      ask_app_to_quit
+    fi
+    # Quit has gone unanswered on some nights; SIGTERM takes the app's own graceful shutdown path.
+    if [ "$waited" -eq 60 ] && stable_app_running; then
+      local pid
+      for pid in $(stable_app_main_pids); do
+        log "T3 Code ignored Quit; sending SIGTERM to its main process ($pid)"
+        kill -TERM "$pid" 2>/dev/null || true
+      done
     fi
   done
   ! stable_app_running
