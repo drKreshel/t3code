@@ -103,6 +103,8 @@ const make = Effect.gen(function* () {
   const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
   const taskFolders = yield* TaskFolders.TaskFolders;
+  // The administrator's limit, fixed for the server's life as it is where turns start.
+  const maxRuntimeMode = serverSettings.managedPolicy?.limits?.maxRuntimeMode;
 
   // Serialize handoffs per thread to avoid creating two worktrees and orphaning one.
   const handoffThreadsInFlight = new Set<string>();
@@ -356,7 +358,26 @@ const make = Effect.gen(function* () {
 
     const project = yield* loadProject(targetThreadId, projection.thread.projectId);
     const projectCwd = project.workspaceRoot;
-    const projectCommands = TaskFolders.linkRunsProjectCommands(projection.thread.linkOrigin);
+    // The agent asks, so its thread's modes decide what of the project's own code runs for it:
+    // as they are when each piece is about to run, since the fetch in between can take a while.
+    // A chat moved by another keeps its own link's fence too.
+    const projectCommandsNow = Effect.all([
+      loadThread(scope.thread.threadId),
+      loadThread(targetThreadId),
+    ]).pipe(
+      Effect.map(([caller, target]): TaskFolders.ProjectCommands => {
+        const forCaller = TaskFolders.projectCommandsForAgent(
+          caller.thread.linkOrigin,
+          caller.thread,
+          maxRuntimeMode,
+        );
+        return forCaller === "permitted"
+          ? TaskFolders.projectCommandsForLink(target.thread.linkOrigin)
+          : forCaller;
+      }),
+      // A thread that cannot be read might be below Full access.
+      Effect.orElseSucceed((): TaskFolders.ProjectCommands => "agent-below-full-access"),
+    );
 
     // A project that tracks repositories moves into a task folder: its own folder, which need
     // not be a repository, and a worktree of each tracked one. Attaching still needs a repository.
@@ -433,7 +454,7 @@ const make = Effect.gen(function* () {
                             },
                             baseBranch: input.baseRef,
                             startFromOrigin: plan.startFromOrigin,
-                            projectCommands,
+                            projectCommands: projectCommandsNow,
                           })
                           .pipe(
                             Effect.map((created) => ({
@@ -482,7 +503,7 @@ const make = Effect.gen(function* () {
                   root: checkout.taskFolder,
                   force: true,
                   forget: true,
-                  projectCommands,
+                  projectCommands: projectCommandsNow,
                   deleteBranch: checkout.refName,
                 }),
         ).pipe(Effect.ignoreCause({ log: true }));
@@ -560,8 +581,12 @@ const make = Effect.gen(function* () {
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
 
         let setupScript: WorktreeMcpSetupScriptStatus = { status: "skipped" };
-        // An attached checkout was set up by whoever created it.
-        if (input.runSetupScript ?? plan.kind === "create") {
+        // An attached checkout was set up by whoever created it. The saved setup script is the
+        // project's code too: below Full access it waits for a person.
+        const wantsSetupScript = input.runSetupScript ?? plan.kind === "create";
+        const setupWaitsForFullAccess =
+          wantsSetupScript && (yield* projectCommandsNow) === "agent-below-full-access";
+        if (wantsSetupScript && !setupWaitsForFullAccess) {
           setupScript = yield* setupScriptRunner
             .runForThread({
               threadId: targetThreadId,
@@ -602,14 +627,19 @@ const make = Effect.gen(function* () {
           startedFromOrigin: plan.kind === "create" && checkout.startedFromOrigin,
           setupScript,
           continuation,
-          note:
+          note: `${
             targetThreadId === scope.thread.threadId
               ? continuation.status === "scheduled"
                 ? `Handoff recorded. Changing this thread's workspace detaches its provider session, so the current turn ends shortly after this call; the queued continuation starts the next turn in the target checkout with the conversation preserved.${previousCheckoutNote}`
                 : `Handoff recorded. Changing this thread's workspace detaches its provider session, so the current turn ends shortly after this call; the conversation continues in the target checkout when the thread receives its next message. Pass continuationPrompt to resume automatically.${previousCheckoutNote}`
               : continuation.status === "scheduled"
                 ? `Handoff recorded for thread '${targetThreadId}'. Any live provider session in that thread was detached, and the queued continuation will resume it in the target checkout.${previousCheckoutNote}`
-                : `Handoff recorded for thread '${targetThreadId}'. Any live provider session in that thread was detached; it will use the target checkout when it next receives a message.${previousCheckoutNote}`,
+                : `Handoff recorded for thread '${targetThreadId}'. Any live provider session in that thread was detached; it will use the target checkout when it next receives a message.${previousCheckoutNote}`
+          }${
+            setupWaitsForFullAccess
+              ? " Project setup scripts do not run for a handoff from a thread below Full access."
+              : ""
+          }`,
         };
         return result;
       }),

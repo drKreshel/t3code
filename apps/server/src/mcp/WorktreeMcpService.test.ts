@@ -75,6 +75,8 @@ const makeProjection = (
       id,
       projectId,
       title: "Worktree test thread",
+      runtimeMode: "full-access",
+      interactionMode: "default",
       branch: null,
       worktreePath: null,
       archivedAt: null,
