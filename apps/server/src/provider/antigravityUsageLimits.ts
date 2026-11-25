@@ -359,12 +359,11 @@ export const makeAntigravityUsageProbe = Effect.fn("makeAntigravityUsageProbe")(
     let projectId: string | undefined;
     if (!(yield* fs.exists(tokenPath))) {
       cached = undefined;
-      // Google account instances bypass the keyring, whose one entry every profile shares.
+      // Prefer the profile's file token when present; fall back to the OS keyring because the
+      // 1.5.x CLI still writes Google account sign-ins there on macOS/Windows even with SSH_CONNECTION.
       const stored = (yield* fs.exists(cliTokenPath))
         ? yield* fs.readFileString(cliTokenPath)
-        : input.authMethod === "oauth-business"
-          ? yield* readKeyringSecret
-          : undefined;
+        : yield* readKeyringSecret;
       if (stored === undefined) {
         return makeUnavailableUsageLimits({
           checkedAt,
