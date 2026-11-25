@@ -163,9 +163,13 @@ const selectorDiagnosticsFromInput = (
   return {};
 };
 
-/** Codex/OpenCode share sessions across threads; include thread id to isolate tabs and ownership. */
+/** Codex/OpenCode share sessions across threads; include thread id to keep host leases apart. */
 const hostAssignmentKey = (scope: McpInvocationContext.McpThreadInvocationScope): string =>
   `${scope.environmentId}\u0000${scope.thread.providerSessionId}\u0000${scope.thread.threadId}`;
+
+/** Tabs belong to the thread, so a restarted provider session can still act on tabs it opened. */
+const tabOwnerKey = (scope: McpInvocationContext.McpThreadInvocationScope): string =>
+  `${scope.environmentId}\u0000${scope.thread.threadId}`;
 
 const isPreviewTabId = Schema.is(PreviewTabId);
 const decodeControlReason = Schema.decodeUnknownOption(PreviewAutomationControlReason);
@@ -644,7 +648,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
             threadId: input.scope.thread.threadId,
             tabId: requestContext.tabId,
             tabIdExplicit: input.tabId !== undefined,
-            agentSessionId: hostAssignmentKey(input.scope),
+            agentSessionId: tabOwnerKey(input.scope),
             operation: input.operation,
             input: input.input,
             timeoutMs,
