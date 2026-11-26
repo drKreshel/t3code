@@ -41,6 +41,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as NodeURL from "node:url";
 
+import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as DesktopBrowserHost from "../../preview/DesktopBrowserHost.ts";
@@ -373,6 +374,7 @@ const getPreviewConfig = DesktopIpc.makeIpcMethod({
   }) {
     const manager = yield* PreviewManager.PreviewManager;
     const tunnel = yield* LoopbackTunnel.LoopbackTunnel;
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const { scope, persistent, namespace } = resolvePartitionScope(environmentId, profileId);
     // Session creation installs permission and passkey handlers before a guest can attach.
     // Its native UA stays unchanged; WhatsApp's per-webview identity is returned separately.
@@ -387,7 +389,7 @@ const getPreviewConfig = DesktopIpc.makeIpcMethod({
       partition: yield* manager.getBrowserPartition(scope, persistent, namespace),
       whatsAppUserAgent: whatsAppChromeUserAgent(browserSession.getUserAgent()),
       webPreferences: PREVIEW_WEBVIEW_PREFERENCES,
-      preloadUrl: NodeURL.pathToFileURL(`${__dirname}/preview-pick-preload.cjs`).href,
+      preloadUrl: NodeURL.pathToFileURL(environment.previewPickPreloadPath).href,
     };
   }),
 });

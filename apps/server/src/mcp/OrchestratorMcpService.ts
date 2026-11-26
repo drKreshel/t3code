@@ -134,6 +134,7 @@ import {
 import * as Metrics from "../observability/Metrics.ts";
 import {
   interactionModeRank,
+  refuseAgentModePick,
   resolveInteractionMode,
   resolveRuntimeMode,
   runtimeModeRank,
@@ -1755,10 +1756,13 @@ const make = Effect.gen(function* () {
   const resolveTarget = Effect.fn("OrchestratorMcpService.resolveTarget")(function* (input: {
     readonly inherited: ModelSelection;
     readonly projectId: ProjectId;
+    readonly callerRuntimeMode: RuntimeMode;
     readonly target: OrchestratorMcpTarget | undefined;
     readonly providers: ReadonlyArray<ServerProvider>;
     /** Receipt replays bypass current settings because they start no work. Dispatch must reuse the checked command ID. */
     readonly skipProjectEnablementFilter?: boolean;
+    /** A retry replays its accepted command; refusing it here would lose that replay. */
+    readonly skipAgentModeRefusal?: boolean;
   }): Effect.fn.Return<ResolvedTarget, OrchestratorMcpFailure> {
     const requestedInstanceId = input.target?.providerInstanceId;
     const requestedDriver = input.target?.driverKind;
@@ -1854,6 +1858,14 @@ const make = Effect.gen(function* () {
     const advertised = advertisedModel(provider, model);
     const descriptors = advertised?.capabilities?.optionDescriptors;
     const requestedOptions = yield* validateModelOptions(provider, model, input.target?.options);
+    if (input.skipAgentModeRefusal !== true) {
+      yield* refuseAgentModePick({
+        callerRuntimeMode: input.callerRuntimeMode,
+        picked: requestedOptions,
+        descriptors: descriptors ?? [],
+        held: instanceId === inheritedSelection.instanceId ? inheritedSelection.options : undefined,
+      });
+    }
 
     const inheritsOptions =
       instanceId === inheritedSelection.instanceId &&
@@ -2481,6 +2493,7 @@ const make = Effect.gen(function* () {
           : (yield* resolveTargetRechecking({
               inherited,
               projectId,
+              callerRuntimeMode: limits.runtimeMode,
               target: input.target,
               providers: yield* loadProviders,
               cwd: project.workspaceRoot,
@@ -2620,6 +2633,7 @@ const make = Effect.gen(function* () {
             : (yield* resolveTargetRechecking({
                 inherited: currentSelection,
                 projectId: existing.projectId,
+                callerRuntimeMode: limits.runtimeMode,
                 target: input.target,
                 providers: yield* loadProviders,
                 cwd: (yield* requireProject(existing.projectId)).workspaceRoot,
@@ -3006,11 +3020,13 @@ const make = Effect.gen(function* () {
         const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
         const target = yield* resolveTargetRechecking({
           inherited: parent.thread.modelSelection,
+          callerRuntimeMode: parent.thread.runtimeMode,
           projectId: parent.thread.projectId,
           target: input.target,
           providers,
           cwd: yield* parentWorkspaceCwd(parent),
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
+          skipAgentModeRefusal: isRetryOfAcceptedDelegation,
         });
         const runtimeMode = yield* resolveRuntimeMode(
           parent.thread.runtimeMode,
@@ -3406,6 +3422,7 @@ const make = Effect.gen(function* () {
                 : null;
               const target = yield* resolveTargetRechecking({
                 inherited: parent.thread.modelSelection,
+                callerRuntimeMode: parent.thread.runtimeMode,
                 projectId: parent.thread.projectId,
                 target:
                   committedThread === null
@@ -3417,6 +3434,7 @@ const make = Effect.gen(function* () {
                 providers,
                 cwd,
                 skipProjectEnablementFilter: isRetryOfAcceptedCreation,
+                skipAgentModeRefusal: isRetryOfAcceptedCreation,
               });
               const runtimeMode = yield* resolveRuntimeMode(
                 parent.thread.runtimeMode,
