@@ -186,8 +186,17 @@ cmd_build() {
 cmd_backup() {
   local dir
   dir="$BACKUP_ROOT/$(date +%Y%m%d-%H%M%S)"
+  local file needed_kb=0 free_kb
+  for file in state.sqlite statev2.sqlite fork.sqlite; do
+    [ -f "$DATA_DIR/$file" ] && needed_kb=$((needed_kb + $(du -k "$DATA_DIR/$file" | cut -f1)))
+  done
+  free_kb="$(df -k "$BACKUP_ROOT" | awk 'NR == 2 { print $4 }')"
+  # VACUUM INTO writes a full copy; with too little room it fails midway and leaves half a backup.
+  if [ "$free_kb" -lt $((needed_kb + needed_kb / 10)) ]; then
+    log "Not enough disk space to back up chats: need about $((needed_kb / 1048576 + 1)) GB, $((free_kb / 1048576)) GB free; nothing was installed."
+    return 1
+  fi
   mkdir -p "$dir"
-  local file
   for file in state.sqlite statev2.sqlite fork.sqlite; do
     if [ -f "$DATA_DIR/$file" ]; then
       # VACUUM INTO is a consistent snapshot even while a server has the file open.
@@ -199,6 +208,7 @@ cmd_backup() {
       fi
       if ! sqlite3 -readonly "$source" "VACUUM INTO '$dir/$file'"; then
         log "Backup failed for $file; nothing was installed."
+        rm -rf "${dir:?}"
         return 1
       fi
     fi
