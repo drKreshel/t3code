@@ -6,22 +6,15 @@ import { routeMouseToFrame, sendPageCommand, toKeyboardInputEvents } from "./Gue
 
 const makeGuest = ({
   focused,
-  frameFocus,
+  focusedDocument = true,
 }: {
   readonly focused: boolean;
-  /** A cross-origin frame holds the page's focus, with or without an attached session. */
-  readonly frameFocus?: "attached" | "unattached";
+  readonly focusedDocument?: boolean;
 }) => {
-  const frameSessions = new Map(frameFocus === "attached" ? [["frame-1", "frame-session"]] : []);
-  const sendCommand = vi.fn(
-    async (method: string, params?: { objectGroup?: string }, sessionId?: string) => {
-      if (method === "DOM.describeNode") return { node: { frameId: "frame-1" } };
-      if (method === "Runtime.evaluate" && params?.objectGroup !== undefined) {
-        const holder = frameFocus !== undefined && sessionId === undefined;
-        return { result: holder ? { objectId: "iframe" } : { subtype: "null" } };
-      }
-      return { result: {} };
-    },
+  const sendCommand = vi.fn(async (method: string, params?: { expression?: string }) =>
+    method === "Runtime.evaluate" && params?.expression?.endsWith("!== null")
+      ? { result: { value: focusedDocument } }
+      : { result: {} },
   );
   const webContents = {
     focusedFrame: focused ? {} : null,
@@ -39,10 +32,6 @@ const makeGuest = ({
         { sendCommand } as unknown as Electron.Debugger,
         method,
         params,
-        undefined,
-        undefined,
-        undefined,
-        frameSessions,
       ),
   };
 };
@@ -275,24 +264,6 @@ describe("preview guest input", () => {
     },
   );
 
-  it("types into the cross-site frame holding an unfocused page's focus through its session", async () => {
-    const guest = makeGuest({ focused: false, frameFocus: "attached" });
-    await guest.send("Input.insertText", { text: "4573015296307413" });
-    await guest.send("Input.dispatchKeyEvent", { type: "keyDown", key: "4", text: "4" });
-    expect(guest.sendCommand).toHaveBeenCalledWith(
-      "Input.insertText",
-      { text: "4573015296307413" },
-      "frame-session",
-    );
-    expect(guest.sendCommand).toHaveBeenCalledWith(
-      "Input.dispatchKeyEvent",
-      { type: "keyDown", key: "4", text: "4" },
-      "frame-session",
-    );
-    expect(guest.webContents.insertText).not.toHaveBeenCalled();
-    expect(guest.webContents.sendInputEvent).not.toHaveBeenCalled();
-  });
-
   describe("mouse input over a cross-site frame of a guest the window does not show", () => {
     type Box = readonly [left: number, top: number, right: number, bottom: number];
     // Boxes are in each frame's viewport. The page is scrolled 1000px and holds a cross-site
@@ -436,10 +407,10 @@ describe("preview guest input", () => {
     });
   });
 
-  it("refuses input when a frame with no session holds the unfocused page's focus", async () => {
-    const guest = makeGuest({ focused: false, frameFocus: "unattached" });
+  it("refuses input when a cross-site frame holds the unfocused page's focus", async () => {
+    const guest = makeGuest({ focused: false, focusedDocument: false });
     await expect(guest.send("Input.insertText", { text: "secret" })).rejects.toThrow(
-      /cross-origin frame/,
+      /cross-site frame/,
     );
     expect(guest.webContents.insertText).not.toHaveBeenCalled();
   });

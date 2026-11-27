@@ -97,9 +97,11 @@ export function scheduleLabel(
       describeCron(expression) ?? resolve(msg("Cron {expression}", { expression }));
     return zone === undefined ? description : `${description} ${zone}`;
   }
-  const weekdays = schedule.weekdays ?? [];
+  const weekdays = [...new Set(schedule.weekdays ?? [])]
+    .filter((day) => day >= 0 && day <= 6)
+    .toSorted((a, b) => a - b);
   const time = formatTimeOfDay(schedule.timeOfDay, timestampFormat);
-  if (weekdays.length === 0) {
+  if (weekdays.length === 0 || weekdays.length === 7) {
     return zone === undefined
       ? resolve(msg("Daily at {time}", { time }))
       : resolve(msg("Daily at {time} {zone}", { time, zone }));
@@ -109,9 +111,7 @@ export function scheduleLabel(
       ? resolve(msg("Weekdays at {time}", { time }))
       : resolve(msg("Weekdays at {time} {zone}", { time, zone }));
   }
-  const days = weekdays
-    .map((day) => (day >= 0 && day <= 6 ? weekdayShortLabel(day, locale) : ""))
-    .join(", ");
+  const days = weekdays.map((day) => weekdayShortLabel(day, locale)).join(", ");
   return zone === undefined
     ? resolve(msg("{days} at {time}", { days, time }))
     : resolve(msg("{days} at {time} {zone}", { days, time, zone }));
@@ -442,7 +442,7 @@ export function unbindDraftFromThread(draft: DraftState): DraftState {
 
 export function changeDraftProject(draft: DraftState, projectId: string): DraftState {
   if (projectId === draft.projectId) return draft;
-  return { ...unbindDraftFromThread(draft), projectId };
+  return { ...unbindDraftFromThread(draft), projectId, baseRef: "", existingWorktreePath: "" };
 }
 
 /** Threads a task can move to. The current one is left out; the picker always shows it. */
