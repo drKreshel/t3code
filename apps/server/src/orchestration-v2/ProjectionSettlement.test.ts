@@ -625,3 +625,84 @@ it.effect("sql: a provider-native subagent with no run settles once its task end
     assert.deepEqual(new Set(yield* ids()), new Set([parent, child]));
   }).pipe(Effect.provide(layerSql)),
 );
+
+it.effect("sql: a finished subagent the user last wrote in waits for its active parent", () =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const parent = yield* createThread("taken-over-parent");
+    const child = yield* createThread("taken-over-child", {
+      lineage: { parentThreadId: parent, relationshipToParent: "subagent", rootThreadId: parent },
+    });
+    const ids = () =>
+      store.getSettlementCandidates().pipe(Effect.map((rows) => rows.map((row) => row.id)));
+    const taskId = NodeId.make("node:taken-over-task");
+    yield* store.apply({
+      id: EventId.make("event:settlement:taken-over-task"),
+      type: "subagent.updated",
+      threadId: parent,
+      nodeId: taskId,
+      driver: ProviderDriverKind.make("codex"),
+      providerInstanceId,
+      occurredAt: now,
+      payload: {
+        id: taskId,
+        threadId: parent,
+        runId: null,
+        parentNodeId: NodeId.make("node:taken-over-parent"),
+        origin: "app_owned",
+        createdBy: "agent",
+        driver: ProviderDriverKind.make("codex"),
+        providerInstanceId,
+        providerThreadId: null,
+        childThreadId: child,
+        nativeTaskRef: null,
+        prompt: "Review the terms",
+        title: null,
+        model: null,
+        completionDelivery: { state: "delivered", observedByRunId: null },
+        status: "completed",
+        result: "Reviewed",
+        startedAt: old,
+        completedAt: old,
+        updatedAt: now,
+      },
+    });
+    const message = (id: string, createdBy: "user" | "agent", text: string, at: DateTime.Utc) =>
+      store.apply({
+        id: EventId.make(`event:settlement:${id}`),
+        type: "message.updated",
+        threadId: child,
+        occurredAt: at,
+        payload: {
+          createdBy,
+          creationSource: createdBy === "user" ? "web" : "mcp",
+          id: MessageId.make(`message:settlement:${id}`),
+          threadId: child,
+          runId: null,
+          nodeId: null,
+          role: "user",
+          text,
+          attachments: [],
+          streaming: false,
+          createdAt: at,
+          updatedAt: at,
+        },
+      });
+    yield* message("delegated", "agent", "Review the terms", old);
+    yield* createRun(child, "completed", 1);
+    assert.deepEqual(new Set(yield* ids()), new Set([parent, child]));
+
+    yield* message("typed-compact", "user", "/compact", DateTime.subtract(now, { hours: 2 }));
+    yield* createRun(child, "completed", 2);
+    assert.deepEqual(yield* ids(), [parent]);
+
+    yield* message(
+      "follow-up",
+      "agent",
+      "Check the refund clause",
+      DateTime.subtract(now, { hours: 1 }),
+    );
+    yield* createRun(child, "completed", 3);
+    assert.deepEqual(new Set(yield* ids()), new Set([parent, child]));
+  }).pipe(Effect.provide(layerSql)),
+);

@@ -9031,8 +9031,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 -- A pinned or long-lived parent may never settle, so a child also settles once
                 -- its own run has ended and its parent holds every result it produced. A
                 -- provider-native child has no run of its own; its task record carries its state.
+                -- A child the user wrote in last is the user's chat now and waits for its parent.
                 OR (
                   (
+                    SELECT json_extract(message.payload_json, '$.createdBy')
+                    FROM orchestration_v2_projection_messages message
+                    WHERE message.thread_id = t.thread_id AND message.role = 'user'
+                      AND NOT ${isIdleCompactionMessage("message")}
+                    ORDER BY message.created_at DESC, message.message_id DESC
+                    LIMIT 1
+                  ) IS NOT 'user'
+                  AND (
                     r.status IN ('completed', 'interrupted', 'failed', 'cancelled', 'rolled_back')
                     OR (
                       r.run_id IS NULL
