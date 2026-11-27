@@ -191,6 +191,16 @@ cmd_backup() {
     [ -f "$DATA_DIR/$file" ] && needed_kb=$((needed_kb + $(du -k "$DATA_DIR/$file" | cut -f1)))
   done
   free_kb="$(df -k "$BACKUP_ROOT" | awk 'NR == 2 { print $4 }')"
+  # The rotation below deletes older backups anyway; when short on room, do it first. A failed
+  # backup still installs nothing, so the live data stays the copy that matters.
+  if [ "$free_kb" -lt $((needed_kb + needed_kb / 10)) ]; then
+    local old
+    for old in $(ls -1d "$BACKUP_ROOT"/[0-9]*-[0-9]* 2>/dev/null | grep -E '/[0-9]{8}-[0-9]{6}$'); do
+      log "Low on disk space; removing the older backup $old first"
+      rm -rf "${old:?}"
+    done
+    free_kb="$(df -k "$BACKUP_ROOT" | awk 'NR == 2 { print $4 }')"
+  fi
   # VACUUM INTO writes a full copy; with too little room it fails midway and leaves half a backup.
   if [ "$free_kb" -lt $((needed_kb + needed_kb / 10)) ]; then
     log "Not enough disk space to back up chats: need about $((needed_kb / 1048576 + 1)) GB, $((free_kb / 1048576)) GB free; nothing was installed."
