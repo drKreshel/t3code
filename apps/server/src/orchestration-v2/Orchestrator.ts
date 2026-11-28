@@ -76,6 +76,8 @@ import {
   resolveProviderInstanceEnabled,
   resolveProjectProviderInstanceEnabled,
   type ProviderSessionId,
+  type ProviderThreadId,
+  type ProviderDriverKind,
   RunId,
   RuntimeMode,
   ThreadLinkedPullRequest,
@@ -1554,7 +1556,10 @@ function conversationProviderThread(
   );
 }
 
-/** Wakes and fresh starts act on the active session; a message continues the conversation. */
+/**
+ * Wakes and fresh starts act on the active session; a message continues the conversation. A
+ * delegated task's completion goes back to the session its dispatching run ran on.
+ */
 function dispatchProviderThread(
   projection: Pick<
     OrchestrationV2ThreadProjection,
@@ -1563,12 +1568,22 @@ function dispatchProviderThread(
   message: Pick<OrchestrationV2ConversationMessage, "notification" | "delegatedCompletion">,
   freshContext: boolean,
 ): OrchestrationV2ProviderThread | undefined {
-  return freshContext ||
-    message.notification !== undefined ||
-    message.delegatedCompletion !== undefined
-    ? projection.providerThreads.find(
-        (candidate) => candidate.id === projection.thread.activeProviderThreadId,
-      )
+  if (freshContext || message.notification !== undefined) {
+    return projection.providerThreads.find(
+      (candidate) => candidate.id === projection.thread.activeProviderThreadId,
+    );
+  }
+  const parentRunId = message.delegatedCompletion?.parentRunId;
+  const parentProviderThreadId =
+    parentRunId === undefined
+      ? undefined
+      : projection.runs.find((run) => run.id === parentRunId)?.providerThreadId;
+  const parentProviderThread = projection.providerThreads.find(
+    (candidate) => candidate.id === parentProviderThreadId,
+  );
+  return parentProviderThread !== undefined &&
+    !providerThreadPredatesBoundary(parentProviderThread, contextBoundaryOrdinal(projection))
+    ? parentProviderThread
     : conversationProviderThread(projection);
 }
 
@@ -1716,6 +1731,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const threadForkService = yield* ThreadForkServiceV2;
   const threadDispatch = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const messageIntake = yield* KeyedLock.make<ThreadId>();
+  const nativeImportLocks = yield* KeyedLock.make<ProviderThreadId>();
   // Read once: the policy is fixed for the server's life, and dispatch takes it as an input.
   const { managedPolicy } = serverSettings;
   const runtimeModeCeiling: RuntimeModeCeiling | undefined =
@@ -4151,6 +4167,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       { concurrency: 1, discard: true },
     );
 
+  const nativeImportProviderThreadId = (
+    instanceId: ProviderInstanceId,
+    ref: { readonly driver: ProviderDriverKind; readonly nativeId: string },
+  ) =>
+    idAllocator.derive.providerThread({
+      driver: ref.driver,
+      providerInstanceId: instanceId,
+      nativeThreadId: ref.nativeId,
+    });
+
   const dispatchThreadCreate = Effect.fn("orchestrationV2.dispatch.threadCreate")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.create" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -4220,6 +4246,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: thread,
     });
     if (command.importedNativeThread !== undefined) {
+      const providerThreadId = nativeImportProviderThreadId(
+        command.modelSelection.instanceId,
+        command.importedNativeThread.ref,
+      );
+      // Deleted threads retain provider records referenced by their runs.
+      const retained = yield* projectionStore
+        .hasProviderThread(command.threadId, providerThreadId)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
       yield* emitEvent({
         type: "provider-thread.updated",
         threadId: command.threadId,
@@ -4227,11 +4265,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         providerInstanceId: command.modelSelection.instanceId,
         occurredAt: now,
         payload: {
-          id: idAllocator.derive.providerThread({
-            driver: command.importedNativeThread.ref.driver,
-            providerInstanceId: command.modelSelection.instanceId,
-            nativeThreadId: command.importedNativeThread.ref.nativeId,
-          }),
+          id: retained
+            ? IdAllocator.deriveReimportedProviderThread(providerThreadId, command.threadId)
+            : providerThreadId,
           driver: command.importedNativeThread.ref.driver,
           providerInstanceId: command.modelSelection.instanceId,
           providerSessionId: null,
@@ -5070,7 +5106,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         queuedMessages
           .filter(
             (message) =>
-              message.notification !== undefined || message.delegatedCompletion !== undefined,
+              message.notification !== undefined ||
+              message.delegatedCompletion !== undefined ||
+              message.scheduledTaskId !== undefined,
           )
           .map((message) => message.id),
       );
@@ -9810,7 +9848,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     };
     // A side chat's "Context from" divider already marks its copied context.
     const activeHandoff =
-      (sideChatFork ? null : portableForkHandoff) ?? mergeBackHandoff ?? providerSwitchHandoff;
+      (sideChatFork ? null : portableForkHandoff) ??
+      providerSwitchHandoff ??
+      mergeBackHandoff ??
+      legacyImportRecoveryHandoff;
     const handoffSourceRuns =
       portableForkHandoff !== null
         ? sourceRun === null
@@ -9851,7 +9892,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 ? "Fork context"
                 : providerSwitchHandoff !== null
                   ? "Provider handoff"
-                  : "Merge-back context",
+                  : mergeBackHandoff !== null
+                    ? "Merge-back context"
+                    : "Imported context",
             startedAt: now,
             completedAt: now,
             updatedAt: now,
@@ -17083,6 +17126,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return yield* lockOrder.reduceRight(
         (locked, id) => threadDispatch.withLock(id, locked),
         dispatchWithReceiptEffect(command),
+      );
+    }
+    if (command.type === "thread.create" && command.importedNativeThread !== undefined) {
+      // Separate app thread locks cannot serialize the check and write of a shared provider ID.
+      return yield* nativeImportLocks.withLock(
+        nativeImportProviderThreadId(
+          command.modelSelection.instanceId,
+          command.importedNativeThread.ref,
+        ),
+        dispatch,
       );
     }
     // A fork holds its source's lock, so a source deletion and its fork never interleave. A

@@ -884,7 +884,7 @@ const make = Effect.gen(function* () {
   };
 
   // Fork: the browser can close a dialog itself; drop it and its stale refs.
-  const clearDialog = (tab: ServerTab, dialog: Dialog) => {
+  const clearDialog = (tab: ServerTab, dialog: NonNullable<ServerTab["dialog"]>) => {
     if (tab.dialog === dialog) tab.dialog = null;
     ServerBrowserPage.invalidateRefs(tab.page);
     broadcastControl(tab);

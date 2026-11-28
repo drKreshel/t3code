@@ -318,6 +318,8 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Failed: 3.5,
   Working: 3,
   Connecting: 3,
+  Reconnecting: 3,
+  Offline: 2.75,
   Waiting: 2.5,
   "Plan Ready": 2,
   Completed: 1,

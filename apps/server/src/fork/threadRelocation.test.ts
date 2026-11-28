@@ -1,4 +1,5 @@
 import { it as itEffect } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { describe, expect, it } from "vite-plus/test";
 import {
   CommandId,
@@ -302,7 +303,7 @@ describe("OrchestratorV2 thread.relocate", () => {
       ProviderAdapterRegistry.layerFromAdapters([adapter]),
       { databaseLayer: layerDatabase, runEffectWorker: false },
     ),
-  );
+  ).pipe(Layer.provideMerge(NodeCrypto.layer));
 
   itEffect.effect(
     "relocates a parallel chat and its descendant under a parent, updates family queries, rejects cycles, and moves back to top level",
